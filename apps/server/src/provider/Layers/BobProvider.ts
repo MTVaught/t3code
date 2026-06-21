@@ -49,20 +49,17 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 
 /**
- * Bob's fixed model tiers. The slugs match the values bob accepts for `-m`.
+ * Bob's selectable models.
+ *
+ * bob advertises several tier aliases internally (`standard`, `basic`, `fast`,
+ * `lite`, `granite-3-3-8b-instruct`), but as of bob v1.0.4 only `premium` is
+ * actually usable — every other tier is accepted by `-m` yet crashes the run
+ * with `Cannot read properties of undefined (reading 'maxTokens')` and returns
+ * `status: "error"`. So only `premium` is advertised here; users who know their
+ * account supports another model can still add it via `customModels`.
  */
 export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   { slug: "premium", name: "Premium", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "standard", name: "Standard", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "basic", name: "Basic", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "fast", name: "Fast", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  { slug: "lite", name: "Lite", isCustom: false, capabilities: EMPTY_CAPABILITIES },
-  {
-    slug: "granite-3-3-8b-instruct",
-    name: "Granite 3.3 8B Instruct",
-    isCustom: false,
-    capabilities: EMPTY_CAPABILITIES,
-  },
 ];
 
 /**
