@@ -123,6 +123,15 @@ function finiteNonNegativeInteger(value: unknown): number | undefined {
     : undefined;
 }
 
+/** Extract the human-readable error from a bob `result` event, if present. */
+function readBobResultError(event: Record<string, unknown>): string | undefined {
+  const error = event.error;
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    return readString((error as Record<string, unknown>).message);
+  }
+  return readString(event.error);
+}
+
 function parseJsonRecord(line: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(line);
@@ -615,6 +624,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         return;
       }
       case "result": {
+        const status = readString(event.status);
         const stats =
           event.stats && typeof event.stats === "object" && !Array.isArray(event.stats)
             ? (event.stats as Record<string, unknown>)
@@ -626,8 +636,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
           }
           yield* emitTokenUsage(context, turnState, stats);
         }
+        const errorMessage = status === "success" ? undefined : readBobResultError(event);
         yield* completeTurn(context, turnState, {
-          state: turnStateFromBobStatus(readString(event.status)),
+          state: turnStateFromBobStatus(status),
+          ...(errorMessage ? { errorMessage: `Bob: ${errorMessage}` } : {}),
         });
         return;
       }
