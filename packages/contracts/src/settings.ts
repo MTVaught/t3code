@@ -246,6 +246,60 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
+export const BobSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      // Gated off by default: Bob is an early-access provider and only spins up
+      // once the user explicitly enables it in settings.
+      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("bob").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the bob binary used by this instance.",
+        providerSettingsForm: { placeholder: "bob", clearWhenEmpty: "omit" },
+      }),
+    ),
+    apiKey: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "BOBSHELL_API_KEY",
+        description: "API key for bob. Leave blank to inherit from the environment.",
+        providerSettingsForm: { control: "password", clearWhenEmpty: "omit" },
+      }),
+    ),
+    approvalMode: Schema.Literals(["default", "auto_edit", "yolo"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("yolo")),
+      Schema.annotateKey({
+        title: "Approval mode",
+        description:
+          "bob has no interactive approvals in non-interactive mode. 'default' = read-only tools only (no file writes); 'auto_edit' = auto-approve edits; 'yolo' = auto-approve all tools (writes and commands).",
+      }),
+    ),
+    chatMode: Schema.Literals(["plan", "code", "advanced", "ask"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("code")),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    maxCoins: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Max coins",
+        description: "Optional per-turn spend cap passed to bob via --max-coins.",
+        providerSettingsForm: { clearWhenEmpty: "omit" },
+      }),
+    ),
+    customModels: Schema.Array(Schema.String).pipe(
+      Schema.withDecodingDefault(Effect.succeed([])),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+  },
+  {
+    order: ["binaryPath", "apiKey", "approvalMode", "maxCoins"],
+  },
+);
+export type BobSettings = typeof BobSettings.Type;
+
 export const CursorSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -396,6 +450,7 @@ export const ServerSettings = Schema.Struct({
   providers: Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    bob: BobSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -459,6 +514,16 @@ const ClaudeSettingsPatch = Schema.Struct({
   launchArgs: Schema.optionalKey(TrimmedString),
 });
 
+const BobSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(TrimmedString),
+  apiKey: Schema.optionalKey(TrimmedString),
+  approvalMode: Schema.optionalKey(Schema.Literals(["default", "auto_edit", "yolo"])),
+  chatMode: Schema.optionalKey(Schema.Literals(["plan", "code", "advanced", "ask"])),
+  maxCoins: Schema.optionalKey(TrimmedString),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 const CursorSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
@@ -499,6 +564,7 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
       claudeAgent: Schema.optionalKey(ClaudeSettingsPatch),
+      bob: Schema.optionalKey(BobSettingsPatch),
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),

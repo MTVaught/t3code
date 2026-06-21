@@ -211,6 +211,18 @@ export const GrokIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+export const BobIcon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 24 24"
+    className={cn("fill-[#0F0F0F] dark:fill-[#F5F5F5]", className)}
+  >
+    <text x="12" y="18" textAnchor="middle" fontSize="18" fontWeight="700">
+      B
+    </text>
+  </svg>
+);
+
 export const TraeIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     {/* Back rectangle: left strip + bottom strip drawn separately — empty bottom-left corner is the gap between them */}
