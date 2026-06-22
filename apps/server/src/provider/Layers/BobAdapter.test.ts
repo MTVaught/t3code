@@ -55,7 +55,9 @@ const STREAM_JSON_LINES = [
   { type: "message", role: "assistant", content: "Reading it now.", delta: true },
   { type: "message", role: "assistant", content: "[using tool read_file: ...]\n", delta: true },
   { type: "tool_use", tool_name: "read_file", tool_id: "tool-1", parameters: { path: "a.ts" } },
-  { type: "tool_result", tool_id: "tool-1", status: "success", output: "file contents" },
+  // bob frequently emits an empty `output` for reads — the completed event must
+  // still carry the request input so the work-log row is not a bare "Tool call".
+  { type: "tool_result", tool_id: "tool-1", status: "success", output: "" },
   {
     type: "tool_use",
     tool_name: "attempt_completion",
@@ -149,9 +151,33 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         ["All done."],
       );
 
-      // The read_file tool produced a started + completed lifecycle pair.
+      // The read_file tool produced a started + completed lifecycle pair, each
+      // carrying the structured tool content (`{ toolName, input, result }`) so
+      // the UI can render the call.
       const toolStarted = events.find((event) => event.type === "item.started");
       assert.isDefined(toolStarted);
+      if (toolStarted?.type === "item.started") {
+        assert.deepStrictEqual(toolStarted.payload.data, {
+          toolName: "read_file",
+          input: { path: "a.ts" },
+        });
+        assert.equal(toolStarted.payload.detail, "read_file: a.ts");
+      }
+
+      const toolCompleted = events.find(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "dynamic_tool_call",
+      );
+      assert.isDefined(toolCompleted);
+      if (toolCompleted?.type === "item.completed") {
+        // No `result` when bob's output is empty, but the input is preserved and
+        // the detail falls back to the request summary (instead of being blank).
+        assert.deepStrictEqual(toolCompleted.payload.data, {
+          toolName: "read_file",
+          input: { path: "a.ts" },
+        });
+        assert.equal(toolCompleted.payload.detail, "read_file: a.ts");
+      }
 
       // Final assistant message uses the attempt_completion result, not the reasoning.
       const assistantCompleted = events.find(
