@@ -144,47 +144,52 @@ function trailingPartialTag(text: string, tag: string): string {
   return "";
 }
 
+interface BobThinkingSegment {
+  /** `reasoning` = inside `<thinking>`; `narration` = outside it. */
+  readonly kind: "reasoning" | "narration";
+  readonly text: string;
+}
+
 interface BobThinkingPartition {
-  /** Content inside `<thinking>...</thinking>` (the model's reasoning). */
-  readonly reasoning: string;
-  /** Content outside `<thinking>` (the answer narration). */
-  readonly narration: string;
+  /** Text segments in stream order, with the `<thinking>` tags removed. */
+  readonly segments: ReadonlyArray<BobThinkingSegment>;
   readonly insideThinking: boolean;
   /** Trailing partial tag to prepend to the next chunk. */
   readonly carry: string;
 }
 
 /**
- * Split a bob `message` content chunk into reasoning (inside `<thinking>`) and
- * narration (outside). bob streams the model's chain-of-thought wrapped in
+ * Split a bob `message` content chunk into ordered reasoning (inside
+ * `<thinking>`) and narration (outside) segments, dropping the `<thinking>`
+ * tag delimiters themselves. bob streams the model's chain-of-thought wrapped in
  * `<thinking>...</thinking>`, with the substantive answer following the closing
  * tag. `insideThinking`/`carry` thread parser state across chunks so a tag split
  * over two deltas is still recognized.
  */
 function partitionThinking(chunk: string, insideThinking: boolean): BobThinkingPartition {
-  let reasoning = "";
-  let narration = "";
+  const segments: Array<BobThinkingSegment> = [];
   let position = 0;
   let inside = insideThinking;
+  const push = (text: string) => {
+    if (text.length > 0) {
+      segments.push({ kind: inside ? "reasoning" : "narration", text });
+    }
+  };
   while (position < chunk.length) {
     const tag = inside ? THINKING_CLOSE : THINKING_OPEN;
     const tagIndex = chunk.indexOf(tag, position);
     if (tagIndex >= 0) {
-      const segment = chunk.slice(position, tagIndex);
-      if (inside) reasoning += segment;
-      else narration += segment;
+      push(chunk.slice(position, tagIndex));
       position = tagIndex + tag.length;
       inside = !inside;
       continue;
     }
     const rest = chunk.slice(position);
     const carry = trailingPartialTag(rest, tag);
-    const emit = carry.length > 0 ? rest.slice(0, rest.length - carry.length) : rest;
-    if (inside) reasoning += emit;
-    else narration += emit;
-    return { reasoning, narration, insideThinking: inside, carry };
+    push(carry.length > 0 ? rest.slice(0, rest.length - carry.length) : rest);
+    return { segments, insideThinking: inside, carry };
   }
-  return { reasoning, narration, insideThinking: inside, carry: "" };
+  return { segments, insideThinking: inside, carry: "" };
 }
 
 function finiteNonNegativeInteger(value: unknown): number | undefined {
@@ -410,9 +415,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   });
 
   // bob streams the model's chain-of-thought wrapped in `<thinking>...</thinking>`
-  // as assistant `message` events, followed by the answer narration. Only the
-  // thinking content is mapped to the reasoning stream; the narration is buffered
-  // as a fallback answer (the authoritative answer arrives via `attempt_completion`).
+  // as assistant `message` events, followed by the answer narration. Both are
+  // shown in the reasoning stream (with the `<thinking>` tags stripped); the
+  // narration is additionally retained as a fallback answer, used only when bob
+  // omits `attempt_completion` (the authoritative answer source).
   const emitReasoningDelta = Effect.fn("bob.emitReasoningDelta")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
@@ -427,8 +433,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     yield* emitStreamDelta(context, turnState, turnState.reasoningItemId, "reasoning_text", delta);
   });
 
-  // Partition a bob `message` chunk into reasoning (inside `<thinking>`) and
-  // narration (outside), threading parser state across streaming chunks.
+  // Stream a bob `message` chunk to the reasoning panel (tags stripped),
+  // threading parser state across chunks. Narration (text outside `<thinking>`)
+  // is additionally accumulated as the fallback answer.
   const emitBobMessageContent = Effect.fn("bob.emitBobMessageContent")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
@@ -438,11 +445,15 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const partition = partitionThinking(chunk, turnState.insideThinking);
     turnState.insideThinking = partition.insideThinking;
     turnState.thinkingTagCarry = partition.carry;
-    if (partition.narration.length > 0) {
-      turnState.narrationText += partition.narration;
+    let reasoningDelta = "";
+    for (const segment of partition.segments) {
+      reasoningDelta += segment.text;
+      if (segment.kind === "narration") {
+        turnState.narrationText += segment.text;
+      }
     }
-    if (partition.reasoning.length > 0) {
-      yield* emitReasoningDelta(context, turnState, partition.reasoning);
+    if (reasoningDelta.length > 0) {
+      yield* emitReasoningDelta(context, turnState, reasoningDelta);
     }
   });
 
@@ -460,13 +471,13 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
   ) {
-    // Flush any partial `<thinking>` tag left in the parser carry.
+    // Flush any partial `<thinking>` tag left in the parser carry to reasoning;
+    // if it was narration, also retain it for the fallback answer.
     if (turnState.thinkingTagCarry.length > 0) {
-      if (turnState.insideThinking) {
-        yield* emitReasoningDelta(context, turnState, turnState.thinkingTagCarry);
-      } else {
+      if (!turnState.insideThinking) {
         turnState.narrationText += turnState.thinkingTagCarry;
       }
+      yield* emitReasoningDelta(context, turnState, turnState.thinkingTagCarry);
       turnState.thinkingTagCarry = "";
     }
 
@@ -712,8 +723,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         if (content.startsWith("[using tool ")) {
           return;
         }
-        // Stream the model's `<thinking>` content as reasoning; buffer the rest
-        // (the answer narration) as a fallback answer.
+        // Stream the model's message content (reasoning + narration, with the
+        // `<thinking>` tags stripped) to the reasoning panel.
         yield* emitBobMessageContent(context, turnState, content);
         return;
       }

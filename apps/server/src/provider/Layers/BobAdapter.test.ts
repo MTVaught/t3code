@@ -125,9 +125,9 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
 
       const types = events.map((event) => event.type);
 
-      // Only the `<thinking>` content is mapped to the reasoning stream; the
-      // narration after `</thinking>` ("Reading it now.") is buffered as a
-      // fallback answer, not streamed as reasoning.
+      // Both the `<thinking>` reasoning and the narration after `</thinking>`
+      // ("Reading it now.") are streamed to the reasoning panel, with the
+      // `<thinking>` tags stripped.
       const reasoningDeltas = events.filter(
         (event) => event.type === "content.delta" && event.payload.streamKind === "reasoning_text",
       );
@@ -135,7 +135,7 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         reasoningDeltas.map((event) =>
           event.type === "content.delta" ? event.payload.delta : "",
         ),
-        ["Let me ", "read the file."],
+        ["Let me ", "read the file.", "Reading it now."],
       );
 
       // The actual answer (attempt_completion.result) is streamed as assistant_text.
