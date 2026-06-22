@@ -1463,6 +1463,41 @@ function workEntryRawCommand(
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
 }
 
+function formatToolDataValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Render the structured input/output of a tool call (`{ toolName, input, result }`)
+ * for harnesses that supply it (e.g. bob). Returns null when there is no
+ * meaningful content to show.
+ */
+function renderToolDataBlock(toolData: unknown): string | null {
+  if (toolData === null || typeof toolData !== "object") {
+    return null;
+  }
+  const record = toolData as Record<string, unknown>;
+  const sections: string[] = [];
+  if (record.input !== undefined && record.input !== null) {
+    sections.push(`Input\n${formatToolDataValue(record.input)}`);
+  }
+  if (record.result !== undefined && record.result !== null) {
+    sections.push(`Output\n${formatToolDataValue(record.result)}`);
+  }
+  if (sections.length > 0) {
+    return sections.join("\n\n");
+  }
+  const rendered = formatToolDataValue(toolData);
+  return rendered.trim().length > 0 ? rendered : null;
+}
+
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
@@ -1470,6 +1505,17 @@ function buildToolCallExpandedBody(
   const blocks: string[] = [];
   if (workEntry.itemType === "mcp_tool_call" && workEntry.toolData !== undefined) {
     blocks.push(`MCP call\n${JSON.stringify(workEntry.toolData, null, 2)}`);
+  } else if (
+    workEntry.toolData !== undefined &&
+    !workEntry.command &&
+    (workEntry.changedFiles?.length ?? 0) === 0
+  ) {
+    // Fallback for tool calls whose content was not surfaced as a command or
+    // changed-files set (e.g. bob's tools): show the raw input/output.
+    const toolDataBlock = renderToolDataBlock(workEntry.toolData);
+    if (toolDataBlock) {
+      blocks.push(toolDataBlock);
+    }
   }
   const raw = workEntryRawCommand(workEntry);
   if (raw?.trim()) {

@@ -65,6 +65,9 @@ interface BobToolInFlight {
   readonly itemId: string;
   readonly itemType: CanonicalItemType;
   readonly toolName: string;
+  /** The tool's request parameters, retained so the completed event can carry
+   * the input even when bob's `tool_result.output` is empty. */
+  readonly parameters: unknown;
 }
 
 interface BobTurnState {
@@ -206,13 +209,23 @@ function titleForItemType(itemType: CanonicalItemType): string {
 function summarizeToolRequest(toolName: string, parameters: unknown): string {
   if (parameters && typeof parameters === "object" && !Array.isArray(parameters)) {
     const record = parameters as Record<string, unknown>;
-    const command = readString(record.command) ?? readString(record.cmd);
-    if (command) {
-      return `${toolName}: ${command.trim().slice(0, 400)}`;
-    }
-    const path = readString(record.path) ?? readString(record.file) ?? readString(record.filename);
-    if (path) {
-      return `${toolName}: ${path.trim().slice(0, 400)}`;
+    // bob tools use a variety of parameter keys (e.g. `file_path`, `dir_path`).
+    // Surface the most informative one so the work-log row reads cleanly instead
+    // of dumping raw JSON.
+    const highlight =
+      readString(record.command) ??
+      readString(record.cmd) ??
+      readString(record.file_path) ??
+      readString(record.path) ??
+      readString(record.file) ??
+      readString(record.filename) ??
+      readString(record.absolute_path) ??
+      readString(record.dir_path) ??
+      readString(record.pattern) ??
+      readString(record.query) ??
+      readString(record.url);
+    if (highlight) {
+      return `${toolName}: ${highlight.trim().slice(0, 400)}`;
     }
   }
   let serialized = toolName;
@@ -490,7 +503,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
     const itemType = classifyToolItemType(toolName);
     const itemId = yield* randomUUIDv4;
-    turnState.tools.set(toolId, { itemId, itemType, toolName });
+    const parameters = event.parameters;
+    turnState.tools.set(toolId, { itemId, itemType, toolName, parameters });
 
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
@@ -506,7 +520,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         itemType,
         status: "inProgress",
         title: titleForItemType(itemType),
-        detail: summarizeToolRequest(toolName, event.parameters),
+        detail: summarizeToolRequest(toolName, parameters),
+        data: { toolName, input: parameters },
       },
     });
   });
@@ -524,6 +539,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
     const status = readString(event.status);
     const output = trimmedOrUndefined(readString(event.output));
+    // The web work-log renders `item.completed`, not `item.started`. bob's tool
+    // output is frequently empty (e.g. `read_file`), so fall back to summarizing
+    // the request input — otherwise the row would render as a bare "Tool call".
+    const detail = output ? output.slice(0, 4000) : summarizeToolRequest(tool.toolName, tool.parameters);
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "item.completed",
@@ -538,7 +557,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         itemType: tool.itemType,
         status: status === "success" || status === undefined ? "completed" : "failed",
         title: titleForItemType(tool.itemType),
-        ...(output ? { detail: output.slice(0, 4000) } : {}),
+        ...(detail ? { detail } : {}),
+        data: {
+          toolName: tool.toolName,
+          input: tool.parameters,
+          ...(output ? { result: output } : {}),
+        },
       },
     });
   });
