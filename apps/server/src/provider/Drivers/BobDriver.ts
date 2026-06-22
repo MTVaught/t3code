@@ -3,7 +3,8 @@
  *
  * Bob is a one-shot CLI: each turn spawns `bob -p ... -o stream-json` and
  * streams newline-delimited JSON. The model catalog is a fixed set of tiers, so
- * the snapshot is static (no enrichment). Text generation is a stub for the MVP.
+ * the snapshot is static (no enrichment). Text generation (commit messages, PR
+ * content, etc.) prompts bob for JSON and parses its stream-json output.
  *
  * @module provider/Drivers/BobDriver
  */
