@@ -71,11 +71,21 @@ interface BobTurnState {
   readonly turnId: TurnId;
   /** Item id for the final assistant answer (from `attempt_completion`). */
   readonly assistantItemId: string;
-  /** Lazily-created item id for the model's intermediary reasoning stream. */
+  /** Lazily-created item id for the model's `<thinking>` reasoning stream. */
   reasoningItemId: string | undefined;
+  /** Accumulated reasoning text (content inside `<thinking>...</thinking>`). */
   reasoningText: string;
   emittedReasoningDelta: boolean;
   reasoningCompleted: boolean;
+  /** True while the `<thinking>` parser is inside an open thinking block. */
+  insideThinking: boolean;
+  /** Holds a `<thinking>`/`</thinking>` tag split across streaming chunks. */
+  thinkingTagCarry: string;
+  /**
+   * Intermediary narration (message content outside `<thinking>`). Used as the
+   * answer only when bob never emits `attempt_completion`.
+   */
+  narrationText: string;
   /** The authoritative final answer captured from `attempt_completion`. */
   finalAnswer: string | undefined;
   emittedAssistantDelta: boolean;
@@ -115,6 +125,66 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const THINKING_OPEN = "<thinking>";
+const THINKING_CLOSE = "</thinking>";
+
+/**
+ * Longest suffix of `text` that is a proper prefix of `tag`. Used to hold back a
+ * tag split across streaming chunks (e.g. a delta ending in `"<thi"`).
+ */
+function trailingPartialTag(text: string, tag: string): string {
+  const max = Math.min(text.length, tag.length - 1);
+  for (let len = max; len >= 1; len--) {
+    if (text.slice(text.length - len) === tag.slice(0, len)) {
+      return text.slice(text.length - len);
+    }
+  }
+  return "";
+}
+
+interface BobThinkingPartition {
+  /** Content inside `<thinking>...</thinking>` (the model's reasoning). */
+  readonly reasoning: string;
+  /** Content outside `<thinking>` (the answer narration). */
+  readonly narration: string;
+  readonly insideThinking: boolean;
+  /** Trailing partial tag to prepend to the next chunk. */
+  readonly carry: string;
+}
+
+/**
+ * Split a bob `message` content chunk into reasoning (inside `<thinking>`) and
+ * narration (outside). bob streams the model's chain-of-thought wrapped in
+ * `<thinking>...</thinking>`, with the substantive answer following the closing
+ * tag. `insideThinking`/`carry` thread parser state across chunks so a tag split
+ * over two deltas is still recognized.
+ */
+function partitionThinking(chunk: string, insideThinking: boolean): BobThinkingPartition {
+  let reasoning = "";
+  let narration = "";
+  let position = 0;
+  let inside = insideThinking;
+  while (position < chunk.length) {
+    const tag = inside ? THINKING_CLOSE : THINKING_OPEN;
+    const tagIndex = chunk.indexOf(tag, position);
+    if (tagIndex >= 0) {
+      const segment = chunk.slice(position, tagIndex);
+      if (inside) reasoning += segment;
+      else narration += segment;
+      position = tagIndex + tag.length;
+      inside = !inside;
+      continue;
+    }
+    const rest = chunk.slice(position);
+    const carry = trailingPartialTag(rest, tag);
+    const emit = carry.length > 0 ? rest.slice(0, rest.length - carry.length) : rest;
+    if (inside) reasoning += emit;
+    else narration += emit;
+    return { reasoning, narration, insideThinking: inside, carry };
+  }
+  return { reasoning, narration, insideThinking: inside, carry: "" };
 }
 
 function finiteNonNegativeInteger(value: unknown): number | undefined {
@@ -339,10 +409,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     });
   });
 
-  // bob streams the model's intermediary output (its `<thinking>` reasoning and
-  // tool narration) as assistant `message` events. The actual answer arrives
-  // only via the `attempt_completion` tool. So intermediary text is mapped to a
-  // reasoning stream, not the assistant message.
+  // bob streams the model's chain-of-thought wrapped in `<thinking>...</thinking>`
+  // as assistant `message` events, followed by the answer narration. Only the
+  // thinking content is mapped to the reasoning stream; the narration is buffered
+  // as a fallback answer (the authoritative answer arrives via `attempt_completion`).
   const emitReasoningDelta = Effect.fn("bob.emitReasoningDelta")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
@@ -355,6 +425,25 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState.reasoningText += delta;
     turnState.emittedReasoningDelta = true;
     yield* emitStreamDelta(context, turnState, turnState.reasoningItemId, "reasoning_text", delta);
+  });
+
+  // Partition a bob `message` chunk into reasoning (inside `<thinking>`) and
+  // narration (outside), threading parser state across streaming chunks.
+  const emitBobMessageContent = Effect.fn("bob.emitBobMessageContent")(function* (
+    context: BobSessionContext,
+    turnState: BobTurnState,
+    content: string,
+  ) {
+    const chunk = turnState.thinkingTagCarry + content;
+    const partition = partitionThinking(chunk, turnState.insideThinking);
+    turnState.insideThinking = partition.insideThinking;
+    turnState.thinkingTagCarry = partition.carry;
+    if (partition.narration.length > 0) {
+      turnState.narrationText += partition.narration;
+    }
+    if (partition.reasoning.length > 0) {
+      yield* emitReasoningDelta(context, turnState, partition.reasoning);
+    }
   });
 
   const emitAssistantAnswer = Effect.fn("bob.emitAssistantAnswer")(function* (
@@ -371,6 +460,16 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
   ) {
+    // Flush any partial `<thinking>` tag left in the parser carry.
+    if (turnState.thinkingTagCarry.length > 0) {
+      if (turnState.insideThinking) {
+        yield* emitReasoningDelta(context, turnState, turnState.thinkingTagCarry);
+      } else {
+        turnState.narrationText += turnState.thinkingTagCarry;
+      }
+      turnState.thinkingTagCarry = "";
+    }
+
     if (turnState.reasoningItemId !== undefined && !turnState.reasoningCompleted) {
       turnState.reasoningCompleted = true;
       const detail = trimmedOrUndefined(turnState.reasoningText);
@@ -394,9 +493,14 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     }
 
     if (turnState.assistantCompleted) return;
-    // Prefer the attempt_completion answer; fall back to the intermediary text
-    // only if bob never emitted a completion (rare).
-    const answer = (turnState.finalAnswer ?? turnState.reasoningText).trim();
+    // Prefer the attempt_completion answer; fall back to the buffered narration
+    // (then reasoning) only if bob never emitted a completion (rare).
+    const answer = (
+      turnState.finalAnswer ??
+      (turnState.narrationText.trim().length > 0
+        ? turnState.narrationText
+        : turnState.reasoningText)
+    ).trim();
     if (answer.length === 0 && !turnState.emittedAssistantDelta) {
       return;
     }
@@ -608,11 +712,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         if (content.startsWith("[using tool ")) {
           return;
         }
-        // Assistant `message` events are intermediary reasoning, not the answer.
-        // Strip the <thinking> wrappers and stream the rest as reasoning.
-        const cleaned = content.split("<thinking>").join("").split("</thinking>").join("");
-        if (cleaned.length === 0) return;
-        yield* emitReasoningDelta(context, turnState, cleaned);
+        // Stream the model's `<thinking>` content as reasoning; buffer the rest
+        // (the answer narration) as a fallback answer.
+        yield* emitBobMessageContent(context, turnState, content);
         return;
       }
       case "tool_use": {
@@ -867,6 +969,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       reasoningText: "",
       emittedReasoningDelta: false,
       reasoningCompleted: false,
+      insideThinking: false,
+      thinkingTagCarry: "",
+      narrationText: "",
       finalAnswer: undefined,
       emittedAssistantDelta: false,
       assistantCompleted: false,

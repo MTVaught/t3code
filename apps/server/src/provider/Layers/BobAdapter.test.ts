@@ -50,8 +50,9 @@ const SESSION_UUID = "aec50d67-403c-4d08-a624-596bbd18a339";
 const STREAM_JSON_LINES = [
   { type: "init", session_id: SESSION_UUID, model: "premium" },
   { type: "message", role: "user", content: "hi" },
-  { type: "message", role: "assistant", content: "Hello", delta: true },
-  { type: "message", role: "assistant", content: " world", delta: true },
+  { type: "message", role: "assistant", content: "<thinking>Let me ", delta: true },
+  { type: "message", role: "assistant", content: "read the file.</thinking>", delta: true },
+  { type: "message", role: "assistant", content: "Reading it now.", delta: true },
   { type: "message", role: "assistant", content: "[using tool read_file: ...]\n", delta: true },
   { type: "tool_use", tool_name: "read_file", tool_id: "tool-1", parameters: { path: "a.ts" } },
   { type: "tool_result", tool_id: "tool-1", status: "success", output: "file contents" },
@@ -124,8 +125,9 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
 
       const types = events.map((event) => event.type);
 
-      // Intermediary assistant `message` text is mapped to the reasoning stream,
-      // NOT the assistant answer.
+      // Only the `<thinking>` content is mapped to the reasoning stream; the
+      // narration after `</thinking>` ("Reading it now.") is buffered as a
+      // fallback answer, not streamed as reasoning.
       const reasoningDeltas = events.filter(
         (event) => event.type === "content.delta" && event.payload.streamKind === "reasoning_text",
       );
@@ -133,7 +135,7 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         reasoningDeltas.map((event) =>
           event.type === "content.delta" ? event.payload.delta : "",
         ),
-        ["Hello", " world"],
+        ["Let me ", "read the file."],
       );
 
       // The actual answer (attempt_completion.result) is streamed as assistant_text.
