@@ -740,10 +740,18 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (title) {
     entry.toolTitle = title;
   }
-  if (itemType === "mcp_tool_call") {
+  if (itemType) {
     const data = asRecord(payload?.data);
     if (data?.item !== undefined) {
+      // Codex-style payload: the tool item is nested under `data.item`.
       entry.toolData = data.item;
+    } else if (
+      data &&
+      (data.toolName !== undefined || data.input !== undefined || data.result !== undefined)
+    ) {
+      // Claude/bob-style payload: structured tool content lives directly on
+      // `data` as `{ toolName, input, result }`.
+      entry.toolData = data;
     }
   }
   if (itemType) {
