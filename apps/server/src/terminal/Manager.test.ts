@@ -275,6 +275,95 @@ const createManager = (
 const withHostPlatform = (platform: NodeJS.Platform) =>
   Layer.succeed(HostProcessPlatform, platform);
 
+it("resolveConfiguredShell uses a non-empty override verbatim", () => {
+  // A custom shell that is not a registered login shell (not in /etc/shells)
+  // must still be honored — it is exec'd directly by the PTY adapter.
+  expect(
+    TerminalManager.resolveConfiguredShell("/opt/fish/bin/fish", "linux", { SHELL: "/bin/zsh" }),
+  ).toBe("/opt/fish/bin/fish");
+  expect(TerminalManager.resolveConfiguredShell("C:\\tools\\nu.exe", "win32", {})).toBe(
+    "C:\\tools\\nu.exe",
+  );
+});
+
+it("resolveConfiguredShell trims surrounding whitespace from the override", () => {
+  expect(TerminalManager.resolveConfiguredShell("  /usr/local/bin/xonsh  ", "darwin", {})).toBe(
+    "/usr/local/bin/xonsh",
+  );
+});
+
+it("resolveConfiguredShell falls back to the platform default when override is empty", () => {
+  expect(TerminalManager.resolveConfiguredShell("", "darwin", { SHELL: "/bin/zsh" })).toBe(
+    "/bin/zsh",
+  );
+  expect(TerminalManager.resolveConfiguredShell("   ", "linux", {})).toBe("bash");
+  expect(TerminalManager.resolveConfiguredShell("", "win32", {})).toBe("pwsh.exe");
+});
+
+const ESC = "\u001b";
+
+it("scanTerminalQueries answers a DA1 primary device attributes query", () => {
+  // fish sends ESC[c at startup and waits up to 2s; we must reply ESC[?1;2c.
+  const result = TerminalManager.scanTerminalQueries("", `${ESC}[c`);
+  expect(result.replies).toBe(`${ESC}[?1;2c`);
+  // The query is stripped from the client-bound stream so xterm.js does not
+  // also reply.
+  expect(result.output).toBe("");
+  expect(result.pending).toBe("");
+});
+
+it("scanTerminalQueries answers DA1 (ESC[0c), DA2 and DSR device-status queries", () => {
+  expect(TerminalManager.scanTerminalQueries("", `${ESC}[0c`).replies).toBe(`${ESC}[?1;2c`);
+  expect(TerminalManager.scanTerminalQueries("", `${ESC}[>c`).replies).toBe(`${ESC}[>0;10;0c`);
+  expect(TerminalManager.scanTerminalQueries("", `${ESC}[>0c`).replies).toBe(`${ESC}[>0;10;0c`);
+  expect(TerminalManager.scanTerminalQueries("", `${ESC}[5n`).replies).toBe(`${ESC}[0n`);
+});
+
+it("scanTerminalQueries leaves surrounding output intact while extracting a query", () => {
+  const result = TerminalManager.scanTerminalQueries("", `hello${ESC}[cworld`);
+  expect(result.replies).toBe(`${ESC}[?1;2c`);
+  expect(result.output).toBe("helloworld");
+});
+
+it("scanTerminalQueries does not answer cursor position reports or rendering sequences", () => {
+  // CSI 6 n (cursor position) depends on screen state only the client knows, so
+  // it must pass through untouched for xterm.js to answer.
+  const cpr = TerminalManager.scanTerminalQueries("", `${ESC}[6n`);
+  expect(cpr.replies).toBe("");
+  expect(cpr.output).toBe(`${ESC}[6n`);
+
+  // SGR colour codes and other CSI sequences are forwarded unchanged.
+  const sgr = TerminalManager.scanTerminalQueries("", `${ESC}[1;31mred${ESC}[0m`);
+  expect(sgr.replies).toBe("");
+  expect(sgr.output).toBe(`${ESC}[1;31mred${ESC}[0m`);
+});
+
+it("scanTerminalQueries does not treat a DA reply in the stream as a query", () => {
+  // Replies (body begins with '?') flow on the input path, not output; never
+  // echo them back as if they were queries.
+  const result = TerminalManager.scanTerminalQueries("", `${ESC}[?1;2c`);
+  expect(result.replies).toBe("");
+  expect(result.output).toBe(`${ESC}[?1;2c`);
+});
+
+it("scanTerminalQueries buffers a query split across chunks", () => {
+  const first = TerminalManager.scanTerminalQueries("", `${ESC}[`);
+  expect(first.replies).toBe("");
+  expect(first.output).toBe("");
+  expect(first.pending).toBe(`${ESC}[`);
+
+  const second = TerminalManager.scanTerminalQueries(first.pending, "c");
+  expect(second.replies).toBe(`${ESC}[?1;2c`);
+  expect(second.output).toBe("");
+  expect(second.pending).toBe("");
+});
+
+it("scanTerminalQueries buffers a lone trailing ESC", () => {
+  const result = TerminalManager.scanTerminalQueries("", `done${ESC}`);
+  expect(result.output).toBe("done");
+  expect(result.pending).toBe(ESC);
+});
+
 it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
   { excludeTestServices: true },

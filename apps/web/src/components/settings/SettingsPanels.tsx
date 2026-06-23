@@ -828,6 +828,33 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Terminal shell"
+          description="Shell launched in terminals. Leave empty to use the system default ($SHELL). Set a full path to use a shell that is not a registered login shell."
+          resetAction={
+            settings.defaultTerminalShell !== DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell ? (
+              <SettingResetButton
+                label="terminal shell"
+                onClick={() =>
+                  updateSettings({
+                    defaultTerminalShell: DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <DraftInput
+              className="w-full sm:w-72"
+              value={settings.defaultTerminalShell}
+              onCommit={(next) => updateSettings({ defaultTerminalShell: next })}
+              placeholder="/bin/zsh"
+              spellCheck={false}
+              aria-label="Terminal shell"
+            />
+          }
+        />
+
+        <SettingsRow
           title="Archive confirmation"
           description="Require a second click on the inline archive action before a thread is archived."
           resetAction={
