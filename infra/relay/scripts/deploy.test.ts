@@ -200,7 +200,7 @@ describe("serializeRelayClientTracingEnvironment", () => {
 });
 
 describe("release workflow tracing config propagation", () => {
-  it.effect("uses an artifact instead of a masked cross-job token output", () =>
+  it.effect("does not propagate relay tracing config (relay deploy removed for fork)", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -209,11 +209,14 @@ describe("release workflow tracing config propagation", () => {
       );
       const workflow = yield* fileSystem.readFileString(workflowPath);
 
+      // This fork removed the Cloudflare relay deploy from the release workflow,
+      // so there is no tracing token to propagate at all. Guard against
+      // reintroducing the relay_public_config job or the insecure masked
+      // cross-job token output it previously fed.
       expect(workflow).not.toContain("client_tracing_token:");
       expect(workflow).not.toContain("needs.relay_public_config.outputs.client_tracing_token");
-      expect(workflow).toContain('--github-env-file "$RUNNER_TEMP/relay-client-tracing.env"');
-      expect(workflow).toContain("name: relay-client-tracing-config");
-      expect(workflow).toContain('cat "$config_path" >> "$GITHUB_ENV"');
+      expect(workflow).not.toContain("relay_public_config");
+      expect(workflow).not.toContain("relay-client-tracing-config");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

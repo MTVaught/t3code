@@ -139,7 +139,7 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
-    # Fork note: the upstream `relay_public_config` job (which reads T3 Connect
+    # Fork note: the upstream relay public-config job (which reads T3 Connect
     # public config out of Cloudflare) was removed, so these T3CODE_CLERK_* /
     # T3CODE_RELAY_URL values are not injected here. Builds are unsigned and
     # point at no relay. Set them as repo variables/secrets and wire them back
