@@ -85,6 +85,8 @@ interface BobTurnState {
   assistantCompleted: boolean;
   completed: boolean;
   totalCostUsd: number | undefined;
+  /** bob's context window for this turn's tier, used as the token-usage max. */
+  readonly contextWindowTokens: number;
   readonly tools: Map<string, BobToolInFlight>;
   readonly items: Array<unknown>;
 }
@@ -235,6 +237,28 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
     serialized = toolName;
   }
   return serialized.length > 400 ? `${serialized.slice(0, 397)}...` : serialized;
+}
+
+/**
+ * bob's per-model context window, in input tokens. bob never reports the window
+ * size in its stream-json output (its `result.stats` carries token counts but no
+ * limit), yet it tracks one internally — its `tokenLimit()` maps each tier to a
+ * fixed size. These values mirror that table so the context-window meter can show
+ * a fill ratio. Unknown / custom tiers fall back to bob's own default.
+ */
+const BOB_DEFAULT_CONTEXT_WINDOW = 1_048_576;
+const BOB_MODEL_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
+  ["premium", 1_048_576],
+  ["premium2", 1_048_576],
+  ["premium4", 1_048_576],
+  ["bob-2.0-flash", 1_048_576],
+  ["bob-1.5-flash", 1_048_576],
+  ["bob-1.5-pro", 2_097_152],
+  ["bob-2.0-flash-preview-image-generation", 32_000],
+]);
+
+function bobContextWindowForTier(tier: string): number {
+  return BOB_MODEL_CONTEXT_WINDOWS.get(tier) ?? BOB_DEFAULT_CONTEXT_WINDOW;
 }
 
 /**
@@ -572,17 +596,26 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     stats: Record<string, unknown>,
   ) {
-    const usedTokens = finiteNonNegativeInteger(stats.total_tokens);
+    const inputTokens = finiteNonNegativeInteger(stats.input_tokens);
+    const outputTokens = finiteNonNegativeInteger(stats.output_tokens);
+    const totalTokens = finiteNonNegativeInteger(stats.total_tokens);
+    // The context-window meter wants the tokens currently occupying the window.
+    // bob's `input_tokens` is exactly that — the prompt size sent to the model on
+    // the most recent request — and it shrinks when bob auto-summarizes a long
+    // session. Fall back to `total_tokens` if bob omits the breakdown.
+    const usedTokens = inputTokens ?? totalTokens;
     if (usedTokens === undefined || usedTokens <= 0) {
       return;
     }
-    const inputTokens = finiteNonNegativeInteger(stats.input_tokens);
-    const outputTokens = finiteNonNegativeInteger(stats.output_tokens);
     const durationMs = finiteNonNegativeInteger(stats.duration_ms);
     const toolUses = finiteNonNegativeInteger(stats.tool_calls);
     const usage: ThreadTokenUsageSnapshot = {
       usedTokens,
-      totalProcessedTokens: usedTokens,
+      maxTokens: turnState.contextWindowTokens,
+      // bob continuously summarizes long sessions, so the window can shrink
+      // turn-over-turn rather than only growing.
+      compactsAutomatically: true,
+      ...(totalTokens !== undefined ? { totalProcessedTokens: totalTokens } : {}),
       ...(inputTokens !== undefined ? { inputTokens } : {}),
       ...(outputTokens !== undefined ? { outputTokens } : {}),
       ...(durationMs !== undefined ? { durationMs } : {}),
@@ -896,6 +929,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       assistantCompleted: false,
       completed: false,
       totalCostUsd: undefined,
+      contextWindowTokens: bobContextWindowForTier(tier),
       tools: new Map(),
       items: [],
     };
