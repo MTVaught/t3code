@@ -1,9 +1,13 @@
 name: Deploy T3 Connect relay
 
+# Fork note: disabled for this fork. Upstream ran this on every push to main to
+# deploy the production T3 Connect relay to its own Cloudflare/PlanetScale/Clerk
+# infrastructure. A fork has no such infra and should not auto-deploy, so the
+# `push: branches: [main]` trigger was replaced with manual-only dispatch. It
+# will never run automatically; re-add the push trigger (and supply the
+# required secrets/vars) only if you operate your own relay.
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
