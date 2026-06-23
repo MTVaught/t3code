@@ -49,6 +49,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ServerConfig from "../config.ts";
@@ -59,6 +60,7 @@ import {
 } from "../observability/Metrics.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
 
 export {
@@ -238,6 +240,8 @@ export interface TerminalSessionState {
   pid: number | null;
   history: string;
   pendingHistoryControlSequence: string;
+  /** Carry-over for a capability query split across PTY output chunks. */
+  pendingTerminalQuerySequence: string;
   pendingProcessEvents: Array<PendingProcessEvent>;
   pendingProcessEventIndex: number;
   processEventDrainRunning: boolean;
@@ -274,6 +278,9 @@ type DrainProcessEventAction =
       sequence: number;
       history: string | null;
       data: string;
+      /** Canonical replies to capability queries, written back into the PTY. */
+      replies: string;
+      process: PtyAdapter.PtyProcess | null;
     }
   | {
       type: "exit";
@@ -441,6 +448,22 @@ function defaultShellResolver(platform: NodeJS.Platform, env: NodeJS.ProcessEnv)
     return "pwsh.exe";
   }
   return env.SHELL ?? "bash";
+}
+
+/**
+ * Resolves the shell to launch given the user's configured override. A
+ * non-empty override wins (trimmed); otherwise we fall back to the platform
+ * default ($SHELL on macOS/Linux, pwsh.exe on Windows). The override is exec'd
+ * directly by the PTY adapter, so it does not need to be a registered login
+ * shell in /etc/shells.
+ */
+export function resolveConfiguredShell(
+  override: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+): string {
+  const trimmed = override.trim();
+  return trimmed.length > 0 ? trimmed : defaultShellResolver(platform, env);
 }
 
 function normalizeShellCommand(
@@ -1038,6 +1061,93 @@ function sanitizeTerminalHistoryChunk(
   return { visibleText, pendingControlSequence: "" };
 }
 
+// Static, cursor-independent replies to terminal capability queries. PTY output
+// is streamed to a browser xterm.js instance that may not be attached when the
+// shell starts, and these query sequences are intentionally stripped from
+// replayed history (see `shouldStripCsiSequence`) — so a freshly spawned shell
+// can ask "what are you?" and never hear back. fish, for example, sends a
+// Primary Device Attributes (DA1) query at startup and blocks for up to two
+// seconds before printing a terminal-compatibility warning and disabling
+// features. We answer these specific, screen-state-independent queries directly
+// on the server so the shell always gets a timely reply, regardless of whether
+// a client terminal is attached. Cursor Position Reports (CSI 6 n) are
+// deliberately NOT answered here: only the client's emulator knows the cursor
+// location, so those continue to flow through to it untouched.
+const DA1_REPLY = "\u001b[?1;2c"; // VT100 with Advanced Video Option
+const DA2_REPLY = "\u001b[>0;10;0c"; // secondary device attributes
+const DSR_STATUS_REPLY = "\u001b[0n"; // device status report: OK
+
+function terminalQueryReply(body: string, finalByte: string): string | null {
+  if (finalByte === "c") {
+    if (body === "" || body === "0") return DA1_REPLY;
+    if (body === ">" || body === ">0") return DA2_REPLY;
+    return null;
+  }
+  if (finalByte === "n" && body === "5") {
+    return DSR_STATUS_REPLY;
+  }
+  return null;
+}
+
+interface TerminalQueryScan {
+  /** Bytes to write back into the PTY in response to detected queries. */
+  readonly replies: string;
+  /** Input with answered queries removed; everything else is untouched. */
+  readonly output: string;
+  /** Trailing incomplete escape sequence carried to the next chunk. */
+  readonly pending: string;
+}
+
+/**
+ * Scans a chunk of PTY output for terminal capability queries we can answer
+ * without screen state (DA1, DA2, DSR device-status), returning the canonical
+ * replies plus the output with those queries removed so the client emulator
+ * does not also answer them. Incomplete trailing escape sequences are buffered
+ * in `pending` and must be prepended to the next chunk.
+ */
+export function scanTerminalQueries(pending: string, data: string): TerminalQueryScan {
+  const input = `${pending}${data}`;
+  let output = "";
+  let replies = "";
+  let index = 0;
+
+  while (index < input.length) {
+    const codePoint = input.charCodeAt(index);
+
+    if (codePoint === 0x1b) {
+      const nextCodePoint = input.charCodeAt(index + 1);
+      if (Number.isNaN(nextCodePoint)) {
+        // Lone trailing ESC — the rest of the sequence may arrive next chunk.
+        return { replies, output, pending: input.slice(index) };
+      }
+      if (nextCodePoint === 0x5b) {
+        let cursor = index + 2;
+        while (cursor < input.length && !isCsiFinalByte(input.charCodeAt(cursor))) {
+          cursor += 1;
+        }
+        if (cursor >= input.length) {
+          return { replies, output, pending: input.slice(index) };
+        }
+        const finalByte = input[cursor] ?? "";
+        const body = input.slice(index + 2, cursor);
+        const reply = terminalQueryReply(body, finalByte);
+        if (reply === null) {
+          output += input.slice(index, cursor + 1);
+        } else {
+          replies += reply;
+        }
+        index = cursor + 1;
+        continue;
+      }
+    }
+
+    output += input[index] ?? "";
+    index += 1;
+  }
+
+  return { replies, output, pending: "" };
+}
+
 function legacySafeThreadId(threadId: string): string {
   return threadId.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -1117,9 +1227,32 @@ export const make = Effect.fn("TerminalManager.make")(function* () {
   const { terminalLogsDir } = yield* ServerConfig.ServerConfig;
   const ptyAdapter = yield* PtyAdapter.PtyAdapter;
   const portDiscovery = yield* PortScanner.PortDiscovery;
+  const serverSettings = yield* ServerSettingsService;
+  const platform = yield* HostProcessPlatform;
+  const baseEnv = process.env;
+
+  // `shellResolver` runs synchronously at spawn time, so we mirror the user's
+  // configured override into a plain mutable cell. The initial value is read
+  // from disk here; the stream keeps it current so newly opened terminals pick
+  // up changes without a server restart. An empty override falls back to the
+  // platform default ($SHELL / pwsh.exe) and the usual candidate fallbacks.
+  let shellOverride = yield* serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.defaultTerminalShell),
+    Effect.catch(() => Effect.succeed("")),
+  );
+  yield* serverSettings.streamChanges.pipe(
+    Stream.runForEach((settings) =>
+      Effect.sync(() => {
+        shellOverride = settings.defaultTerminalShell;
+      }),
+    ),
+    Effect.forkScoped,
+  );
+
   return yield* makeWithOptions({
     logsDir: terminalLogsDir,
     ptyAdapter,
+    shellResolver: () => resolveConfiguredShell(shellOverride, platform, baseEnv),
     registerTerminalProcesses: portDiscovery.registerTerminalProcesses,
     unregisterTerminal: portDiscovery.unregisterTerminal,
   });
@@ -1624,6 +1757,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         }
 
         if (nextEvent.type === "output") {
+          // Answer static capability queries (DA1/DA2/DSR-status) server-side
+          // and strip them from the client-bound stream so the browser emulator
+          // does not also reply. See `scanTerminalQueries`.
+          const queryScan = scanTerminalQueries(
+            session.pendingTerminalQuerySequence,
+            nextEvent.data,
+          );
+          session.pendingTerminalQuerySequence = queryScan.pending;
+
           const sanitized = sanitizeTerminalHistoryChunk(
             session.pendingHistoryControlSequence,
             nextEvent.data,
@@ -1643,7 +1785,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             terminalId: session.terminalId,
             sequence: eventStamp.sequence,
             history: sanitized.visibleText.length > 0 ? session.history : null,
-            data: nextEvent.data,
+            data: queryScan.output,
+            replies: queryScan.replies,
+            process: session.process,
           } as const;
         }
 
@@ -1655,6 +1799,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         session.childCommandLabel = null;
         session.status = "exited";
         session.pendingHistoryControlSequence = "";
+        session.pendingTerminalQuerySequence = "";
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
@@ -1682,6 +1827,20 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }
 
       if (action.type === "output") {
+        const replyProcess = action.process;
+        if (action.replies.length > 0 && replyProcess) {
+          yield* Effect.try({
+            try: () => replyProcess.write(action.replies),
+            catch: (cause) =>
+              new TerminalWriteError({
+                threadId: action.threadId,
+                terminalId: action.terminalId,
+                terminalPid: replyProcess.pid,
+                cause,
+              }),
+          }).pipe(Effect.ignoreCause({ log: true }));
+        }
+
         if (action.history !== null) {
           yield* queuePersist(action.threadId, action.terminalId, action.history);
         }
@@ -1727,6 +1886,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       session.childCommandLabel = null;
       session.status = "exited";
       session.pendingHistoryControlSequence = "";
+      session.pendingTerminalQuerySequence = "";
       session.pendingProcessEvents = [];
       session.pendingProcessEventIndex = 0;
       session.processEventDrainRunning = false;
@@ -2116,6 +2276,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         pid: null,
         history,
         pendingHistoryControlSequence: "",
+        pendingTerminalQuerySequence: "",
         pendingProcessEvents: [],
         pendingProcessEventIndex: 0,
         processEventDrainRunning: false,
@@ -2177,6 +2338,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.runtimeEnv = nextRuntimeEnv;
       liveSession.history = "";
       liveSession.pendingHistoryControlSequence = "";
+      liveSession.pendingTerminalQuerySequence = "";
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
       liveSession.processEventDrainRunning = false;
@@ -2186,6 +2348,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       liveSession.worktreePath = nextWorktreePath;
       liveSession.history = "";
       liveSession.pendingHistoryControlSequence = "";
+      liveSession.pendingTerminalQuerySequence = "";
       liveSession.pendingProcessEvents = [];
       liveSession.pendingProcessEventIndex = 0;
       liveSession.processEventDrainRunning = false;
@@ -2491,6 +2654,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         const session = yield* requireSession(input.threadId, terminalId);
         session.history = "";
         session.pendingHistoryControlSequence = "";
+        session.pendingTerminalQuerySequence = "";
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
@@ -2528,6 +2692,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             pid: null,
             history: "",
             pendingHistoryControlSequence: "",
+            pendingTerminalQuerySequence: "",
             pendingProcessEvents: [],
             pendingProcessEventIndex: 0,
             processEventDrainRunning: false,
@@ -2564,6 +2729,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
         session.history = "";
         session.pendingHistoryControlSequence = "";
+        session.pendingTerminalQuerySequence = "";
         session.pendingProcessEvents = [];
         session.pendingProcessEventIndex = 0;
         session.processEventDrainRunning = false;
