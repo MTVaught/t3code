@@ -188,13 +188,13 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
 
       // Token usage mapped from result stats. `usedTokens` is the live context
       // occupancy (bob's `input_tokens`), `totalProcessedTokens` is `total_tokens`,
-      // and `maxTokens` is the tier's context window (premium = 1,048,576) since
-      // bob never reports the window size in its stream output.
+      // and `maxTokens` is bob's context window (100,000) since bob never reports
+      // the window size in its stream output.
       const usage = events.find((event) => event.type === "thread.token-usage.updated");
       assert.isDefined(usage);
       if (usage?.type === "thread.token-usage.updated") {
         assert.equal(usage.payload.usage.usedTokens, 80);
-        assert.equal(usage.payload.usage.maxTokens, 1_048_576);
+        assert.equal(usage.payload.usage.maxTokens, 100_000);
         assert.equal(usage.payload.usage.totalProcessedTokens, 100);
         assert.equal(usage.payload.usage.inputTokens, 80);
         assert.equal(usage.payload.usage.outputTokens, 20);

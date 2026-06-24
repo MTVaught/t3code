@@ -240,25 +240,15 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
 }
 
 /**
- * bob's per-model context window, in input tokens. bob never reports the window
- * size in its stream-json output (its `result.stats` carries token counts but no
- * limit), yet it tracks one internally — its `tokenLimit()` maps each tier to a
- * fixed size. These values mirror that table so the context-window meter can show
- * a fill ratio. Unknown / custom tiers fall back to bob's own default.
+ * bob's context window, in input tokens. bob never reports the window size in its
+ * stream-json output (its `result.stats` carries token counts but no limit), so
+ * the adapter supplies a fixed size as the token-usage max, letting the context-
+ * window meter show a fill ratio.
  */
-const BOB_DEFAULT_CONTEXT_WINDOW = 1_048_576;
-const BOB_MODEL_CONTEXT_WINDOWS: ReadonlyMap<string, number> = new Map([
-  ["premium", 1_048_576],
-  ["premium2", 1_048_576],
-  ["premium4", 1_048_576],
-  ["bob-2.0-flash", 1_048_576],
-  ["bob-1.5-flash", 1_048_576],
-  ["bob-1.5-pro", 2_097_152],
-  ["bob-2.0-flash-preview-image-generation", 32_000],
-]);
+const BOB_CONTEXT_WINDOW = 100_000;
 
-function bobContextWindowForTier(tier: string): number {
-  return BOB_MODEL_CONTEXT_WINDOWS.get(tier) ?? BOB_DEFAULT_CONTEXT_WINDOW;
+function bobContextWindowForTier(_tier: string): number {
+  return BOB_CONTEXT_WINDOW;
 }
 
 /**
