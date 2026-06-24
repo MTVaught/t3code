@@ -2,6 +2,8 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
       - "!v*-nightly.*"
@@ -68,11 +70,18 @@ jobs:
         env:
           DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
           DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
           NIGHTLY_DATE: ${{ github.run_started_at }}
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "schedule" || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
+          # A push to a branch (for example main) has no human-picked semver,
+          # so publish it through the nightly/prerelease channel, which derives
+          # a version from the date + run number + SHA. Stable releases still
+          # come from a v*.*.* tag push or a workflow_dispatch with a version.
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" \
+             || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) \
+             || ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
