@@ -7,7 +7,6 @@ import { remoteHttpClientLayer } from "@t3tools/client-runtime/rpc";
 import { cryptoLayer } from "../features/cloud/dpop";
 import { managedRelayClientLayer } from "../features/cloud/managedRelayLayer";
 import { resolveCloudPublicConfig } from "../features/cloud/publicConfig";
-import { tracingLayer } from "../features/observability/tracing";
 
 function configuredRelayUrl(): string {
   return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
@@ -19,8 +18,7 @@ type RuntimeLayerSource =
   | ReturnType<typeof managedRelayClientLayer>
   | typeof Socket.layerWebSocketConstructorGlobal
   | typeof cryptoLayer
-  | typeof httpClientLayer
-  | typeof tracingLayer;
+  | typeof httpClientLayer;
 
 const runtimeLayer = Layer.merge(
   managedRelayClientLayer(configuredRelayUrl()),
@@ -28,7 +26,6 @@ const runtimeLayer = Layer.merge(
 ).pipe(
   Layer.provideMerge(cryptoLayer),
   Layer.provideMerge(httpClientLayer),
-  Layer.provideMerge(tracingLayer.pipe(Layer.provide(httpClientLayer))),
 );
 
 export const runtime: ManagedRuntime.ManagedRuntime<

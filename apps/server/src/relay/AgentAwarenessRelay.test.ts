@@ -17,7 +17,6 @@ import type {
   RelayAgentActivityState,
 } from "@t3tools/contracts/relay";
 import { CommandId, ProviderInstanceId } from "@t3tools/contracts";
-import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { RELAY_ACTIVITY_PUBLISH_TYP, verifyRelayJwt } from "@t3tools/shared/relayJwt";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -547,7 +546,6 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
         const events = yield* Queue.unbounded<OrchestrationEvent>();
         const fetchSeen = yield* Deferred.make<URL>();
         const userSpans: Array<string> = [];
-        const productSpans: Array<string> = [];
         const collectingTracer = (spans: Array<string>) =>
           Tracer.make({
             span: (options) => {
@@ -690,8 +688,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
 
           const url = yield* Deferred.await(fetchSeen).pipe(Effect.timeout("2 seconds"));
           expect(url.origin).toBe("https://transport.example.test");
-          expect(productSpans).toContain("makePublishProof");
-          expect(userSpans).not.toContain("makePublishProof");
+          expect(userSpans).toContain("makePublishProof");
         }).pipe(
           Effect.provide(
             AgentAwarenessRelay.layer.pipe(
@@ -699,7 +696,6 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
               Layer.provideMerge(NodeServices.layer),
             ),
           ),
-          Effect.provideService(RelayClientTracer, Option.some(collectingTracer(productSpans))),
           Effect.withTracer(collectingTracer(userSpans)),
         );
       }),

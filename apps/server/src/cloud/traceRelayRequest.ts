@@ -1,11 +1,10 @@
-import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { HttpServerRequest, HttpTraceContext } from "effect/unstable/http";
 
 export const traceRelayRequest = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, R> => effect.pipe(withRelayClientTracing);
+): Effect.Effect<A, E, R> => effect;
 
 export const traceAuthenticatedRelayRequest = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
@@ -17,5 +16,4 @@ export const traceAuthenticatedRelayRequest = <A, E, R>(
         onSome: (parent) => effect.pipe(Effect.withParentSpan(parent)),
       }),
     ),
-    withRelayClientTracing,
   );

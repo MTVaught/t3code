@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   CloudPublicConfigMissingError,
-  hasTracingPublicConfig,
   resolveCloudPublicConfig,
   resolveRelayClerkTokenOptions,
 } from "./publicConfig";
@@ -31,11 +30,6 @@ describe("resolveCloudPublicConfig", () => {
       relay: {
         url: null,
       },
-      observability: {
-        tracesUrl: null,
-        tracesDataset: null,
-        tracesToken: null,
-      },
     });
   });
 
@@ -44,11 +38,6 @@ describe("resolveCloudPublicConfig", () => {
       resolveCloudPublicConfig({
         clerk: { publishableKey: "  pk_test_example  ", jwtTemplate: "  t3-relay  " },
         relay: { url: " https://relay.example.test/// " },
-        observability: {
-          tracesUrl: " https://api.axiom.co/v1/traces ",
-          tracesDataset: " mobile-traces ",
-          tracesToken: " public-ingest-token ",
-        },
       }),
     ).toEqual({
       clerk: {
@@ -57,11 +46,6 @@ describe("resolveCloudPublicConfig", () => {
       },
       relay: {
         url: "https://relay.example.test",
-      },
-      observability: {
-        tracesUrl: "https://api.axiom.co/v1/traces",
-        tracesDataset: "mobile-traces",
-        tracesToken: "public-ingest-token",
       },
     });
   });
@@ -80,52 +64,6 @@ describe("resolveCloudPublicConfig", () => {
       relay: {
         url: null,
       },
-      observability: {
-        tracesUrl: null,
-        tracesDataset: null,
-        tracesToken: null,
-      },
     });
-  });
-
-  it("rejects an insecure traces URL", () => {
-    expect(
-      resolveCloudPublicConfig({
-        observability: {
-          tracesUrl: "http://api.axiom.co/v1/traces",
-          tracesDataset: "mobile-traces",
-          tracesToken: "public-ingest-token",
-        },
-      }).observability,
-    ).toEqual({
-      tracesUrl: null,
-      tracesDataset: "mobile-traces",
-      tracesToken: "public-ingest-token",
-    });
-  });
-
-  it("keeps tracing disabled unless every public tracing value is configured", () => {
-    expect(hasTracingPublicConfig(resolveCloudPublicConfig({}))).toBe(false);
-    expect(
-      hasTracingPublicConfig(
-        resolveCloudPublicConfig({
-          observability: {
-            tracesUrl: "https://api.axiom.co/v1/traces",
-            tracesDataset: "mobile-traces",
-          },
-        }),
-      ),
-    ).toBe(false);
-    expect(
-      hasTracingPublicConfig(
-        resolveCloudPublicConfig({
-          observability: {
-            tracesUrl: "https://api.axiom.co/v1/traces",
-            tracesDataset: "mobile-traces",
-            tracesToken: "public-ingest-token",
-          },
-        }),
-      ),
-    ).toBe(true);
   });
 });

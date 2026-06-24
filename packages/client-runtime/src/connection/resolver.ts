@@ -1,5 +1,4 @@
 import { RelayEnvironmentConnectScope } from "@t3tools/contracts/relay";
-import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -182,7 +181,6 @@ const makeRelayBroker = Effect.fn("clientRuntime.connection.broker.makeRelay")(f
       } satisfies PreparedConnection;
     },
     Effect.withSpan("clientRuntime.connection.broker.relay"),
-    withRelayClientTracing,
   );
 });
 

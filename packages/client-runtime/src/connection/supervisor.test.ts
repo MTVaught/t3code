@@ -1,5 +1,4 @@
 import { EnvironmentId } from "@t3tools/contracts";
-import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -238,7 +237,7 @@ describe("EnvironmentSupervisor", () => {
         initiallyDesired: true,
       }).pipe(
         Effect.provide(harness.dependencies),
-        Effect.provideService(RelayClientTracer, Option.some(tracer)),
+        Effect.withTracer(tracer),
       );
 
       yield* awaitState(

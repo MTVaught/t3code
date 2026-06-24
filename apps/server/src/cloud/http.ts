@@ -29,7 +29,6 @@ import {
   RelayLinkProofRequest,
   RelayManagedEndpointOrigin,
 } from "@t3tools/contracts/relay";
-import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import {
   normalizeRelayIssuer,
   RELAY_HEALTH_REQUEST_TYP,
@@ -506,7 +505,6 @@ const relayClientRequest = <A>(
           message: `T3 Connect relay request failed: ${String(cause)}`,
         }),
     ),
-    withRelayClientTracing,
   );
 
 const reconcileDesiredCloudLinkWith = Effect.fn("environment.cloud.reconcileDesiredLinkWith")(

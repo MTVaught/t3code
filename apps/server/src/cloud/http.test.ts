@@ -6,7 +6,6 @@ import * as PlatformError from "effect/PlatformError";
 import * as Tracer from "effect/Tracer";
 import { HttpClient, HttpServerRequest } from "effect/unstable/http";
 
-import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -114,7 +113,7 @@ describe("relay request tracing", () => {
 
       yield* traceRelayRequest(Effect.void.pipe(Effect.withSpan("relay.mint.handler"))).pipe(
         Effect.provideService(HttpServerRequest.HttpServerRequest, request),
-        Effect.provideService(RelayClientTracer, Option.some(productTracer)),
+        Effect.withTracer(productTracer),
       );
 
       expect(spans).toHaveLength(1);
@@ -146,7 +145,7 @@ describe("relay request tracing", () => {
         Effect.void.pipe(Effect.withSpan("relay.mint.handler")),
       ).pipe(
         Effect.provideService(HttpServerRequest.HttpServerRequest, request),
-        Effect.provideService(RelayClientTracer, Option.some(productTracer)),
+        Effect.withTracer(productTracer),
       );
 
       expect(spans).toHaveLength(1);
