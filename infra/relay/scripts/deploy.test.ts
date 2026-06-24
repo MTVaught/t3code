@@ -1,4 +1,8 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 
 import {
   hasDeployChanges,
@@ -133,6 +137,28 @@ describe("serializeGithubOutput", () => {
       }),
     ).toBe("changed=false\nresult=noop\nrelay_url=https://relay.example.test\n");
   });
+});
+
+describe("release workflow tracing config propagation", () => {
+  it.effect("does not propagate relay tracing config (relay deploy removed for fork)", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workflowPath = yield* path.fromFileUrl(
+        new URL("../../../.github/workflows/release.yml", import.meta.url),
+      );
+      const workflow = yield* fileSystem.readFileString(workflowPath);
+
+      // This fork removed the Cloudflare relay deploy from the release workflow,
+      // so there is no tracing token to propagate at all. Guard against
+      // reintroducing the relay_public_config job or the insecure masked
+      // cross-job token output it previously fed.
+      expect(workflow).not.toContain("client_tracing_token:");
+      expect(workflow).not.toContain("needs.relay_public_config.outputs.client_tracing_token");
+      expect(workflow).not.toContain("relay_public_config");
+      expect(workflow).not.toContain("relay-client-tracing-config");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });
 
 describe("publicConfigFromOutput", () => {
