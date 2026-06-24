@@ -116,8 +116,18 @@ export function makeCloudCliOAuthConfig({
 
 export const cloudCliOAuthConfig = makeCloudCliOAuthConfig();
 
-export const hasCloudPublicConfig = Boolean(
-  (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
-  (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
-  (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
-);
+// Compliance kill switch: T3 Connect (relay / cloud) usage is not permitted in
+// this environment, so the cloud code path is hard-disabled regardless of
+// build-time or runtime configuration. Grep CLOUD_FEATURE_DISABLED for the
+// matching client-side gates in apps/web and apps/mobile. The underlying
+// configuration check is retained behind the flag so it stays type-checked and
+// can be restored by flipping this constant to false.
+export const CLOUD_FEATURE_DISABLED: boolean = true;
+
+export const hasCloudPublicConfig: boolean =
+  !CLOUD_FEATURE_DISABLED &&
+  Boolean(
+    (normalizeSecureRelayUrl(process.env.T3CODE_RELAY_URL ?? "") ?? buildTimeRelayUrl) &&
+    (process.env.T3CODE_CLERK_PUBLISHABLE_KEY?.trim() || buildTimeClerkPublishableKey) &&
+    (process.env.T3CODE_CLERK_CLI_OAUTH_CLIENT_ID?.trim() || buildTimeClerkCliOAuthClientId),
+  );
