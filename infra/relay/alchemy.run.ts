@@ -28,7 +28,8 @@ export default Alchemy.Stack(
     const hyperdrive = yield* RelayDb.RelayHyperdrive;
     const managedEndpointZone = yield* ManagedEndpointZone.pipe(Effect.orDie);
     const relayApiZone = yield* RelayApiZone.pipe(Effect.orDie);
-    const observability = yield* RelayObservability;
+    // Provision the relay Worker's own server-side observability resources.
+    yield* RelayObservability;
     const api = yield* Api;
 
     return {
@@ -39,12 +40,6 @@ export default Alchemy.Stack(
       url: api.url,
       relayApiZoneId: relayApiZone.zoneId,
       managedEndpointZoneId: managedEndpointZone.zoneId,
-      mobileTracingUrl: observability.traces.otelTracesEndpoint,
-      mobileTracingDataset: observability.traces.name,
-      mobileTracingToken: observability.mobileIngestToken.token,
-      clientTracingUrl: observability.traces.otelTracesEndpoint,
-      clientTracingDataset: observability.traces.name,
-      clientTracingToken: observability.clientIngestToken.token,
     };
   }),
 );
