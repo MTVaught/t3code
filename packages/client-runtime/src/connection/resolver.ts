@@ -143,45 +143,42 @@ const makeRelayBroker = Effect.fn("clientRuntime.connection.broker.makeRelay")(f
   const identity = yield* ClientCapabilities.RelayDeviceIdentity;
   const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
 
-  return Effect.fnUntraced(
-    function* (target: RelayConnectionTarget) {
-      const authorized = yield* remote.authorizeDpop({
-        expectedEnvironmentId: target.environmentId,
-        obtainBootstrap: Effect.gen(function* () {
-          const clerkToken = yield* session.clerkToken.pipe(
-            Effect.withSpan("relay.connection.cloudSessionToken.resolve"),
-          );
-          const deviceId = yield* identity.deviceId.pipe(
-            Effect.withSpan("relay.connection.deviceIdentity.resolve"),
-          );
-          const connected = yield* relay
-            .connectEnvironment({
-              clerkToken,
-              scopes: [RelayEnvironmentConnectScope],
-              environmentId: target.environmentId,
-              ...(Option.isSome(deviceId) ? { deviceId: deviceId.value } : {}),
-            })
-            .pipe(Effect.mapError(mapManagedRelayError));
-          if (connected.environmentId !== target.environmentId) {
-            return yield* environmentMismatchError({
-              expected: target.environmentId,
-              actual: connected.environmentId,
-            });
-          }
-          return connected;
-        }).pipe(Effect.withSpan("relay.connection.bootstrap.obtain")),
-      });
-      return {
-        environmentId: authorized.environmentId,
-        label: authorized.label,
-        httpBaseUrl: authorized.httpBaseUrl,
-        socketUrl: authorized.socketUrl,
-        httpAuthorization: authorized.httpAuthorization,
-        target,
-      } satisfies PreparedConnection;
-    },
-    Effect.withSpan("clientRuntime.connection.broker.relay"),
-  );
+  return Effect.fnUntraced(function* (target: RelayConnectionTarget) {
+    const authorized = yield* remote.authorizeDpop({
+      expectedEnvironmentId: target.environmentId,
+      obtainBootstrap: Effect.gen(function* () {
+        const clerkToken = yield* session.clerkToken.pipe(
+          Effect.withSpan("relay.connection.cloudSessionToken.resolve"),
+        );
+        const deviceId = yield* identity.deviceId.pipe(
+          Effect.withSpan("relay.connection.deviceIdentity.resolve"),
+        );
+        const connected = yield* relay
+          .connectEnvironment({
+            clerkToken,
+            scopes: [RelayEnvironmentConnectScope],
+            environmentId: target.environmentId,
+            ...(Option.isSome(deviceId) ? { deviceId: deviceId.value } : {}),
+          })
+          .pipe(Effect.mapError(mapManagedRelayError));
+        if (connected.environmentId !== target.environmentId) {
+          return yield* environmentMismatchError({
+            expected: target.environmentId,
+            actual: connected.environmentId,
+          });
+        }
+        return connected;
+      }).pipe(Effect.withSpan("relay.connection.bootstrap.obtain")),
+    });
+    return {
+      environmentId: authorized.environmentId,
+      label: authorized.label,
+      httpBaseUrl: authorized.httpBaseUrl,
+      socketUrl: authorized.socketUrl,
+      httpAuthorization: authorized.httpAuthorization,
+      target,
+    } satisfies PreparedConnection;
+  }, Effect.withSpan("clientRuntime.connection.broker.relay"));
 });
 
 const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(function* () {

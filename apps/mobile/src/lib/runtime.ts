@@ -23,10 +23,7 @@ type RuntimeLayerSource =
 const runtimeLayer = Layer.merge(
   managedRelayClientLayer(configuredRelayUrl()),
   Socket.layerWebSocketConstructorGlobal,
-).pipe(
-  Layer.provideMerge(cryptoLayer),
-  Layer.provideMerge(httpClientLayer),
-);
+).pipe(Layer.provideMerge(cryptoLayer), Layer.provideMerge(httpClientLayer));
 
 export const runtime: ManagedRuntime.ManagedRuntime<
   Layer.Success<RuntimeLayerSource>,

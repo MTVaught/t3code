@@ -235,10 +235,7 @@ describe("EnvironmentSupervisor", () => {
       });
       const supervisor = yield* EnvironmentSupervisor.make(RELAY_ENTRY, {
         initiallyDesired: true,
-      }).pipe(
-        Effect.provide(harness.dependencies),
-        Effect.withTracer(tracer),
-      );
+      }).pipe(Effect.provide(harness.dependencies), Effect.withTracer(tracer));
 
       yield* awaitState(
         supervisor.state,
