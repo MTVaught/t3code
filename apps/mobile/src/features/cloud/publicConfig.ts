@@ -73,9 +73,17 @@ export function resolveCloudPublicConfig(extra: ExpoExtra = Constants.expoConfig
   } satisfies CloudPublicConfig;
 }
 
+// Compliance kill switch: T3 Connect (relay / cloud) is not permitted in this
+// environment, so cloud UI and relay auth are force-disabled regardless of
+// build configuration. See CLOUD_FEATURE_DISABLED in apps/server and apps/web.
+const CLOUD_FEATURE_DISABLED: boolean = true;
+
 export function hasCloudPublicConfig(): boolean {
   const config = resolveCloudPublicConfig();
-  return Boolean(config.clerk.publishableKey && config.clerk.jwtTemplate && config.relay.url);
+  return (
+    !CLOUD_FEATURE_DISABLED &&
+    Boolean(config.clerk.publishableKey && config.clerk.jwtTemplate && config.relay.url)
+  );
 }
 
 type Configured<T> = {
