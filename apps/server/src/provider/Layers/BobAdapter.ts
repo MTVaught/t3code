@@ -248,7 +248,7 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
  * the adapter supplies a fixed size as the token-usage max, letting the context-
  * window meter show a fill ratio.
  */
-const BOB_CONTEXT_WINDOW = 100_000;
+const BOB_CONTEXT_WINDOW = 200_000;
 
 function bobContextWindowForTier(_tier: string): number {
   return BOB_CONTEXT_WINDOW;
