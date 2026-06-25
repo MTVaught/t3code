@@ -99,3 +99,46 @@ jobs:
 
       - name: Exercise release-only workflow steps
         run: node scripts/release-smoke.ts
+
+  # We ship to users who must run on RHEL8. GitHub offers no RHEL8 runner and
+  # real RHEL8 needs a subscription, so this builds the Linux AppImage on the
+  # normal runner and then launch-tests it inside a RHEL8-ABI-compatible
+  # container (Rocky Linux 8 -- same glibc 2.28 as RHEL8). Entirely free Actions
+  # minutes; fails the build if the app cannot launch on RHEL8.
+  linux_rhel8:
+    name: Linux RHEL8 Launch Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Install ImageMagick
+        run: |
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y imagemagick
+          fi
+
+      - name: Build Linux x64 AppImage
+        run: vp run dist:desktop:artifact --platform linux --target AppImage --arch x64 --verbose
+
+      - name: Launch on RHEL8 (Rocky Linux 8, glibc 2.28)
+        run: |
+          set -euo pipefail
+          appimage="$(ls release/*.AppImage | head -1)"
+          echo "Testing: ${appimage}"
+          docker run --rm \
+            -v "${PWD}:/work" -w /work \
+            rockylinux:8 \
+            bash scripts/rhel8-appimage-gate.sh "/work/${appimage}"
