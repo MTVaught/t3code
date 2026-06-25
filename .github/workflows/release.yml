@@ -226,6 +226,14 @@ jobs:
               convert -version
           fi
 
+      # Compile native node addons (node-pty) against an old glibc so the Linux
+      # AppImage runs on RHEL8 (glibc 2.28). Without this, node-pty built on the
+      # ubuntu-24.04 host needs GLIBC_2.34 and the backend crashes on RHEL8.
+      - name: Set up old-glibc (RHEL8) compiler for native modules
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: bash scripts/setup-zig-glibc.sh
+
       - name: Prepare Azure Trusted Signing
         if: matrix.platform == 'win'
         shell: pwsh
