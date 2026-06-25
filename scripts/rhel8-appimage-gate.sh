@@ -76,6 +76,14 @@ else
     } | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1
   )"
   echo "highest required: ${highest:-unknown}  |  RHEL8 provides GLIBC_${RHEL8_GLIBC}"
+  echo "-- files that require GLIBC > ${RHEL8_GLIBC} (these break on RHEL8) --"
+  find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) 2>/dev/null | while read -r f; do
+    fv="$(objdump -T "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1)"
+    fver="${fv#GLIBC_}"
+    if [[ -n "$fver" && "$(printf '%s\n%s\n' "$fver" "$RHEL8_GLIBC" | sort -V | tail -1)" != "$RHEL8_GLIBC" ]]; then
+      echo "  ${fv}  ${f#squashfs-root/}"
+    fi
+  done
   ver="${highest#GLIBC_}"
   if [[ -n "$ver" && "$(printf '%s\n%s\n' "$ver" "$RHEL8_GLIBC" | sort -V | tail -1)" != "$RHEL8_GLIBC" ]]; then
     note "app requires ${highest}, which exceeds RHEL8's GLIBC_${RHEL8_GLIBC}. Electron 41 cannot run on RHEL8 (needs RHEL9/glibc 2.34, or an older Electron). Rebuilding on an older Ubuntu will NOT help -- the requirement is in Electron's prebuilt binary."
@@ -119,6 +127,21 @@ else
   if [[ -n "$fatal" ]]; then
     note "fatal launch errors detected:"
     printf '%s\n' "$fatal"
+  fi
+  echo "::endgroup::"
+
+  echo "::group::5. App-internal logs (backend child-process failures land here)"
+  # The Electron main process may launch while a bundled child process (e.g.
+  # the backend server / a native helper) crashes -- which still leaves the app
+  # unusable. Surface those logs and the raw backend error.
+  for d in "$HOME/.t3/userdata/logs" /root/.t3/userdata/logs; do
+    if [[ -d "$d" ]]; then
+      echo "---- ${d} ----"
+      find "$d" -type f -exec sh -c 'echo "== $1 =="; tail -40 "$1"' _ {} \;
+    fi
+  done
+  if grep -rqiE "GLIBC_[0-9.]+ not found|error while loading shared libraries" "$HOME/.t3" /root/.t3 2>/dev/null; then
+    note "backend child process fails to load a glibc-too-new / missing library on RHEL8 (see logs above)"
   fi
   echo "::endgroup::"
 fi
