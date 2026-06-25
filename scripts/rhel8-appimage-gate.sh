@@ -28,7 +28,11 @@ echo "::endgroup::"
 echo "::group::Install runtime + diagnostic dependencies"
 # epel-release helps on UBI8; harmless elsewhere.
 dnf -y install epel-release >/dev/null 2>&1 || true
-dnf -y install \
+# strict=0: install every package that resolves and skip (with a logged "No
+# match for argument") any that the image's repos do not carry, instead of
+# aborting the whole transaction on the first unknown name. Output is kept
+# visible so the log shows exactly what is and is not available on RHEL8.
+dnf -y --setopt=strict=0 install \
   binutils file findutils tar procps-ng coreutils \
   xorg-x11-server-Xvfb \
   fuse fuse-libs \
@@ -36,8 +40,8 @@ dnf -y install \
   libdrm mesa-libgbm libxkbcommon \
   libX11 libXcomposite libXdamage libXext libXfixes libXrandr libxcb libXScrnSaver libXtst \
   pango cairo gdk-pixbuf2 gtk3 \
-  alsa-lib libnotify libuuid >/dev/null 2>&1 ||
-  echo "WARN: some dependencies failed to install (repo coverage differs by image)"
+  alsa-lib libnotify libuuid ||
+  echo "WARN: dnf returned non-zero even with strict=0"
 echo "::endgroup::"
 
 WORKDIR="$(mktemp -d)"
