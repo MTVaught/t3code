@@ -130,6 +130,9 @@ jobs:
             sudo apt-get install -y imagemagick
           fi
 
+      - name: Set up old-glibc (RHEL8) compiler for native modules
+        run: bash scripts/setup-zig-glibc.sh
+
       - name: Build Linux x64 AppImage
         run: vp run dist:desktop:artifact --platform linux --target AppImage --arch x64 --verbose
 
