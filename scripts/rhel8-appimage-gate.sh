@@ -86,7 +86,7 @@ else
   done
   ver="${highest#GLIBC_}"
   if [[ -n "$ver" && "$(printf '%s\n%s\n' "$ver" "$RHEL8_GLIBC" | sort -V | tail -1)" != "$RHEL8_GLIBC" ]]; then
-    note "app requires ${highest}, which exceeds RHEL8's GLIBC_${RHEL8_GLIBC}. Electron 41 cannot run on RHEL8 (needs RHEL9/glibc 2.34, or an older Electron). Rebuilding on an older Ubuntu will NOT help -- the requirement is in Electron's prebuilt binary."
+    note "a bundled component requires ${highest}, exceeding RHEL8's GLIBC_${RHEL8_GLIBC}. See the offender list above -- these are app-bundled native modules (e.g. node-pty, @ff-labs/fff-bin), NOT Electron itself (Electron's prebuilt is fine on RHEL8). Fix: build/obtain those natives against glibc <= ${RHEL8_GLIBC} (compile in a manylinux_2_28 / RHEL8 / Rocky8 container) or use a musl build."
   fi
   echo "::endgroup::"
 
