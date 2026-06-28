@@ -3,9 +3,18 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL, ProviderOptionSelections } from "./model.ts";
+import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_DRIVER_KIND,
+  ProviderOptionSelections,
+} from "./model.ts";
 import { ModelSelection } from "./orchestration.ts";
-import { ProviderInstanceConfig, ProviderInstanceId } from "./providerInstance.ts";
+import {
+  defaultInstanceIdForDriver,
+  ProviderInstanceConfig,
+  ProviderInstanceId,
+} from "./providerInstance.ts";
 
 // ── Client Settings (local-only) ───────────────────────────────
 
@@ -258,9 +267,7 @@ const BobMaxCoins = TrimmedString.check(
 export const BobSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
-      // Gated off by default: Bob is an early-access provider and only spins up
-      // once the user explicitly enables it in settings.
-      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("bob").pipe(
@@ -449,8 +456,10 @@ export const ServerSettings = Schema.Struct({
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
-        instanceId: ProviderInstanceId.make("codex"),
-        model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+        instanceId: defaultInstanceIdForDriver(DEFAULT_PROVIDER_DRIVER_KIND),
+        model:
+          DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[DEFAULT_PROVIDER_DRIVER_KIND] ??
+          DEFAULT_GIT_TEXT_GENERATION_MODEL,
       }),
     ),
   ),
