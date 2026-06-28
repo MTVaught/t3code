@@ -7,7 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
-  DEFAULT_MODEL,
+  DEFAULT_BOB_MODEL,
   type EnvironmentId,
   type FilesystemBrowseResult,
   type ProjectId,
@@ -1091,8 +1091,8 @@ function OpenCommandPaletteDialog(props: {
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: true,
           defaultModelSelection: {
-            instanceId: ProviderInstanceId.make("codex"),
-            model: DEFAULT_MODEL,
+            instanceId: ProviderInstanceId.make("bob"),
+            model: DEFAULT_BOB_MODEL,
           },
         },
       });

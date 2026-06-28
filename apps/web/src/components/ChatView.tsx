@@ -1,5 +1,6 @@
 import {
   type ApprovalRequestId,
+  DEFAULT_BOB_MODEL,
   DEFAULT_MODEL,
   defaultInstanceIdForDriver,
   type EnvironmentId,
@@ -1196,8 +1197,8 @@ function ChatViewContent(props: ChatViewProps) {
             threadId,
             draftThread,
             fallbackDraftProject?.defaultModelSelection ?? {
-              instanceId: ProviderInstanceId.make("codex"),
-              model: DEFAULT_MODEL,
+              instanceId: ProviderInstanceId.make("bob"),
+              model: DEFAULT_BOB_MODEL,
             },
           )
         : undefined,
