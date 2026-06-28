@@ -7,7 +7,12 @@ import type {
   SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
-import { DEFAULT_BOB_MODEL, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_DRIVER_KIND,
+  defaultInstanceIdForDriver,
+} from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
@@ -216,8 +221,8 @@ export function buildProjectCreateCommand(input: {
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
     defaultModelSelection: {
-      instanceId: ProviderInstanceId.make("bob"),
-      model: DEFAULT_BOB_MODEL,
+      instanceId: defaultInstanceIdForDriver(DEFAULT_PROVIDER_DRIVER_KIND),
+      model: DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER_DRIVER_KIND] ?? DEFAULT_MODEL,
     },
     createdAt: input.createdAt,
   };

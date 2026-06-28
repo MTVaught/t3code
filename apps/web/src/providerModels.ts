@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_DRIVER_KIND,
   defaultInstanceIdForDriver,
   ProviderDriverKind,
   type ModelCapabilities,
@@ -13,7 +14,6 @@ import { createModelCapabilities, normalizeModelSlug } from "@t3tools/shared/mod
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("bob");
 
 export function formatProviderDriverKindLabel(provider: ProviderDriverKind): string {
   return provider
@@ -74,7 +74,7 @@ export function resolveSelectableProvider(
   if (requestedEntry?.enabled) {
     return requestedEntry.driver;
   }
-  return providers.find((candidate) => candidate.enabled)?.driver ?? DEFAULT_DRIVER_KIND;
+  return providers.find((candidate) => candidate.enabled)?.driver ?? DEFAULT_PROVIDER_DRIVER_KIND;
 }
 
 export function getProviderModelCapabilities(

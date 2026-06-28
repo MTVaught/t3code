@@ -1,5 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_BOB_MODEL, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_DRIVER_KIND,
+  defaultInstanceIdForDriver,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
@@ -17,8 +24,8 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 
 it("uses the canonical Bob default for auto-bootstrapped model selection", () => {
   assert.deepStrictEqual(ServerRuntimeStartup.getAutoBootstrapDefaultModelSelection(), {
-    instanceId: ProviderInstanceId.make("bob"),
-    model: DEFAULT_BOB_MODEL,
+    instanceId: defaultInstanceIdForDriver(DEFAULT_PROVIDER_DRIVER_KIND),
+    model: DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER_DRIVER_KIND] ?? DEFAULT_MODEL,
   });
 });
 
