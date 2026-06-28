@@ -1476,6 +1476,38 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("persists resume cursors emitted with turn completion", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const session = yield* provider.startSession(asThreadId("thread-resume-update"), {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-resume-update"),
+        runtimeMode: "full-access",
+      });
+      yield* advanceTestClock(50);
+      const resumeCursor = { resumeSessionId: "bob-session-id" };
+
+      fanout.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("evt-resume-update"),
+        provider: CODEX_DRIVER,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId: session.threadId,
+        turnId: asTurnId("turn-resume-update"),
+        payload: { state: "completed", resumeCursor },
+      });
+      yield* advanceTestClock(50);
+
+      const binding = yield* directory.getBinding(session.threadId);
+      assert.isTrue(Option.isSome(binding));
+      if (Option.isSome(binding)) {
+        assert.deepEqual(binding.value.resumeCursor, resumeCursor);
+      }
+    }),
+  );
+
   it.effect("fans out adapter turn completion events", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

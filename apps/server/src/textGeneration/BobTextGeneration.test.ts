@@ -177,7 +177,7 @@ it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
     ),
   );
 
-  it.effect("passes read-only chat mode and yolo flags to bob", () =>
+  it.effect("passes read-only chat mode to bob", () =>
     withFakeBobEnv(
       {
         output: [
@@ -188,7 +188,7 @@ it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
           }),
           streamLine({ type: "result", status: "success" }),
         ].join("\n"),
-        argsMustContain: "--chat-mode ask --yolo",
+        argsMustContain: "--chat-mode ask",
       },
       (textGeneration) =>
         Effect.gen(function* () {

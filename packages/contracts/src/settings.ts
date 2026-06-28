@@ -246,6 +246,15 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
+const BobMaxCoins = TrimmedString.check(
+  Schema.makeFilter(
+    (value) =>
+      value.length === 0 ||
+      (Number.isFinite(Number(value)) && Number(value) > 0) ||
+      "Max coins must be empty or a positive number",
+  ),
+);
+
 export const BobSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -270,18 +279,18 @@ export const BobSettings = makeProviderSettingsSchema(
       }),
     ),
     approvalMode: Schema.Literals(["default", "auto_edit", "yolo"]).pipe(
-      Schema.withDecodingDefault(Effect.succeed("yolo")),
+      Schema.withDecodingDefault(Effect.succeed("auto_edit")),
       Schema.annotateKey({
         title: "Approval mode",
         description:
-          "bob has no interactive approvals in non-interactive mode. 'default' = read-only tools only (no file writes); 'auto_edit' = auto-approve edits; 'yolo' = auto-approve all tools (writes and commands).",
+          "Bob cannot request approval through T3 Code. 'default' leaves tools requiring approval unavailable; 'auto_edit' auto-approves edits; 'yolo' auto-approves all tools, including commands.",
       }),
     ),
     chatMode: Schema.Literals(["plan", "code", "advanced", "ask"]).pipe(
       Schema.withDecodingDefault(Effect.succeed("code")),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
-    maxCoins: TrimmedString.pipe(
+    maxCoins: BobMaxCoins.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Max coins",
@@ -546,7 +555,7 @@ const BobSettingsPatch = Schema.Struct({
   apiKey: Schema.optionalKey(TrimmedString),
   approvalMode: Schema.optionalKey(Schema.Literals(["default", "auto_edit", "yolo"])),
   chatMode: Schema.optionalKey(Schema.Literals(["plan", "code", "advanced", "ask"])),
-  maxCoins: Schema.optionalKey(TrimmedString),
+  maxCoins: Schema.optionalKey(BobMaxCoins),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
