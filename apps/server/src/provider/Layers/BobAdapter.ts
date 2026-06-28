@@ -77,6 +77,7 @@ interface BobTurnState {
   /** Lazily-created item id for the model's intermediary reasoning stream. */
   reasoningItemId: string | undefined;
   reasoningText: string;
+  reasoningMarkupCarry: string;
   emittedReasoningDelta: boolean;
   reasoningCompleted: boolean;
   /** The authoritative final answer captured from `attempt_completion`. */
@@ -85,6 +86,7 @@ interface BobTurnState {
   assistantCompleted: boolean;
   completed: boolean;
   totalCostUsd: number | undefined;
+  result: { readonly state: RuntimeTurnState; readonly errorMessage?: string } | undefined;
   /** bob's context window for this turn's tier, used as the token-usage max. */
   readonly contextWindowTokens: number;
   readonly tools: Map<string, BobToolInFlight>;
@@ -291,6 +293,23 @@ function turnStateFromBobStatus(status: string | undefined): RuntimeTurnState {
   return status === "success" ? "completed" : "failed";
 }
 
+const BOB_THINKING_TAGS = ["<thinking>", "</thinking>"] as const;
+
+function stripThinkingMarkup(turnState: BobTurnState, content: string): string {
+  const combined = turnState.reasoningMarkupCarry + content;
+  let carryLength = 0;
+  for (const tag of BOB_THINKING_TAGS) {
+    for (let length = 1; length < tag.length && length <= combined.length; length += 1) {
+      if (combined.endsWith(tag.slice(0, length))) {
+        carryLength = Math.max(carryLength, length);
+      }
+    }
+  }
+  const complete = carryLength > 0 ? combined.slice(0, -carryLength) : combined;
+  turnState.reasoningMarkupCarry = carryLength > 0 ? combined.slice(-carryLength) : "";
+  return complete.split("<thinking>").join("").split("</thinking>").join("");
+}
+
 export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   bobConfig: BobSettings,
   options?: BobAdapterLiveOptions,
@@ -401,6 +420,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
   ) {
+    if (turnState.reasoningMarkupCarry.length > 0) {
+      turnState.reasoningText += turnState.reasoningMarkupCarry;
+      turnState.reasoningMarkupCarry = "";
+    }
     if (turnState.reasoningItemId !== undefined && !turnState.reasoningCompleted) {
       turnState.reasoningCompleted = true;
       const detail = trimmedOrUndefined(turnState.reasoningText);
@@ -453,6 +476,34 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     });
   });
 
+  const failOutstandingTools = Effect.fn("bob.failOutstandingTools")(function* (
+    context: BobSessionContext,
+    turnState: BobTurnState,
+    detail: string,
+  ) {
+    for (const tool of turnState.tools.values()) {
+      const stamp = yield* makeEventStamp();
+      yield* offerRuntimeEvent({
+        type: "item.completed",
+        eventId: stamp.eventId,
+        provider: PROVIDER,
+        providerInstanceId: boundInstanceId,
+        createdAt: stamp.createdAt,
+        threadId: context.session.threadId,
+        turnId: turnState.turnId,
+        itemId: RuntimeItemId.make(tool.itemId),
+        payload: {
+          itemType: tool.itemType,
+          status: "failed",
+          title: titleForItemType(tool.itemType),
+          detail,
+          data: { toolName: tool.toolName, input: tool.parameters },
+        },
+      });
+    }
+    turnState.tools.clear();
+  });
+
   const completeTurn = Effect.fn("bob.completeTurn")(function* (
     context: BobSessionContext,
     turnState: BobTurnState,
@@ -463,6 +514,15 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     }
     turnState.completed = true;
 
+    if (turnState.tools.size > 0) {
+      yield* failOutstandingTools(
+        context,
+        turnState,
+        result.state === "interrupted"
+          ? "Tool call interrupted before Bob returned a result."
+          : "Bob ended the turn before returning a tool result.",
+      );
+    }
     yield* completeFinalItems(context, turnState);
 
     const stamp = yield* makeEventStamp();
@@ -479,6 +539,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         state: result.state,
         ...(errorMessage ? { errorMessage } : {}),
         ...(turnState.totalCostUsd !== undefined ? { totalCostUsd: turnState.totalCostUsd } : {}),
+        ...(context.resumeSessionId
+          ? { resumeCursor: { resumeSessionId: context.resumeSessionId } }
+          : {}),
       },
     });
 
@@ -662,7 +725,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         }
         // Assistant `message` events are intermediary reasoning, not the answer.
         // Strip the <thinking> wrappers and stream the rest as reasoning.
-        const cleaned = content.split("<thinking>").join("").split("</thinking>").join("");
+        const cleaned = stripThinkingMarkup(turnState, content);
         if (cleaned.length === 0) return;
         yield* emitReasoningDelta(context, turnState, cleaned);
         return;
@@ -689,10 +752,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
           yield* emitTokenUsage(context, turnState, stats);
         }
         const errorMessage = status === "success" ? undefined : readBobResultError(event);
-        yield* completeTurn(context, turnState, {
+        turnState.result = {
           state: turnStateFromBobStatus(status),
           ...(errorMessage ? { errorMessage: `Bob: ${errorMessage}` } : {}),
-        });
+        };
         return;
       }
       default:
@@ -766,18 +829,29 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       const exitCode = yield* child.exitCode;
       if (!turnState.completed) {
         const failureDetail = trimmedOrUndefined(stderrTail);
+        const observedResult = turnState.result;
         yield* completeTurn(
           context,
           turnState,
-          exitCode === 0
-            ? { state: "completed" }
+          exitCode === 0 && observedResult?.state !== "failed"
+            ? (observedResult ?? { state: "completed" })
             : {
                 state: "failed",
-                errorMessage: failureDetail
-                  ? `Bob exited with code ${exitCode}: ${failureDetail}`
-                  : `Bob exited with code ${exitCode}.`,
+                errorMessage:
+                  observedResult?.errorMessage ??
+                  (failureDetail
+                    ? `Bob exited with code ${exitCode}: ${failureDetail}`
+                    : exitCode === 0
+                      ? "Bob reported that the turn failed."
+                      : `Bob exited with code ${exitCode}.`),
               },
         );
+        if (exitCode === 0 && failureDetail) {
+          yield* Effect.logWarning("bob.turn.stderr", {
+            threadId: context.session.threadId,
+            detail: failureDetail,
+          });
+        }
       }
     }).pipe(Effect.scoped);
 
@@ -898,9 +972,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       });
     }
     if ((input.attachments?.length ?? 0) > 0) {
-      yield* Effect.logWarning("bob.turn.attachments-ignored", {
-        threadId: input.threadId,
-        count: input.attachments?.length ?? 0,
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "Bob does not support attachments; remove them before sending the turn.",
       });
     }
 
@@ -915,6 +990,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       assistantItemId: yield* randomUUIDv4,
       reasoningItemId: undefined,
       reasoningText: "",
+      reasoningMarkupCarry: "",
       emittedReasoningDelta: false,
       reasoningCompleted: false,
       finalAnswer: undefined,
@@ -922,6 +998,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       assistantCompleted: false,
       completed: false,
       totalCostUsd: undefined,
+      result: undefined,
       contextWindowTokens: bobContextWindowForTier(tier),
       tools: new Map(),
       items: [],
@@ -1021,10 +1098,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
   const rollbackThread: BobAdapterShape["rollbackThread"] = Effect.fn("bob.rollbackThread")(
     function* (threadId, numTurns) {
-      const context = yield* requireSession(threadId);
-      const nextLength = Math.max(0, context.turns.length - numTurns);
-      context.turns.splice(nextLength);
-      return snapshotThread(context);
+      yield* requireSession(threadId);
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "thread/rollback",
+        detail: `Bob cannot roll back ${numTurns} turn(s) without retaining them in its resumed session.`,
+      });
     },
   );
 

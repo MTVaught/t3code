@@ -5,7 +5,7 @@
  * backend — we prompt bob for a JSON object, collect its stream-json output, and
  * parse the result ourselves. Each operation spawns a one-shot
  *
- *   bob -p "<prompt>" -o stream-json -m <tier> --chat-mode ask --yolo
+ *   bob -p "<prompt>" -o stream-json -m <tier> --chat-mode ask
  *
  * subprocess. bob streams newline-delimited JSON events; the authoritative final
  * answer is the `attempt_completion` tool's `result` parameter, falling back to
@@ -116,7 +116,7 @@ function parseBobStream(stdout: string): BobStreamOutcome {
         if (readString(event.role) !== "assistant") break;
         const content = readString(event.content);
         if (!content || content.startsWith("[using tool ")) break;
-        assistantText += content.split("<thinking>").join("").split("</thinking>").join("");
+        assistantText += content;
         break;
       }
       case "result": {
@@ -131,7 +131,11 @@ function parseBobStream(stdout: string): BobStreamOutcome {
     }
   }
 
-  return { finalAnswer, assistantText, errorMessage };
+  return {
+    finalAnswer,
+    assistantText: assistantText.split("<thinking>").join("").split("</thinking>").join(""),
+    errorMessage,
+  };
 }
 
 /**
@@ -199,11 +203,10 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
         "stream-json",
         "-m",
         tier,
-        // `ask` is bob's read-only conversational mode; `--yolo` keeps the
-        // one-shot run non-interactive so it never blocks on an approval.
+        // `ask` completes non-interactively without granting write or command
+        // approval. Bob's built-in attempt_completion tool remains available.
         "--chat-mode",
         "ask",
-        "--yolo",
         ...(bobSettings.maxCoins.trim().length > 0
           ? ["--max-coins", bobSettings.maxCoins.trim()]
           : []),

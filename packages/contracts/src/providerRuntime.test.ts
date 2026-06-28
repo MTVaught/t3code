@@ -6,6 +6,29 @@ import { ProviderRuntimeEvent } from "./providerRuntime.ts";
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
+  it("decodes a resume cursor carried by turn completion", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "turn.completed",
+      eventId: "event-bob-turn",
+      provider: "bob",
+      providerInstanceId: "bob",
+      createdAt: "2026-06-28T00:00:00.000Z",
+      threadId: "thread-bob",
+      turnId: "turn-bob",
+      payload: {
+        state: "completed",
+        resumeCursor: { resumeSessionId: "aec50d67-403c-4d08-a624-596bbd18a339" },
+      },
+    });
+
+    expect(parsed.type).toBe("turn.completed");
+    if (parsed.type === "turn.completed") {
+      expect(parsed.payload.resumeCursor).toEqual({
+        resumeSessionId: "aec50d67-403c-4d08-a624-596bbd18a339",
+      });
+    }
+  });
+
   it("accepts fork-provided driver kinds as branded slugs", () => {
     const parsed = decodeRuntimeEvent({
       type: "session.started",

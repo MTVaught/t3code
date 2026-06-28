@@ -83,6 +83,45 @@ const STREAM_JSON_LINES = [
 const bobTestLayer = NodeServices.layer;
 
 it.layer(bobTestLayer)("BobAdapter", (it) => {
+  it.effect("rejects attachments and rollback instead of silently diverging from Bob", () =>
+    Effect.gen(function* () {
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(makeStdoutHandle(STREAM_JSON_LINES)),
+      );
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ binaryPath: "bob", enabled: true }),
+        { instanceId: ProviderInstanceId.make("bob") },
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
+      const threadId = ThreadId.make("bob-unsupported-operations");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+
+      const attachmentError = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "describe this",
+          attachments: [
+            {
+              type: "image",
+              id: "attachment-1",
+              name: "probe.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+            },
+          ],
+        })
+        .pipe(Effect.flip);
+      assert.equal(attachmentError._tag, "ProviderAdapterValidationError");
+
+      const rollbackError = yield* adapter.rollbackThread(threadId, 1).pipe(Effect.flip);
+      assert.equal(rollbackError._tag, "ProviderAdapterRequestError");
+    }),
+  );
+
   it.effect("maps a stream-json turn to canonical runtime events", () =>
     Effect.gen(function* () {
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
@@ -204,6 +243,9 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
       if (turnCompleted?.type === "turn.completed") {
         assert.equal(turnCompleted.payload.state, "completed");
         assert.equal(turnCompleted.payload.totalCostUsd, 0.05);
+        assert.deepStrictEqual(turnCompleted.payload.resumeCursor, {
+          resumeSessionId: SESSION_UUID,
+        });
       }
 
       assert.isTrue(types.includes("turn.started"));
