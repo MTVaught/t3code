@@ -1,14 +1,34 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
   type ProviderInstanceConfig,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  buildGeneralSettingsRestorePatch,
   buildProviderInstanceUpdatePatch,
   formatDiagnosticsDescription,
+  getChangedGeneralSettingLabels,
 } from "./SettingsPanels.logic";
+
+describe("general settings restore", () => {
+  it("lists terminal shell when it is the only changed setting", () => {
+    expect(
+      getChangedGeneralSettingLabels(
+        { ...DEFAULT_UNIFIED_SETTINGS, defaultTerminalShell: "/bin/fish" },
+        "system",
+      ),
+    ).toEqual(["Terminal shell"]);
+  });
+
+  it("restores terminal shell to its schema default", () => {
+    expect(buildGeneralSettingsRestorePatch().defaultTerminalShell).toBe(
+      DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell,
+    );
+  });
+});
 
 describe("formatDiagnosticsDescription", () => {
   it("collapses trace and metric URLs that share the same OTEL base path", () => {
