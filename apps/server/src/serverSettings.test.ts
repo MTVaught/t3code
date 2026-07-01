@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  DEFAULT_BOB_MODEL,
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -320,6 +321,32 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(next.textGenerationModelSelection, {
         instanceId,
         model: "openai/gpt-5.5",
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("uses Bob's tier when Bob is the only enabled text-generation provider", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+      const next = yield* serverSettings.updateSettings({
+        providers: {
+          codex: { enabled: false },
+          claudeAgent: { enabled: false },
+          bob: { enabled: true },
+          cursor: { enabled: false },
+          grok: { enabled: false },
+          opencode: { enabled: false },
+        },
+        textGenerationModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4-mini",
+        },
+      });
+
+      assert.deepEqual(next.textGenerationModelSelection, {
+        instanceId: ProviderInstanceId.make("bob"),
+        model: DEFAULT_BOB_MODEL,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

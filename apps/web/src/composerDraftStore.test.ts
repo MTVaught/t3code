@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
 import {
+  DEFAULT_BOB_MODEL,
   defaultInstanceIdForDriver,
   EnvironmentId,
   ProjectId,
@@ -27,6 +28,8 @@ const CURSOR_INSTANCE = ProviderInstanceId.make("cursor");
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
 const CLAUDE_AGENT_DRIVER = ProviderDriverKind.make("claudeAgent");
 const CURSOR_DRIVER = ProviderDriverKind.make("cursor");
+const BOB_DRIVER = ProviderDriverKind.make("bob");
+const BOB_INSTANCE = ProviderInstanceId.make("bob");
 
 type ProviderOptionSelectionBag = ReadonlyArray<ProviderOptionSelection>;
 type ProviderOptionSelectionsByProvider = Partial<Record<string, ProviderOptionSelectionBag>>;
@@ -1506,6 +1509,19 @@ describe("composerDraftStore setModelSelection", () => {
     expect(
       draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[CODEX_INSTANCE],
     ).toEqual(modelSelection(CODEX_DRIVER, "gpt-5.3-codex"));
+  });
+
+  it("seeds Bob model options with Bob's default tier", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setProviderModelOptions(threadRef, BOB_DRIVER, toSelections({ mode: "default" }), {
+      instanceId: BOB_INSTANCE,
+    });
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.activeProvider).toBe(BOB_INSTANCE);
+    expect(
+      draftFor(threadId, TEST_ENVIRONMENT_ID)?.modelSelectionByProvider[BOB_INSTANCE]?.model,
+    ).toBe(DEFAULT_BOB_MODEL);
   });
 });
 
