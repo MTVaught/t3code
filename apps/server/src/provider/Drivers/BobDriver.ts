@@ -48,7 +48,7 @@ const SNAPSHOT_REFRESH_INTERVAL = Duration.minutes(5);
 const UPDATE = makeStaticProviderMaintenanceResolver(
   makeManualOnlyProviderMaintenanceCapabilities({
     provider: DRIVER_KIND,
-    packageName: "bobshell",
+    packageName: null,
   }),
 );
 
