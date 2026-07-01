@@ -28,6 +28,15 @@ describe("general settings restore", () => {
       DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell,
     );
   });
+
+  it("includes provider update checks in bulk restore", () => {
+    const settings = { ...DEFAULT_UNIFIED_SETTINGS, enableProviderUpdateChecks: false };
+
+    expect(getChangedGeneralSettingLabels(settings, "system")).toEqual(["Provider update checks"]);
+    expect(buildGeneralSettingsRestorePatch().enableProviderUpdateChecks).toBe(
+      DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+    );
+  });
 });
 
 describe("formatDiagnosticsDescription", () => {
