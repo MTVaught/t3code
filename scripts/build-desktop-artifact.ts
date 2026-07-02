@@ -571,6 +571,7 @@ interface StagePackageJson {
 
 export const STAGE_INSTALL_ARGS = ["install", "--prod"] as const;
 export const DESKTOP_ASAR_UNPACK = ["node_modules/@ff-labs/fff-bin-*/**/*"] as const;
+export const WINDOWS_WSL_ASAR_UNPACK = ["apps/server/dist/**", "**/node_modules/**"] as const;
 
 export interface MacPasskeySigningConfiguration {
   readonly appId: string;
@@ -1336,6 +1337,12 @@ export function resolveDesktopProductName(version: string): string {
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
+export function createAsarUnpackPatterns(platform: typeof BuildPlatform.Type): readonly string[] {
+  return platform === "win"
+    ? [...DESKTOP_ASAR_UNPACK, ...WINDOWS_WSL_ASAR_UNPACK]
+    : [...DESKTOP_ASAR_UNPACK];
+}
+
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
@@ -1357,20 +1364,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
-    // The Windows primary backend runs the server bundle through
-    // ELECTRON_RUN_AS_NODE (asar-aware), so it reads bin.mjs straight out of
-    // app.asar. The WSL backend instead launches plain `wsl.exe -- node`, which
-    // cannot read inside an asar archive, so everything it loads must be on the
-    // real filesystem. The server bundle externalizes its runtime dependencies
-    // (effect, @effect/*, node-pty, ...) to node_modules rather than inlining
-    // them, so unpacking just the bundle + node-pty isn't enough — the Linux Node
-    // fails with ERR_MODULE_NOT_FOUND (e.g. "Cannot find package 'effect'") before
-    // it even reaches node-pty. Unpack the server bundle AND the whole
-    // node_modules tree so every import resolves (this also covers the fff native
-    // binaries in DESKTOP_ASAR_UNPACK). The Windows primary keeps reading the same
-    // files through the asar (transparently redirected to the unpacked copy), so
-    // there's no duplication.
-    asarUnpack: [...DESKTOP_ASAR_UNPACK, "apps/server/dist/**", "**/node_modules/**"],
+    asarUnpack: createAsarUnpackPatterns(platform),
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
