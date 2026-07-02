@@ -10,6 +10,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import {
   BuildCommandFailedError,
+  createAsarUnpackPatterns,
   createStageWorkspaceConfig,
   createStagePnpmConfig,
   createBuildConfig,
@@ -35,6 +36,7 @@ import {
   resolveMockUpdateServerUrl,
   stageLinuxIconSize,
   STAGE_INSTALL_ARGS,
+  WINDOWS_WSL_ASAR_UNPACK,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -238,6 +240,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.deepStrictEqual(DESKTOP_ASAR_UNPACK, ["node_modules/@ff-labs/fff-bin-*/**/*"]);
   });
 
+  it("keeps WSL-only unpack patterns out of non-Windows release packages", () => {
+    assert.deepStrictEqual(WINDOWS_WSL_ASAR_UNPACK, ["apps/server/dist/**", "**/node_modules/**"]);
+    assert.deepStrictEqual(createAsarUnpackPatterns("mac"), [...DESKTOP_ASAR_UNPACK]);
+    assert.deepStrictEqual(createAsarUnpackPatterns("linux"), [...DESKTOP_ASAR_UNPACK]);
+    assert.deepStrictEqual(createAsarUnpackPatterns("win"), [
+      ...DESKTOP_ASAR_UNPACK,
+      ...WINDOWS_WSL_ASAR_UNPACK,
+    ]);
+  });
+
   it.effect("preserves both Linux icon resize failures with structural context", () => {
     const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
 
@@ -402,6 +414,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       const mac = config.mac as Record<string, unknown>;
       assert.equal(config.appId, "com.t3tools.t3code");
+      assert.deepStrictEqual(config.asarUnpack, [...DESKTOP_ASAR_UNPACK]);
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
       assert.deepStrictEqual(mac.protocols, [
@@ -423,6 +436,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       );
 
       const win = config.win as Record<string, unknown>;
+      assert.deepStrictEqual(config.asarUnpack, [
+        ...DESKTOP_ASAR_UNPACK,
+        ...WINDOWS_WSL_ASAR_UNPACK,
+      ]);
       assert.equal(win.icon, "icon.ico");
       assert.equal(win.signAndEditExecutable, true);
       assert.notProperty(win, "azureSignOptions");
