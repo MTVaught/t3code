@@ -10,6 +10,7 @@
  */
 import {
   type BobSettings,
+  DEFAULT_BOB_MODEL,
   type ModelCapabilities,
   ProviderDriverKind,
   type ServerProviderModel,
@@ -59,7 +60,12 @@ const VERSION_PROBE_TIMEOUT_MS = 4_000;
  * account supports another model can still add it via `customModels`.
  */
 export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
-  { slug: "premium", name: "Premium", isCustom: false, capabilities: EMPTY_CAPABILITIES },
+  {
+    slug: DEFAULT_BOB_MODEL,
+    name: "Premium",
+    isCustom: false,
+    capabilities: EMPTY_CAPABILITIES,
+  },
 ];
 
 /**
