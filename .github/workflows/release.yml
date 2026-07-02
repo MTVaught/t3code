@@ -148,7 +148,8 @@ jobs:
     name: Build WSL node-pty (linux-x64)
     needs: [preflight]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
-    runs-on: ubuntu-latest
+    # The runner's glibc becomes the shipped pty.node floor; bump deliberately.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -184,6 +185,9 @@ jobs:
 
   build:
     name: Build ${{ matrix.label }}
+    # build_wsl_node_pty is in `needs` only for ordering/artifact availability. Do NOT
+    # require its success here: `!cancelled()` lets macOS/Linux build if it fails;
+    # the Windows-only artifact download then fails just that platform.
     needs: [preflight, build_wsl_node_pty]
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ${{ matrix.runner }}
