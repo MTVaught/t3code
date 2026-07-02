@@ -7,7 +7,7 @@ on:
 jobs:
   preview:
     name: EAS Preview
-    if: contains(github.event.pull_request.labels.*.name, '🚀 Mobile Continuous Deployment')
+    if: vars.T3CODE_ENABLE_MOBILE == 'true' && contains(github.event.pull_request.labels.*.name, '🚀 Mobile Continuous Deployment')
     runs-on: blacksmith-8vcpu-ubuntu-2404
     permissions:
       contents: read

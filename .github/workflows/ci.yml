@@ -63,6 +63,7 @@ jobs:
 
   mobile_native_static_analysis:
     name: Mobile Native Static Analysis
+    if: vars.T3CODE_ENABLE_MOBILE == 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
