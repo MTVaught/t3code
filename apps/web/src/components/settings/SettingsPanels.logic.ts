@@ -6,6 +6,85 @@ import type {
   UnifiedSettings,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import * as Duration from "effect/Duration";
+import * as Equal from "effect/Equal";
+
+export function getChangedGeneralSettingLabels(
+  settings: UnifiedSettings,
+  theme: string,
+): ReadonlyArray<string> {
+  return [
+    ...(theme !== "system" ? ["Theme"] : []),
+    ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
+      ? ["Time format"]
+      : []),
+    ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
+      ? ["Visible threads"]
+      : []),
+    ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+    ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
+      ? ["Diff whitespace changes"]
+      : []),
+    ...(settings.autoOpenPlanSidebar !== DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar
+      ? ["Auto-open task panel"]
+      : []),
+    ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
+      ? ["Assistant output"]
+      : []),
+    ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
+      ? ["Provider update checks"]
+      : []),
+    ...(Duration.toMillis(settings.automaticGitFetchInterval) !==
+    Duration.toMillis(DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval)
+      ? ["Automatic Git fetch interval"]
+      : []),
+    ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ? ["New thread mode"]
+      : []),
+    ...(settings.newWorktreesStartFromOrigin !==
+    DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin
+      ? ["New worktrees start from origin"]
+      : []),
+    ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
+      ? ["Add project base directory"]
+      : []),
+    ...(settings.defaultTerminalShell !== DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell
+      ? ["Terminal shell"]
+      : []),
+    ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
+      ? ["Archive confirmation"]
+      : []),
+    ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
+      ? ["Delete confirmation"]
+      : []),
+    ...(!Equal.equals(
+      settings.textGenerationModelSelection ?? null,
+      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
+    )
+      ? ["Git writing model"]
+      : []),
+  ];
+}
+
+export function buildGeneralSettingsRestorePatch(): Partial<UnifiedSettings> {
+  return {
+    timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
+    wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+    diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
+    sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
+    autoOpenPlanSidebar: DEFAULT_UNIFIED_SETTINGS.autoOpenPlanSidebar,
+    enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+    enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
+    automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
+    defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+    newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
+    addProjectBaseDirectory: DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory,
+    defaultTerminalShell: DEFAULT_UNIFIED_SETTINGS.defaultTerminalShell,
+    confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
+    confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
+    textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+  };
+}
 
 function collapseOtelSignalsUrl(input: {
   readonly tracesUrl: string;
