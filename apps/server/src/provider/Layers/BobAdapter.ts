@@ -90,6 +90,8 @@ interface BobTurnState {
   completed: boolean;
   totalCostUsd: number | undefined;
   readonly initSessionId: Deferred.Deferred<string>;
+  /** bob's context window for this turn's tier, used as the token-usage max. */
+  readonly contextWindowTokens: number;
   readonly tools: Map<string, BobToolInFlight>;
   readonly items: Array<unknown>;
 }
@@ -243,6 +245,17 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
     serialized = toolName;
   }
   return serialized.length > 400 ? `${serialized.slice(0, 397)}...` : serialized;
+}
+
+/**
+ * bob's context window, in input tokens. bob never reports the window size in its
+ * stream-json output, so the adapter supplies a fixed size for T3's context
+ * meter.
+ */
+const BOB_CONTEXT_WINDOW = 200_000;
+
+function bobContextWindowForTier(_tier: string): number {
+  return BOB_CONTEXT_WINDOW;
 }
 
 /**
@@ -580,17 +593,23 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     stats: Record<string, unknown>,
   ) {
-    const usedTokens = finiteNonNegativeInteger(stats.total_tokens);
+    const inputTokens = finiteNonNegativeInteger(stats.input_tokens);
+    const outputTokens = finiteNonNegativeInteger(stats.output_tokens);
+    const totalTokens = finiteNonNegativeInteger(stats.total_tokens);
+    // T3's context meter wants active context occupancy. bob's `input_tokens`
+    // is the prompt size sent to the model on the most recent request, while
+    // `total_tokens` is cumulative processed tokens for the session.
+    const usedTokens = inputTokens ?? totalTokens;
     if (usedTokens === undefined || usedTokens <= 0) {
       return;
     }
-    const inputTokens = finiteNonNegativeInteger(stats.input_tokens);
-    const outputTokens = finiteNonNegativeInteger(stats.output_tokens);
     const durationMs = finiteNonNegativeInteger(stats.duration_ms);
     const toolUses = finiteNonNegativeInteger(stats.tool_calls);
     const usage: ThreadTokenUsageSnapshot = {
       usedTokens,
-      totalProcessedTokens: usedTokens,
+      maxTokens: turnState.contextWindowTokens,
+      compactsAutomatically: true,
+      ...(totalTokens !== undefined ? { totalProcessedTokens: totalTokens } : {}),
       ...(inputTokens !== undefined ? { inputTokens } : {}),
       ...(outputTokens !== undefined ? { outputTokens } : {}),
       ...(durationMs !== undefined ? { durationMs } : {}),
@@ -906,6 +925,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       completed: false,
       totalCostUsd: undefined,
       initSessionId,
+      contextWindowTokens: bobContextWindowForTier(tier),
       tools: new Map(),
       items: [],
     };
