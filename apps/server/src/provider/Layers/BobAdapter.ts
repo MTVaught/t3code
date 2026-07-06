@@ -563,7 +563,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     // The web work-log renders `item.completed`, not `item.started`. bob's tool
     // output is frequently empty (e.g. `read_file`), so fall back to summarizing
     // the request input — otherwise the row would render as a bare "Tool call".
-    const detail = output ? output.slice(0, 4000) : summarizeToolRequest(tool.toolName, tool.parameters);
+    const detail = output
+      ? output.slice(0, 4000)
+      : summarizeToolRequest(tool.toolName, tool.parameters);
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "item.completed",
