@@ -112,10 +112,9 @@ function makeAdapterHarness(
   threadId: ThreadId,
 ) {
   return Effect.gen(function* () {
-    const adapter = yield* makeBobAdapter(
-      decodeBobSettings({ binaryPath: "bob", enabled: true }),
-      { instanceId: ProviderInstanceId.make("bob") },
-    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
+    const adapter = yield* makeBobAdapter(decodeBobSettings({ binaryPath: "bob", enabled: true }), {
+      instanceId: ProviderInstanceId.make("bob"),
+    }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
 
     const events: Array<ProviderRuntimeEvent> = [];
     const turnDone = yield* Deferred.make<void>();
