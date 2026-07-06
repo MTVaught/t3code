@@ -130,9 +130,7 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         (event) => event.type === "content.delta" && event.payload.streamKind === "reasoning_text",
       );
       assert.deepStrictEqual(
-        reasoningDeltas.map((event) =>
-          event.type === "content.delta" ? event.payload.delta : "",
-        ),
+        reasoningDeltas.map((event) => (event.type === "content.delta" ? event.payload.delta : "")),
         ["Hello", " world"],
       );
 
@@ -141,9 +139,7 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         (event) => event.type === "content.delta" && event.payload.streamKind === "assistant_text",
       );
       assert.deepStrictEqual(
-        assistantDeltas.map((event) =>
-          event.type === "content.delta" ? event.payload.delta : "",
-        ),
+        assistantDeltas.map((event) => (event.type === "content.delta" ? event.payload.delta : "")),
         ["All done."],
       );
 
@@ -153,7 +149,8 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
 
       // Final assistant message uses the attempt_completion result, not the reasoning.
       const assistantCompleted = events.find(
-        (event) => event.type === "item.completed" && event.payload.itemType === "assistant_message",
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "assistant_message",
       );
       assert.isDefined(assistantCompleted);
       if (assistantCompleted?.type === "item.completed") {

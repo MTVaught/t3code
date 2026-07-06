@@ -100,8 +100,7 @@ export interface BobAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
 }
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
@@ -169,7 +168,11 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
   if (normalized.includes("mcp")) {
     return "mcp_tool_call";
   }
-  if (normalized.includes("browser") || normalized.includes("web") || normalized.includes("search")) {
+  if (
+    normalized.includes("browser") ||
+    normalized.includes("web") ||
+    normalized.includes("search")
+  ) {
     return "web_search";
   }
   return "dynamic_tool_call";
@@ -652,9 +655,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         "--chat-mode",
         opts.chatMode,
         ...approvalArgs(bobConfig.approvalMode),
-        ...(bobConfig.maxCoins.trim().length > 0
-          ? ["--max-coins", bobConfig.maxCoins.trim()]
-          : []),
+        ...(bobConfig.maxCoins.trim().length > 0 ? ["--max-coins", bobConfig.maxCoins.trim()] : []),
         ...(context.resumeSessionId ? ["-r", context.resumeSessionId] : []),
       ];
       const spawnCommand = yield* resolveSpawnCommand(binary, args, { env: bobEnvironment });
@@ -949,12 +950,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turns: context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
   });
 
-  const readThread: BobAdapterShape["readThread"] = Effect.fn("bob.readThread")(function* (
-    threadId,
-  ) {
-    const context = yield* requireSession(threadId);
-    return snapshotThread(context);
-  });
+  const readThread: BobAdapterShape["readThread"] = Effect.fn("bob.readThread")(
+    function* (threadId) {
+      const context = yield* requireSession(threadId);
+      return snapshotThread(context);
+    },
+  );
 
   const rollbackThread: BobAdapterShape["rollbackThread"] = Effect.fn("bob.rollbackThread")(
     function* (threadId, numTurns) {
@@ -965,12 +966,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     },
   );
 
-  const stopSession: BobAdapterShape["stopSession"] = Effect.fn("bob.stopSession")(function* (
-    threadId,
-  ) {
-    const context = yield* requireSession(threadId);
-    yield* stopSessionInternal(context, { emitExitEvent: true });
-  });
+  const stopSession: BobAdapterShape["stopSession"] = Effect.fn("bob.stopSession")(
+    function* (threadId) {
+      const context = yield* requireSession(threadId);
+      yield* stopSessionInternal(context, { emitExitEvent: true });
+    },
+  );
 
   const listSessions: BobAdapterShape["listSessions"] = () =>
     Effect.sync(() => Array.from(sessions.values(), ({ session }) => ({ ...session })));
@@ -982,9 +983,13 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     });
 
   const stopAll: BobAdapterShape["stopAll"] = () =>
-    Effect.forEach(sessions, ([, context]) => stopSessionInternal(context, { emitExitEvent: true }), {
-      discard: true,
-    });
+    Effect.forEach(
+      sessions,
+      ([, context]) => stopSessionInternal(context, { emitExitEvent: true }),
+      {
+        discard: true,
+      },
+    );
 
   yield* Effect.addFinalizer(() =>
     Effect.forEach(
