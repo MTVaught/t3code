@@ -103,6 +103,48 @@ const STREAM_JSON_LINES = [
 
 const bobTestLayer = NodeServices.layer;
 
+/**
+ * Build an adapter over a fake spawner with an open session and a background
+ * event collector. `turnDone` resolves on the first `turn.completed` event.
+ */
+function makeAdapterHarness(
+  fakeSpawner: ReturnType<typeof ChildProcessSpawner.make>,
+  threadId: ThreadId,
+) {
+  return Effect.gen(function* () {
+    const adapter = yield* makeBobAdapter(
+      decodeBobSettings({ binaryPath: "bob", enabled: true }),
+      { instanceId: ProviderInstanceId.make("bob") },
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
+
+    const events: Array<ProviderRuntimeEvent> = [];
+    const turnDone = yield* Deferred.make<void>();
+    const firstItemStarted = yield* Deferred.make<void>();
+    yield* Stream.runForEach(adapter.streamEvents, (event) =>
+      Effect.sync(() => {
+        events.push(event);
+      }).pipe(
+        Effect.andThen(
+          event.type === "turn.completed"
+            ? Deferred.succeed(turnDone, undefined)
+            : event.type === "item.started"
+              ? Deferred.succeed(firstItemStarted, undefined)
+              : Effect.void,
+        ),
+      ),
+    ).pipe(Effect.forkScoped);
+
+    yield* adapter.startSession({
+      threadId,
+      provider: ProviderDriverKind.make("bob"),
+      cwd: process.cwd(),
+      runtimeMode: "full-access",
+    });
+
+    return { adapter, events, turnDone, firstItemStarted };
+  });
+}
+
 it.layer(bobTestLayer)("BobAdapter", (it) => {
   it("builds bob turn args", () => {
     assert.deepStrictEqual(
@@ -455,6 +497,295 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
 
       const turn = yield* adapter.sendTurn({ threadId, input: "hi" });
       assert.equal(turn.resumeCursor, undefined);
+    }),
+  );
+
+  it.effect("fails the turn with the stderr tail when bob exits non-zero", () =>
+    Effect.gen(function* () {
+      // Bob crashes after init without ever printing a `result` event. The
+      // turn must end as failed with the exit code and stderr in the message.
+      // exitCode only resolves after the stderr chunk has been consumed, so the
+      // adapter's stderr tail is deterministically populated.
+      const stdout = `{"type":"init","session_id":"${SESSION_UUID}"}\n`;
+      const stderrConsumed = yield* Deferred.make<void>();
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1),
+            exitCode: Deferred.await(stderrConsumed).pipe(
+              Effect.as(ChildProcessSpawner.ExitCode(2)),
+            ),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.encodeText(Stream.make(stdout)),
+            stderr: Stream.encodeText(Stream.make("boom: missing credentials\n")).pipe(
+              Stream.concat(
+                Stream.fromEffect(Deferred.succeed(stderrConsumed, undefined)).pipe(Stream.drain),
+              ),
+            ),
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          }),
+        ),
+      );
+      const threadId = ThreadId.make("bob-exit-failure");
+      const { adapter, events, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      const turn = yield* adapter.sendTurn({ threadId, input: "hi" });
+      assert.deepStrictEqual(turn.resumeCursor, { resumeSessionId: SESSION_UUID });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const turnCompleted = events.find((event) => event.type === "turn.completed");
+      assert.isDefined(turnCompleted);
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "failed");
+        assert.equal(
+          turnCompleted.payload.errorMessage,
+          "Bob exited with code 2: boom: missing credentials",
+        );
+      }
+    }),
+  );
+
+  it.effect("fails the turn when bob reports a result error despite exit code 0", () =>
+    Effect.gen(function* () {
+      const stdout = [
+        `{"type":"init","session_id":"${SESSION_UUID}"}`,
+        '{"type":"result","status":"error","error":{"message":"quota exceeded"}}',
+        "",
+      ].join("\n");
+      const fakeSpawner = ChildProcessSpawner.make(() => Effect.succeed(makeStdoutHandle(stdout)));
+      const threadId = ThreadId.make("bob-result-error");
+      const { adapter, events, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      yield* adapter.sendTurn({ threadId, input: "hi" });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const turnCompleted = events.find((event) => event.type === "turn.completed");
+      assert.isDefined(turnCompleted);
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "failed");
+        assert.equal(turnCompleted.payload.errorMessage, "Bob: quota exceeded");
+      }
+    }),
+  );
+
+  it.effect("reassembles chunked lines and strips thinking tags split across messages", () =>
+    Effect.gen(function* () {
+      // The stream arrives in arbitrary chunks that cut JSON lines mid-way, the
+      // last line has no trailing newline, and the `</thinking>` tag is split
+      // across two message events. Reasoning deltas must come out clean and the
+      // tail line must still be processed.
+      const raw = [
+        { type: "init", session_id: SESSION_UUID },
+        { type: "message", role: "assistant", content: "<thinking>step one</thin" },
+        { type: "message", role: "assistant", content: "king> more" },
+        {
+          type: "tool_use",
+          tool_name: "attempt_completion",
+          tool_id: "tool-done",
+          parameters: { result: "Done." },
+        },
+        { type: "result", status: "success", stats: {} },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"); // no trailing newline: the final line goes through the tail flush
+      const chunks = [raw.slice(0, 25), raw.slice(25, raw.length - 8), raw.slice(raw.length - 8)];
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(makeStreamStdoutHandle(Stream.encodeText(Stream.make(...chunks)))),
+      );
+      const threadId = ThreadId.make("bob-chunked-thinking");
+      const { adapter, events, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      yield* adapter.sendTurn({ threadId, input: "hi" });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const reasoningDeltas = events
+        .filter(
+          (event) =>
+            event.type === "content.delta" && event.payload.streamKind === "reasoning_text",
+        )
+        .map((event) => (event.type === "content.delta" ? event.payload.delta : ""));
+      assert.deepStrictEqual(reasoningDeltas, ["step one", " more"]);
+
+      const assistantDeltas = events
+        .filter(
+          (event) =>
+            event.type === "content.delta" && event.payload.streamKind === "assistant_text",
+        )
+        .map((event) => (event.type === "content.delta" ? event.payload.delta : ""));
+      assert.deepStrictEqual(assistantDeltas, ["Done."]);
+
+      const turnCompleted = events.find((event) => event.type === "turn.completed");
+      assert.isDefined(turnCompleted);
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "completed");
+      }
+    }),
+  );
+
+  it.effect("interrupting a turn fails in-flight tools and rejects a concurrent turn", () =>
+    Effect.gen(function* () {
+      // Bob starts a command and then the stream hangs (tool never finishes).
+      const prefix = [
+        `{"type":"init","session_id":"${SESSION_UUID}"}`,
+        '{"type":"tool_use","tool_name":"execute_command","tool_id":"tool-hang","parameters":{"command":"sleep 999"}}',
+        "",
+      ].join("\n");
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          makeStreamStdoutHandle(
+            Stream.encodeText(Stream.make(prefix)).pipe(Stream.concat(Stream.never)),
+          ),
+        ),
+      );
+      const threadId = ThreadId.make("bob-interrupt");
+      const { adapter, events, turnDone, firstItemStarted } = yield* makeAdapterHarness(
+        fakeSpawner,
+        threadId,
+      );
+
+      const turn = yield* adapter.sendTurn({ threadId, input: "hi" });
+
+      // Wait until the pump fiber has processed the tool_use line — sendTurn
+      // returns as soon as `init` arrives, which can be earlier.
+      yield* Deferred.await(firstItemStarted);
+
+      // A second turn while the first is running is rejected.
+      const concurrentError = yield* adapter
+        .sendTurn({ threadId, input: "another" })
+        .pipe(Effect.flip);
+      assert.equal(concurrentError._tag, "ProviderAdapterRequestError");
+
+      yield* adapter.interruptTurn(threadId, turn.turnId);
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const toolCompleted = events.find(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "command_execution",
+      );
+      assert.isDefined(toolCompleted);
+      if (toolCompleted?.type === "item.completed") {
+        assert.equal(toolCompleted.payload.status, "failed");
+        assert.equal(
+          toolCompleted.payload.detail,
+          "Tool call interrupted before Bob returned a result.",
+        );
+      }
+
+      const turnCompleted = events.find((event) => event.type === "turn.completed");
+      assert.isDefined(turnCompleted);
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "interrupted");
+      }
+    }),
+  );
+
+  it.effect("fails tools left in flight when bob ends the turn without their results", () =>
+    Effect.gen(function* () {
+      const stdout = [
+        `{"type":"init","session_id":"${SESSION_UUID}"}`,
+        '{"type":"tool_use","tool_name":"read_file","tool_id":"tool-orphan","parameters":{"path":"a.ts"}}',
+        '{"type":"result","status":"success","stats":{}}',
+        "",
+      ].join("\n");
+      const fakeSpawner = ChildProcessSpawner.make(() => Effect.succeed(makeStdoutHandle(stdout)));
+      const threadId = ThreadId.make("bob-orphan-tool");
+      const { adapter, events, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      yield* adapter.sendTurn({ threadId, input: "hi" });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const toolCompleted = events.find((event) => event.type === "item.completed");
+      assert.isDefined(toolCompleted);
+      if (toolCompleted?.type === "item.completed") {
+        assert.equal(toolCompleted.payload.status, "failed");
+        assert.equal(
+          toolCompleted.payload.detail,
+          "Bob ended the turn before returning a tool result.",
+        );
+      }
+
+      const turnCompleted = events.find((event) => event.type === "turn.completed");
+      assert.isDefined(turnCompleted);
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(turnCompleted.payload.state, "completed");
+      }
+    }),
+  );
+
+  it.effect("rejects an empty prompt before spawning", () =>
+    Effect.gen(function* () {
+      let spawned = 0;
+      const fakeSpawner = ChildProcessSpawner.make(() => {
+        spawned += 1;
+        return Effect.succeed(makeStdoutHandle(STREAM_JSON_LINES));
+      });
+      const threadId = ThreadId.make("bob-empty-prompt");
+      const { adapter } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      const error = yield* adapter.sendTurn({ threadId, input: "   " }).pipe(Effect.flip);
+      assert.equal(error._tag, "ProviderAdapterRequestError");
+      assert.equal(spawned, 0);
+    }),
+  );
+
+  it.effect("classifies tool names into canonical item types", () =>
+    Effect.gen(function* () {
+      const stdout = [
+        { type: "init", session_id: SESSION_UUID },
+        { type: "tool_use", tool_name: "write_to_file", tool_id: "t1", parameters: {} },
+        { type: "tool_result", tool_id: "t1", status: "success", output: "" },
+        { type: "tool_use", tool_name: "mcp_call", tool_id: "t2", parameters: {} },
+        { type: "tool_result", tool_id: "t2", status: "success", output: "" },
+        { type: "tool_use", tool_name: "web_fetch", tool_id: "t3", parameters: {} },
+        { type: "tool_result", tool_id: "t3", status: "success", output: "" },
+        { type: "tool_use", tool_name: "new_task", tool_id: "t4", parameters: {} },
+        { type: "tool_result", tool_id: "t4", status: "success", output: "" },
+        { type: "result", status: "success", stats: {} },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n")
+        .concat("\n");
+      const fakeSpawner = ChildProcessSpawner.make(() => Effect.succeed(makeStdoutHandle(stdout)));
+      const threadId = ThreadId.make("bob-tool-classification");
+      const { adapter, events, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      yield* adapter.sendTurn({ threadId, input: "hi" });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      const startedTypes = events
+        .filter((event) => event.type === "item.started")
+        .map((event) => (event.type === "item.started" ? event.payload.itemType : ""));
+      assert.deepStrictEqual(startedTypes, [
+        "file_change",
+        "mcp_tool_call",
+        "web_search",
+        "collab_agent_tool_call",
+      ]);
+    }),
+  );
+
+  it.effect("plan interaction mode overrides the configured chat mode", () =>
+    Effect.gen(function* () {
+      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const fakeSpawner = ChildProcessSpawner.make((command) => {
+        spawnedArgs.push(asChildProcessCommand(command).args);
+        return Effect.succeed(makeStdoutHandle(STREAM_JSON_LINES));
+      });
+      const threadId = ThreadId.make("bob-plan-mode");
+      const { adapter, turnDone } = yield* makeAdapterHarness(fakeSpawner, threadId);
+
+      yield* adapter.sendTurn({ threadId, input: "hi", interactionMode: "plan" });
+      yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
+
+      assert.equal(spawnedArgs.length, 1);
+      const args = spawnedArgs[0] ?? [];
+      const chatModeIndex = args.indexOf("--chat-mode");
+      assert.equal(args[chatModeIndex + 1], "plan");
     }),
   );
 });
