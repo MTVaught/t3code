@@ -43,7 +43,6 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -62,7 +61,6 @@ import { type BobAdapterShape } from "../Services/BobAdapter.ts";
 
 const PROVIDER = ProviderDriverKind.make("bob");
 const STDERR_TAIL_LIMIT = 4_000;
-const INIT_SESSION_ID_WAIT_MS = 1_500;
 
 interface BobToolInFlight {
   readonly itemId: string;
@@ -90,7 +88,12 @@ interface BobTurnState {
   completed: boolean;
   totalCostUsd: number | undefined;
   result: { readonly state: RuntimeTurnState; readonly errorMessage?: string } | undefined;
-  readonly initSessionId: Deferred.Deferred<string>;
+  /**
+   * Resolves with Bob's `init.session_id` as soon as it arrives, or with
+   * `undefined` when the turn ends without one, so `sendTurn` never waits on a
+   * process that will not produce an id.
+   */
+  readonly initSessionId: Deferred.Deferred<string | undefined>;
   /** bob's context window for this turn's tier, used as the token-usage max. */
   readonly contextWindowTokens: number;
   readonly tools: Map<string, BobToolInFlight>;
@@ -640,6 +643,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     result: { readonly state: RuntimeTurnState; readonly errorMessage?: string },
   ) {
+    // The turn is over: unblock a sendTurn still waiting on `init` — no session
+    // id is coming. No-op when the init event already resolved it.
+    yield* Deferred.succeed(turnState.initSessionId, undefined);
     if (turnState.completed || context.turnState !== turnState) {
       return;
     }
@@ -1095,7 +1101,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const chatMode = resolveBobChatMode(input.interactionMode, bobConfig);
 
     const turnId = TurnId.make(yield* randomUUIDv4);
-    const initSessionId = yield* Deferred.make<string>();
+    const initSessionId = yield* Deferred.make<string | undefined>();
     const turnState: BobTurnState = {
       turnId,
       assistantItemId: yield* randomUUIDv4,
@@ -1152,12 +1158,14 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     context.processFiber = fiber;
 
     // Capture the first Bob `init.session_id` on the turn-start path so durable
-    // resume uses the standard ProviderTurnStartResult persistence flow.
-    const initSessionIdOption = yield* Deferred.await(initSessionId).pipe(
-      Effect.timeoutOption(`${INIT_SESSION_ID_WAIT_MS} millis`),
-    );
-    if (Option.isSome(initSessionIdOption)) {
-      context.resumeSessionId = initSessionIdOption.value;
+    // resume uses the standard ProviderTurnStartResult persistence flow. This
+    // resolves the moment `init` arrives — however slow Bob is to start — or
+    // with no id when the turn ends without one (crash, malformed output), so
+    // the resume id is never lost to a fixed deadline and a dead process never
+    // blocks the caller.
+    const observedInitSessionId = yield* Deferred.await(initSessionId);
+    if (observedInitSessionId !== undefined) {
+      context.resumeSessionId = observedInitSessionId;
       updateResumeCursor(context);
     }
 

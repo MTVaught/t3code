@@ -3,6 +3,7 @@ import { assert } from "@effect/vitest";
 import { it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -39,6 +40,10 @@ function asChildProcessCommand(command: unknown): ChildProcessCommand {
 }
 
 function makeStdoutHandle(stdout: string) {
+  return makeStreamStdoutHandle(Stream.encodeText(Stream.make(stdout)));
+}
+
+function makeStreamStdoutHandle(stdout: Stream.Stream<Uint8Array>) {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
@@ -46,7 +51,7 @@ function makeStdoutHandle(stdout: string) {
     kill: () => Effect.void,
     unref: Effect.succeed(Effect.void),
     stdin: Sink.drain,
-    stdout: Stream.encodeText(Stream.make(stdout)),
+    stdout,
     stderr: Stream.empty,
     all: Stream.empty,
     getInputFd: () => Sink.drain,
@@ -390,6 +395,66 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
       assert.isTrue(args.includes("--yolo"));
       const modelIndex = args.indexOf("-m");
       assert.equal(args[modelIndex + 1], "premium");
+    }),
+  );
+
+  it.effect("waits for a slow init before returning the resume cursor", () =>
+    Effect.gen(function* () {
+      // Hold back all of Bob's stdout until after sendTurn is already running,
+      // simulating a slow-starting Bob. sendTurn must keep waiting for `init`
+      // (no fixed deadline) and return the session id it eventually produces.
+      const releaseStdout = yield* Deferred.make<void>();
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          makeStreamStdoutHandle(
+            Stream.fromEffect(Deferred.await(releaseStdout)).pipe(
+              Stream.drain,
+              Stream.concat(Stream.encodeText(Stream.make(STREAM_JSON_LINES))),
+            ),
+          ),
+        ),
+      );
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ binaryPath: "bob", enabled: true }),
+        { instanceId: ProviderInstanceId.make("bob") },
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
+
+      const threadId = ThreadId.make("bob-slow-init");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+
+      const turnFiber = yield* adapter.sendTurn({ threadId, input: "hi" }).pipe(Effect.forkChild);
+      yield* Deferred.succeed(releaseStdout, undefined);
+      const turn = yield* Fiber.join(turnFiber);
+      assert.deepStrictEqual(turn.resumeCursor, { resumeSessionId: SESSION_UUID });
+    }),
+  );
+
+  it.effect("returns without a resume cursor when bob exits without an init id", () =>
+    Effect.gen(function* () {
+      // Bob's stream ends without ever printing `init`; sendTurn must unblock
+      // when the turn completes instead of hanging, and report no cursor.
+      const stdout = '{"type":"result","status":"success","stats":{}}\n';
+      const fakeSpawner = ChildProcessSpawner.make(() => Effect.succeed(makeStdoutHandle(stdout)));
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ binaryPath: "bob", enabled: true }),
+        { instanceId: ProviderInstanceId.make("bob") },
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner));
+
+      const threadId = ThreadId.make("bob-no-init");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+
+      const turn = yield* adapter.sendTurn({ threadId, input: "hi" });
+      assert.equal(turn.resumeCursor, undefined);
     }),
   );
 });
