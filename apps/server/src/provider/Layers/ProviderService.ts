@@ -25,7 +25,6 @@ import {
   type ProviderSession,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
-import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -290,28 +289,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     Effect.sync(() => correlateRuntimeEventWithInstance(source, event)).pipe(
       Effect.flatMap((canonicalEvent) =>
         Effect.gen(function* () {
-          if (
-            canonicalEvent.type === "turn.completed" &&
-            canonicalEvent.payload?.resumeCursor !== undefined
-          ) {
-            yield* Effect.gen(function* () {
-              const binding = yield* directory.getBinding(canonicalEvent.threadId);
-              if (Option.isSome(binding)) {
-                yield* directory.upsert({
-                  ...binding.value,
-                  providerInstanceId: source.instanceId,
-                  resumeCursor: canonicalEvent.payload.resumeCursor,
-                });
-              }
-            }).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logError("Failed to persist provider resume cursor.", {
-                  threadId: canonicalEvent.threadId,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-            );
-          }
           yield* increment(providerRuntimeEventsTotal, {
             provider: canonicalEvent.provider,
             eventType: canonicalEvent.type,

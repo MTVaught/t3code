@@ -749,7 +749,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       data &&
       (data.toolName !== undefined || data.input !== undefined || data.result !== undefined)
     ) {
-      // Claude/bob-style payload: structured tool content lives directly on
+      // Provider-neutral structured tool payload: content lives directly on
       // `data` as `{ toolName, input, result }`.
       entry.toolData = data;
     }

@@ -366,7 +366,6 @@ const TurnCompletedPayload = Schema.Struct({
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
   errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
-  resumeCursor: Schema.optional(Schema.Unknown),
 });
 export type TurnCompletedPayload = typeof TurnCompletedPayload.Type;
 

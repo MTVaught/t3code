@@ -13,10 +13,14 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 
 export type ProviderUpdateCandidate = ServerProvider & {
-  readonly versionAdvisory: NonNullable<ServerProvider["versionAdvisory"]> & {
-    readonly status: "behind_latest";
-    readonly latestVersion: string;
-  };
+  readonly versionAdvisory: ActionableProviderUpdateAdvisory;
+};
+
+type ActionableProviderUpdateAdvisory = NonNullable<ServerProvider["versionAdvisory"]> & {
+  readonly status: "behind_latest";
+  readonly latestVersion: string;
+  readonly canUpdate: true;
+  readonly updateCommand: string;
 };
 
 export type ProviderUpdateToastType = "warning" | "loading" | "error" | "success";
@@ -132,12 +136,17 @@ function getProviderFailedUpdateTitle(
 export function isProviderUpdateCandidate(
   provider: ServerProvider,
 ): provider is ProviderUpdateCandidate {
+  return provider.enabled && hasActionableProviderUpdate(provider.versionAdvisory);
+}
+
+export function hasActionableProviderUpdate(
+  advisory: ServerProvider["versionAdvisory"] | undefined,
+): advisory is ActionableProviderUpdateAdvisory {
   return (
-    provider.enabled &&
-    provider.versionAdvisory?.status === "behind_latest" &&
-    provider.versionAdvisory.latestVersion !== null &&
-    provider.versionAdvisory.canUpdate === true &&
-    provider.versionAdvisory.updateCommand !== null
+    advisory?.status === "behind_latest" &&
+    advisory.latestVersion !== null &&
+    advisory.canUpdate === true &&
+    advisory.updateCommand !== null
   );
 }
 
@@ -155,10 +164,7 @@ export function hasOneClickUpdateProviderCandidate(
   candidate: ProviderUpdateCandidate,
   providers: ReadonlyArray<ServerProvider>,
 ): boolean {
-  if (
-    candidate.versionAdvisory.canUpdate !== true ||
-    candidate.versionAdvisory.updateCommand === null
-  ) {
+  if (!hasActionableProviderUpdate(candidate.versionAdvisory)) {
     return false;
   }
 
@@ -173,9 +179,6 @@ export function hasOneClickUpdateProviderCandidate(
       continue;
     }
     const advisory = provider.versionAdvisory;
-    if (!advisory || advisory.canUpdate !== true || advisory.updateCommand === null) {
-      return false;
-    }
     updateCommands.add(advisory.updateCommand);
   }
 

@@ -40,6 +40,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
@@ -87,6 +88,12 @@ interface BobTurnState {
   completed: boolean;
   totalCostUsd: number | undefined;
   result: { readonly state: RuntimeTurnState; readonly errorMessage?: string } | undefined;
+  /**
+   * Resolves with Bob's `init.session_id` as soon as it arrives, or with
+   * `undefined` when the turn ends without one, so `sendTurn` never waits on a
+   * process that will not produce an id.
+   */
+  readonly initSessionId: Deferred.Deferred<string | undefined>;
   /** bob's context window for this turn's tier, used as the token-usage max. */
   readonly contextWindowTokens: number;
   readonly tools: Map<string, BobToolInFlight>;
@@ -129,8 +136,71 @@ function finiteNonNegativeInteger(value: unknown): number | undefined {
     : undefined;
 }
 
+/** @internal */
+export function readBobInitSessionId(event: Record<string, unknown>): string | undefined {
+  const sessionId = readString(event.session_id);
+  return sessionId && isUuid(sessionId) ? sessionId : undefined;
+}
+
+/** @internal */
+export function readBobAssistantMessage(event: Record<string, unknown>): string | undefined {
+  if (readString(event.role) !== "assistant") {
+    return undefined;
+  }
+  return readString(event.content);
+}
+
+interface BobToolUse {
+  readonly toolName: string;
+  readonly toolId: string;
+  readonly parameters: unknown;
+}
+
+/** @internal */
+export function readBobToolUse(event: Record<string, unknown>, fallbackToolId: string): BobToolUse {
+  const toolName = readString(event.tool_name) ?? "tool";
+  return {
+    toolName,
+    toolId: readString(event.tool_id) ?? fallbackToolId,
+    parameters: event.parameters,
+  };
+}
+
+interface BobToolResult {
+  readonly toolId: string;
+  readonly status: string | undefined;
+  readonly output: string | undefined;
+}
+
+/** @internal */
+export function readBobToolResult(event: Record<string, unknown>): BobToolResult | undefined {
+  const toolId = readString(event.tool_id);
+  if (!toolId) return undefined;
+  return {
+    toolId,
+    status: readString(event.status),
+    output: trimmedOrUndefined(readString(event.output)),
+  };
+}
+
+interface BobResult {
+  readonly status: string | undefined;
+  readonly stats: Record<string, unknown> | undefined;
+}
+
+/** @internal */
+export function readBobResult(event: Record<string, unknown>): BobResult {
+  return {
+    status: readString(event.status),
+    stats:
+      event.stats && typeof event.stats === "object" && !Array.isArray(event.stats)
+        ? (event.stats as Record<string, unknown>)
+        : undefined,
+  };
+}
+
 /** Extract the human-readable error from a bob `result` event, if present. */
-function readBobResultError(event: Record<string, unknown>): string | undefined {
+export function readBobResultError(event: Record<string, unknown>): string | undefined {
   const error = event.error;
   if (error && typeof error === "object" && !Array.isArray(error)) {
     return readString((error as Record<string, unknown>).message);
@@ -213,6 +283,16 @@ function titleForItemType(itemType: CanonicalItemType): string {
   }
 }
 
+function readBobToolCommand(parameters: unknown): string | undefined {
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return undefined;
+  }
+  const record = parameters as Record<string, unknown>;
+  const command = readString(record.command) ?? readString(record.cmd);
+  const trimmed = command?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
 function summarizeToolRequest(toolName: string, parameters: unknown): string {
   if (parameters && typeof parameters === "object" && !Array.isArray(parameters)) {
     const record = parameters as Record<string, unknown>;
@@ -220,8 +300,7 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
     // Surface the most informative one so the work-log row reads cleanly instead
     // of dumping raw JSON.
     const highlight =
-      readString(record.command) ??
-      readString(record.cmd) ??
+      readBobToolCommand(parameters) ??
       readString(record.file_path) ??
       readString(record.path) ??
       readString(record.file) ??
@@ -256,6 +335,35 @@ function bobContextWindowForTier(_tier: string): number {
   return BOB_CONTEXT_WINDOW;
 }
 
+/** @internal */
+export function makeBobTokenUsageSnapshot(input: {
+  readonly stats: Record<string, unknown>;
+  readonly contextWindowTokens: number;
+}): ThreadTokenUsageSnapshot | undefined {
+  const inputTokens = finiteNonNegativeInteger(input.stats.input_tokens);
+  const outputTokens = finiteNonNegativeInteger(input.stats.output_tokens);
+  const totalTokens = finiteNonNegativeInteger(input.stats.total_tokens);
+  // The context-window meter wants the tokens currently occupying the window.
+  // bob's `input_tokens` is exactly that: the prompt size sent to the model on
+  // the most recent request. It can shrink after bob summarizes a long session.
+  const usedTokens = inputTokens ?? totalTokens;
+  if (usedTokens === undefined || usedTokens <= 0) {
+    return undefined;
+  }
+  const durationMs = finiteNonNegativeInteger(input.stats.duration_ms);
+  const toolUses = finiteNonNegativeInteger(input.stats.tool_calls);
+  return {
+    usedTokens,
+    maxTokens: input.contextWindowTokens,
+    compactsAutomatically: true,
+    ...(totalTokens !== undefined ? { totalProcessedTokens: totalTokens } : {}),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(toolUses !== undefined ? { toolUses } : {}),
+  };
+}
+
 /**
  * Resolve the bob model tier from the model selection, falling back to bob's
  * default ("premium") when unset or unknown.
@@ -287,6 +395,30 @@ function approvalArgs(approvalMode: BobSettings["approvalMode"]): ReadonlyArray<
     default:
       return [];
   }
+}
+
+/** @internal */
+export function buildBobTurnArgs(input: {
+  readonly prompt: string;
+  readonly tier: string;
+  readonly chatMode: string;
+  readonly approvalMode: BobSettings["approvalMode"];
+  readonly maxCoins: string;
+  readonly resumeSessionId?: string;
+}): ReadonlyArray<string> {
+  return [
+    "-p",
+    input.prompt,
+    "-o",
+    "stream-json",
+    "-m",
+    input.tier,
+    "--chat-mode",
+    input.chatMode,
+    ...approvalArgs(input.approvalMode),
+    ...(input.maxCoins.trim().length > 0 ? ["--max-coins", input.maxCoins.trim()] : []),
+    ...(input.resumeSessionId ? ["-r", input.resumeSessionId] : []),
+  ];
 }
 
 function turnStateFromBobStatus(status: string | undefined): RuntimeTurnState {
@@ -358,6 +490,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   };
 
   const updateResumeCursor = (context: BobSessionContext): void => {
+    // Bob resume state is adapter-owned: the shared service only persists the
+    // cursor returned from `sendTurn`, not provider-specific runtime events.
     context.session = {
       ...context.session,
       ...(context.resumeSessionId
@@ -509,6 +643,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     result: { readonly state: RuntimeTurnState; readonly errorMessage?: string },
   ) {
+    // The turn is over: unblock a sendTurn still waiting on `init` — no session
+    // id is coming. No-op when the init event already resolved it.
+    yield* Deferred.succeed(turnState.initSessionId, undefined);
     if (turnState.completed || context.turnState !== turnState) {
       return;
     }
@@ -539,9 +676,6 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         state: result.state,
         ...(errorMessage ? { errorMessage } : {}),
         ...(turnState.totalCostUsd !== undefined ? { totalCostUsd: turnState.totalCostUsd } : {}),
-        ...(context.resumeSessionId
-          ? { resumeCursor: { resumeSessionId: context.resumeSessionId } }
-          : {}),
       },
     });
 
@@ -562,14 +696,13 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     event: Record<string, unknown>,
   ) {
-    const toolName = readString(event.tool_name) ?? "tool";
-    const toolId = readString(event.tool_id) ?? `${toolName}-${turnState.tools.size}`;
+    const toolUse = readBobToolUse(event, `tool-${turnState.tools.size}`);
 
     // `attempt_completion` is bob's completion signal, not a real tool. Its
     // `parameters.result` carries the final answer — the only authoritative
     // assistant output. Stream it as the assistant message.
-    if (toolName === "attempt_completion") {
-      const params = event.parameters;
+    if (toolUse.toolName === "attempt_completion") {
+      const params = toolUse.parameters;
       const resultText =
         params && typeof params === "object" && !Array.isArray(params)
           ? readString((params as Record<string, unknown>).result)
@@ -581,11 +714,17 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       return;
     }
 
-    const itemType = classifyToolItemType(toolName);
+    const itemType = classifyToolItemType(toolUse.toolName);
     const itemId = yield* randomUUIDv4;
-    const parameters = event.parameters;
-    turnState.tools.set(toolId, { itemId, itemType, toolName, parameters });
+    turnState.tools.set(toolUse.toolId, {
+      itemId,
+      itemType,
+      toolName: toolUse.toolName,
+      parameters: toolUse.parameters,
+    });
 
+    const command =
+      itemType === "command_execution" ? readBobToolCommand(toolUse.parameters) : undefined;
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "item.started",
@@ -600,8 +739,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         itemType,
         status: "inProgress",
         title: titleForItemType(itemType),
-        detail: summarizeToolRequest(toolName, parameters),
-        data: { toolName, input: parameters },
+        detail: summarizeToolRequest(toolUse.toolName, toolUse.parameters),
+        data: {
+          toolName: toolUse.toolName,
+          input: toolUse.parameters,
+          ...(command ? { command } : {}),
+        },
       },
     });
   });
@@ -611,20 +754,18 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     event: Record<string, unknown>,
   ) {
-    const toolId = readString(event.tool_id);
-    if (!toolId) return;
-    const tool = turnState.tools.get(toolId);
+    const toolResult = readBobToolResult(event);
+    if (!toolResult) return;
+    const tool = turnState.tools.get(toolResult.toolId);
     if (!tool) return;
-    turnState.tools.delete(toolId);
+    turnState.tools.delete(toolResult.toolId);
 
-    const status = readString(event.status);
-    const output = trimmedOrUndefined(readString(event.output));
-    // The web work-log renders `item.completed`, not `item.started`. bob's tool
-    // output is frequently empty (e.g. `read_file`), so fall back to summarizing
-    // the request input — otherwise the row would render as a bare "Tool call".
-    const detail = output
-      ? output.slice(0, 4000)
-      : summarizeToolRequest(tool.toolName, tool.parameters);
+    // The web work-log renders `item.completed`, not `item.started`, so keep the
+    // request summary on completion. Tool output is preserved in structured data
+    // for expansion without replacing the command/input preview.
+    const detail = summarizeToolRequest(tool.toolName, tool.parameters);
+    const command =
+      tool.itemType === "command_execution" ? readBobToolCommand(tool.parameters) : undefined;
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "item.completed",
@@ -637,13 +778,17 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       itemId: RuntimeItemId.make(tool.itemId),
       payload: {
         itemType: tool.itemType,
-        status: status === "success" || status === undefined ? "completed" : "failed",
+        status:
+          toolResult.status === "success" || toolResult.status === undefined
+            ? "completed"
+            : "failed",
         title: titleForItemType(tool.itemType),
         ...(detail ? { detail } : {}),
         data: {
           toolName: tool.toolName,
           input: tool.parameters,
-          ...(output ? { result: output } : {}),
+          ...(command ? { command } : {}),
+          ...(toolResult.output ? { result: toolResult.output } : {}),
         },
       },
     });
@@ -654,31 +799,11 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     turnState: BobTurnState,
     stats: Record<string, unknown>,
   ) {
-    const inputTokens = finiteNonNegativeInteger(stats.input_tokens);
-    const outputTokens = finiteNonNegativeInteger(stats.output_tokens);
-    const totalTokens = finiteNonNegativeInteger(stats.total_tokens);
-    // The context-window meter wants the tokens currently occupying the window.
-    // bob's `input_tokens` is exactly that — the prompt size sent to the model on
-    // the most recent request — and it shrinks when bob auto-summarizes a long
-    // session. Fall back to `total_tokens` if bob omits the breakdown.
-    const usedTokens = inputTokens ?? totalTokens;
-    if (usedTokens === undefined || usedTokens <= 0) {
-      return;
-    }
-    const durationMs = finiteNonNegativeInteger(stats.duration_ms);
-    const toolUses = finiteNonNegativeInteger(stats.tool_calls);
-    const usage: ThreadTokenUsageSnapshot = {
-      usedTokens,
-      maxTokens: turnState.contextWindowTokens,
-      // bob continuously summarizes long sessions, so the window can shrink
-      // turn-over-turn rather than only growing.
-      compactsAutomatically: true,
-      ...(totalTokens !== undefined ? { totalProcessedTokens: totalTokens } : {}),
-      ...(inputTokens !== undefined ? { inputTokens } : {}),
-      ...(outputTokens !== undefined ? { outputTokens } : {}),
-      ...(durationMs !== undefined ? { durationMs } : {}),
-      ...(toolUses !== undefined ? { toolUses } : {}),
-    };
+    const usage = makeBobTokenUsageSnapshot({
+      stats,
+      contextWindowTokens: turnState.contextWindowTokens,
+    });
+    if (!usage) return;
     const stamp = yield* makeEventStamp();
     yield* offerRuntimeEvent({
       type: "thread.token-usage.updated",
@@ -705,18 +830,16 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const type = readString(event.type);
     switch (type) {
       case "init": {
-        const sessionId = readString(event.session_id);
-        if (sessionId && isUuid(sessionId)) {
+        const sessionId = readBobInitSessionId(event);
+        if (sessionId) {
           context.resumeSessionId = sessionId;
           updateResumeCursor(context);
+          yield* Deferred.succeed(turnState.initSessionId, sessionId).pipe(Effect.ignore);
         }
         return;
       }
       case "message": {
-        if (readString(event.role) !== "assistant") {
-          return; // ignore the echoed user message
-        }
-        const content = readString(event.content);
+        const content = readBobAssistantMessage(event);
         if (!content) return;
         // Suppress bob's inline tool-status lines; tool lifecycle comes from
         // the dedicated tool_use/tool_result events.
@@ -739,21 +862,17 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         return;
       }
       case "result": {
-        const status = readString(event.status);
-        const stats =
-          event.stats && typeof event.stats === "object" && !Array.isArray(event.stats)
-            ? (event.stats as Record<string, unknown>)
-            : undefined;
-        if (stats) {
-          const cost = stats.session_costs;
+        const result = readBobResult(event);
+        if (result.stats) {
+          const cost = result.stats.session_costs;
           if (typeof cost === "number" && Number.isFinite(cost)) {
             turnState.totalCostUsd = cost;
           }
-          yield* emitTokenUsage(context, turnState, stats);
+          yield* emitTokenUsage(context, turnState, result.stats);
         }
-        const errorMessage = status === "success" ? undefined : readBobResultError(event);
+        const errorMessage = result.status === "success" ? undefined : readBobResultError(event);
         turnState.result = {
-          state: turnStateFromBobStatus(status),
+          state: turnStateFromBobStatus(result.status),
           ...(errorMessage ? { errorMessage: `Bob: ${errorMessage}` } : {}),
         };
         return;
@@ -769,19 +888,14 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     opts: { readonly prompt: string; readonly tier: string; readonly chatMode: string },
   ) =>
     Effect.gen(function* () {
-      const args = [
-        "-p",
-        opts.prompt,
-        "-o",
-        "stream-json",
-        "-m",
-        opts.tier,
-        "--chat-mode",
-        opts.chatMode,
-        ...approvalArgs(bobConfig.approvalMode),
-        ...(bobConfig.maxCoins.trim().length > 0 ? ["--max-coins", bobConfig.maxCoins.trim()] : []),
-        ...(context.resumeSessionId ? ["-r", context.resumeSessionId] : []),
-      ];
+      const args = buildBobTurnArgs({
+        prompt: opts.prompt,
+        tier: opts.tier,
+        chatMode: opts.chatMode,
+        approvalMode: bobConfig.approvalMode,
+        maxCoins: bobConfig.maxCoins,
+        ...(context.resumeSessionId ? { resumeSessionId: context.resumeSessionId } : {}),
+      });
       const spawnCommand = yield* resolveSpawnCommand(binary, args, { env: bobEnvironment });
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env: bobEnvironment,
@@ -972,6 +1086,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       });
     }
     if ((input.attachments?.length ?? 0) > 0) {
+      // Bob has no attachment protocol in stream-json mode; fail before
+      // spawning so shared orchestration never has to special-case Bob payloads.
       return yield* new ProviderAdapterValidationError({
         provider: PROVIDER,
         operation: "sendTurn",
@@ -985,6 +1101,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const chatMode = resolveBobChatMode(input.interactionMode, bobConfig);
 
     const turnId = TurnId.make(yield* randomUUIDv4);
+    const initSessionId = yield* Deferred.make<string | undefined>();
     const turnState: BobTurnState = {
       turnId,
       assistantItemId: yield* randomUUIDv4,
@@ -999,6 +1116,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       completed: false,
       totalCostUsd: undefined,
       result: undefined,
+      initSessionId,
       contextWindowTokens: bobContextWindowForTier(tier),
       tools: new Map(),
       items: [],
@@ -1038,6 +1156,18 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     );
     const fiber = yield* pump.pipe(Effect.forkIn(adapterScope));
     context.processFiber = fiber;
+
+    // Capture the first Bob `init.session_id` on the turn-start path so durable
+    // resume uses the standard ProviderTurnStartResult persistence flow. This
+    // resolves the moment `init` arrives — however slow Bob is to start — or
+    // with no id when the turn ends without one (crash, malformed output), so
+    // the resume id is never lost to a fixed deadline and a dead process never
+    // blocks the caller.
+    const observedInitSessionId = yield* Deferred.await(initSessionId);
+    if (observedInitSessionId !== undefined) {
+      context.resumeSessionId = observedInitSessionId;
+      updateResumeCursor(context);
+    }
 
     return {
       threadId: context.session.threadId,
@@ -1099,6 +1229,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   const rollbackThread: BobAdapterShape["rollbackThread"] = Effect.fn("bob.rollbackThread")(
     function* (threadId, numTurns) {
       yield* requireSession(threadId);
+      // Rollback would need Bob to fork or rewrite its own resumed session. Keep
+      // that unsupported behavior inside the adapter boundary.
       return yield* new ProviderAdapterRequestError({
         provider: PROVIDER,
         method: "thread/rollback",

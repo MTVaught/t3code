@@ -1821,7 +1821,7 @@ function workEntryRawCommand(
   return rawCommand === workEntry.command.trim() ? null : rawCommand;
 }
 
-function formatToolDataValue(value: unknown): string {
+function formatStructuredToolDataValue(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
@@ -1834,25 +1834,25 @@ function formatToolDataValue(value: unknown): string {
 
 /**
  * Render the structured input/output of a tool call (`{ toolName, input, result }`)
- * for harnesses that supply it (e.g. bob). Returns null when there is no
+ * for providers that supply it. Returns null when there is no
  * meaningful content to show.
  */
-function renderToolDataBlock(toolData: unknown): string | null {
+function renderStructuredToolDataBlock(toolData: unknown): string | null {
   if (toolData === null || typeof toolData !== "object") {
     return null;
   }
   const record = toolData as Record<string, unknown>;
   const sections: string[] = [];
   if (record.input !== undefined && record.input !== null) {
-    sections.push(`Input\n${formatToolDataValue(record.input)}`);
+    sections.push(`Input\n${formatStructuredToolDataValue(record.input)}`);
   }
   if (record.result !== undefined && record.result !== null) {
-    sections.push(`Output\n${formatToolDataValue(record.result)}`);
+    sections.push(`Output\n${formatStructuredToolDataValue(record.result)}`);
   }
   if (sections.length > 0) {
     return sections.join("\n\n");
   }
-  const rendered = formatToolDataValue(toolData);
+  const rendered = formatStructuredToolDataValue(toolData);
   return rendered.trim().length > 0 ? rendered : null;
 }
 
@@ -1869,8 +1869,8 @@ function buildToolCallExpandedBody(
     (workEntry.changedFiles?.length ?? 0) === 0
   ) {
     // Fallback for tool calls whose content was not surfaced as a command or
-    // changed-files set (e.g. bob's tools): show the raw input/output.
-    const toolDataBlock = renderToolDataBlock(workEntry.toolData);
+    // changed-files set: show the structured input/output payload.
+    const toolDataBlock = renderStructuredToolDataBlock(workEntry.toolData);
     if (toolDataBlock) {
       blocks.push(toolDataBlock);
     }

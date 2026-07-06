@@ -6,7 +6,7 @@ import { ProviderRuntimeEvent } from "./providerRuntime.ts";
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
 
 describe("ProviderRuntimeEvent", () => {
-  it("decodes a resume cursor carried by turn completion", () => {
+  it("decodes turn completion as a canonical runtime event", () => {
     const parsed = decodeRuntimeEvent({
       type: "turn.completed",
       eventId: "event-bob-turn",
@@ -17,15 +17,12 @@ describe("ProviderRuntimeEvent", () => {
       turnId: "turn-bob",
       payload: {
         state: "completed",
-        resumeCursor: { resumeSessionId: "aec50d67-403c-4d08-a624-596bbd18a339" },
       },
     });
 
     expect(parsed.type).toBe("turn.completed");
     if (parsed.type === "turn.completed") {
-      expect(parsed.payload.resumeCursor).toEqual({
-        resumeSessionId: "aec50d67-403c-4d08-a624-596bbd18a339",
-      });
+      expect(parsed.payload.state).toBe("completed");
     }
   });
 

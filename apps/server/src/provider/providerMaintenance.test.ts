@@ -10,6 +10,7 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import { HttpClient } from "effect/unstable/http";
 import {
+  canResolveLatestProviderVersion,
   createProviderVersionAdvisory,
   enrichProviderSnapshotWithVersionAdvisory,
   makeManualOnlyProviderMaintenanceCapabilities,
@@ -162,6 +163,19 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         });
       }),
     );
+  });
+
+  it("only resolves latest provider versions for providers with update commands and package names", () => {
+    expect(canResolveLatestProviderVersion(packageToolUpdate.resolve())).toBe(true);
+    expect(
+      canResolveLatestProviderVersion(
+        makeManualOnlyProviderMaintenanceCapabilities({
+          provider: driver("manualTool"),
+          packageName: "untrusted-package-name",
+        }),
+      ),
+    ).toBe(false);
+    expect(canResolveLatestProviderVersion(staticToolUpdate.resolve())).toBe(false);
   });
 
   it("marks providers with unknown current versions as unknown", () => {
