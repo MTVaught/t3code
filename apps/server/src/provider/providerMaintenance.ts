@@ -130,6 +130,17 @@ export function makeManualOnlyProviderMaintenanceCapabilities(input: {
   });
 }
 
+export function canResolveLatestProviderVersion(
+  capabilities: ProviderMaintenanceCapabilities,
+): capabilities is ProviderMaintenanceCapabilities & {
+  readonly packageName: string;
+  readonly update: ProviderMaintenanceCommandAction;
+} {
+  // Manual-only providers can report an installed version, but without an
+  // update command there is no actionable latest-version prompt to show.
+  return capabilities.update !== null && capabilities.packageName !== null;
+}
+
 function makeNpmGlobalProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
 ): ProviderMaintenanceCapabilities {
@@ -446,15 +457,11 @@ const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (pack
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
 ) {
-  if (maintenanceCapabilities.update === null) {
+  if (!canResolveLatestProviderVersion(maintenanceCapabilities)) {
     return null;
   }
 
   const packageName = maintenanceCapabilities.packageName;
-  if (!packageName) {
-    return null;
-  }
-
   const latestVersionCache = yield* ProviderVersionCache;
   const cached = latestVersionCache.get(packageName);
   const now = DateTime.toEpochMillis(yield* DateTime.now);

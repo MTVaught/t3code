@@ -16,7 +16,16 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 
-import { makeBobAdapter } from "./BobAdapter.ts";
+import {
+  buildBobTurnArgs,
+  makeBobAdapter,
+  makeBobTokenUsageSnapshot,
+  readBobAssistantMessage,
+  readBobInitSessionId,
+  readBobResultError,
+  readBobToolResult,
+  readBobToolUse,
+} from "./BobAdapter.ts";
 
 const decodeBobSettings = Schema.decodeSync(BobSettings);
 
@@ -59,6 +68,13 @@ const STREAM_JSON_LINES = [
   { type: "tool_result", tool_id: "tool-1", status: "success", output: "" },
   {
     type: "tool_use",
+    tool_name: "execute_command",
+    tool_id: "tool-command",
+    parameters: { command: "echo hi" },
+  },
+  { type: "tool_result", tool_id: "tool-command", status: "success", output: "hi\n" },
+  {
+    type: "tool_use",
     tool_name: "attempt_completion",
     tool_id: "tool-2",
     parameters: { result: "All done." },
@@ -71,7 +87,7 @@ const STREAM_JSON_LINES = [
       input_tokens: 80,
       output_tokens: 20,
       duration_ms: 1234,
-      tool_calls: 1,
+      tool_calls: 2,
       session_costs: 0.05,
     },
   },
@@ -83,6 +99,107 @@ const STREAM_JSON_LINES = [
 const bobTestLayer = NodeServices.layer;
 
 it.layer(bobTestLayer)("BobAdapter", (it) => {
+  it("builds bob turn args", () => {
+    assert.deepStrictEqual(
+      buildBobTurnArgs({
+        prompt: "hi",
+        tier: "premium",
+        chatMode: "code",
+        approvalMode: "default",
+        maxCoins: "",
+      }),
+      ["-p", "hi", "-o", "stream-json", "-m", "premium", "--chat-mode", "code"],
+    );
+    assert.deepStrictEqual(
+      buildBobTurnArgs({
+        prompt: "hi",
+        tier: "premium",
+        chatMode: "code",
+        approvalMode: "auto_edit",
+        maxCoins: " 25 ",
+        resumeSessionId: SESSION_UUID,
+      }),
+      [
+        "-p",
+        "hi",
+        "-o",
+        "stream-json",
+        "-m",
+        "premium",
+        "--chat-mode",
+        "code",
+        "--approval-mode",
+        "auto_edit",
+        "--max-coins",
+        "25",
+        "-r",
+        SESSION_UUID,
+      ],
+    );
+    assert.isTrue(
+      buildBobTurnArgs({
+        prompt: "hi",
+        tier: "premium",
+        chatMode: "code",
+        approvalMode: "yolo",
+        maxCoins: "",
+      }).includes("--yolo"),
+    );
+  });
+
+  it("reads bob stream fields through pure helpers", () => {
+    assert.equal(readBobInitSessionId({ session_id: SESSION_UUID }), SESSION_UUID);
+    assert.equal(readBobInitSessionId({ session_id: "not-a-uuid" }), undefined);
+    assert.equal(readBobAssistantMessage({ role: "assistant", content: "hello" }), "hello");
+    assert.equal(readBobAssistantMessage({ role: "user", content: "hello" }), undefined);
+    assert.deepStrictEqual(
+      readBobToolUse({ tool_name: "read_file", parameters: { path: "a.ts" } }, "fallback"),
+      {
+        toolName: "read_file",
+        toolId: "fallback",
+        parameters: { path: "a.ts" },
+      },
+    );
+    assert.deepStrictEqual(
+      readBobToolResult({ tool_id: "tool-1", status: "success", output: "" }),
+      { toolId: "tool-1", status: "success", output: undefined },
+    );
+    assert.equal(readBobResultError({ error: "failed" }), "failed");
+    assert.equal(readBobResultError({ error: { message: "failed object" } }), "failed object");
+  });
+
+  it("maps bob token stats to thread token usage", () => {
+    assert.deepStrictEqual(
+      makeBobTokenUsageSnapshot({
+        stats: {
+          total_tokens: 100,
+          input_tokens: 80,
+          output_tokens: 20,
+          duration_ms: 1234,
+          tool_calls: 1,
+        },
+        contextWindowTokens: 200_000,
+      }),
+      {
+        usedTokens: 80,
+        maxTokens: 200_000,
+        compactsAutomatically: true,
+        totalProcessedTokens: 100,
+        inputTokens: 80,
+        outputTokens: 20,
+        durationMs: 1234,
+        toolUses: 1,
+      },
+    );
+    assert.equal(
+      makeBobTokenUsageSnapshot({
+        stats: { total_tokens: -1, input_tokens: Number.NaN },
+        contextWindowTokens: 200_000,
+      }),
+      undefined,
+    );
+  });
+
   it.effect("rejects attachments and rollback instead of silently diverging from Bob", () =>
     Effect.gen(function* () {
       const fakeSpawner = ChildProcessSpawner.make(() =>
@@ -155,10 +272,13 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         runtimeMode: "full-access",
       });
 
-      yield* adapter.sendTurn({
+      const turn = yield* adapter.sendTurn({
         threadId,
         input: "hi",
         modelSelection: { instanceId: ProviderInstanceId.make("bob"), model: "premium" },
+      });
+      assert.deepStrictEqual(turn.resumeCursor, {
+        resumeSessionId: SESSION_UUID,
       });
 
       yield* Deferred.await(turnDone).pipe(Effect.timeoutOption("5 seconds"));
@@ -212,6 +332,22 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
         assert.equal(toolCompleted.payload.detail, "read_file: a.ts");
       }
 
+      const commandCompleted = events.find(
+        (event) =>
+          event.type === "item.completed" && event.payload.itemType === "command_execution",
+      );
+      assert.isDefined(commandCompleted);
+      if (commandCompleted?.type === "item.completed") {
+        assert.deepStrictEqual(commandCompleted.payload.data, {
+          toolName: "execute_command",
+          input: { command: "echo hi" },
+          command: "echo hi",
+          result: "hi",
+        });
+        assert.equal(commandCompleted.payload.title, "Command run");
+        assert.equal(commandCompleted.payload.detail, "execute_command: echo hi");
+      }
+
       // Final assistant message uses the attempt_completion result, not the reasoning.
       const assistantCompleted = events.find(
         (event) =>
@@ -243,9 +379,6 @@ it.layer(bobTestLayer)("BobAdapter", (it) => {
       if (turnCompleted?.type === "turn.completed") {
         assert.equal(turnCompleted.payload.state, "completed");
         assert.equal(turnCompleted.payload.totalCostUsd, 0.05);
-        assert.deepStrictEqual(turnCompleted.payload.resumeCursor, {
-          resumeSessionId: SESSION_UUID,
-        });
       }
 
       assert.isTrue(types.includes("turn.started"));
