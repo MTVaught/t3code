@@ -18,7 +18,8 @@
  *     inert — the adapter never opens approval/user-input requests.
  *   - One turn at a time: a one-shot process cannot be steered, so a second
  *     `sendTurn` while a turn is running is rejected.
- *   - `rollbackThread` rolls back only the adapter's in-memory view.
+ *   - `rollbackThread` is unsupported because Bob retains turns in its
+ *     provider-side resumed session.
  *
  * @module provider/Layers/BobAdapter
  */
@@ -842,9 +843,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       });
     }
     if ((input.attachments?.length ?? 0) > 0) {
-      yield* Effect.logWarning("bob.turn.attachments-ignored", {
-        threadId: input.threadId,
-        count: input.attachments?.length ?? 0,
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "sendTurn",
+        issue: "Bob does not support attachments; remove them before sending the turn.",
       });
     }
 
@@ -971,10 +973,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
   const rollbackThread: BobAdapterShape["rollbackThread"] = Effect.fn("bob.rollbackThread")(
     function* (threadId, numTurns) {
-      const context = yield* requireSession(threadId);
-      const nextLength = Math.max(0, context.turns.length - numTurns);
-      context.turns.splice(nextLength);
-      return snapshotThread(context);
+      yield* requireSession(threadId);
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "thread/rollback",
+        detail: `Bob cannot roll back ${numTurns} turn(s) without retaining them in its resumed session.`,
+      });
     },
   );
 
