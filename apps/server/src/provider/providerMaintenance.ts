@@ -446,6 +446,10 @@ const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (pack
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
 ) {
+  if (maintenanceCapabilities.update === null) {
+    return null;
+  }
+
   const packageName = maintenanceCapabilities.packageName;
   if (!packageName) {
     return null;

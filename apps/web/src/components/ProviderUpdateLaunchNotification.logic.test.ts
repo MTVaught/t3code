@@ -105,6 +105,15 @@ describe("provider update launch notification logic", () => {
     expect(
       isProviderUpdateCandidate(provider({ driver: driver("codex"), latestVersion: null })),
     ).toBe(false);
+    expect(
+      isProviderUpdateCandidate(
+        provider({
+          driver: driver("bob"),
+          canUpdate: false,
+          updateCommand: null,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("deduplicates multi-instance provider candidates by driver", () => {

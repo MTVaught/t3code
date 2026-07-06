@@ -12,6 +12,7 @@ import { HttpClient } from "effect/unstable/http";
 import {
   createProviderVersionAdvisory,
   enrichProviderSnapshotWithVersionAdvisory,
+  makeManualOnlyProviderMaintenanceCapabilities,
   makePackageManagedProviderMaintenanceResolver,
   makeProviderMaintenanceCapabilities,
   makeStaticProviderMaintenanceResolver,
@@ -134,6 +135,34 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
       }),
     ),
   );
+
+  it.effect("does not fetch latest versions for manual-only providers", () => {
+    const capabilities = makeManualOnlyProviderMaintenanceCapabilities({
+      provider: driver("manualTool"),
+      packageName: "untrusted-package-name",
+    });
+
+    return enrichProviderSnapshotWithVersionAdvisory(installedPackageToolProvider, capabilities, {
+      enableProviderUpdateChecks: true,
+    }).pipe(
+      Effect.provideService(ProviderVersionCache, new Map()),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() =>
+          Effect.die("manual-only provider version checks should not make an HTTP request"),
+        ),
+      ),
+      Effect.map((provider) => {
+        expect(provider.versionAdvisory).toMatchObject({
+          status: "unknown",
+          currentVersion: "1.0.0",
+          latestVersion: null,
+          canUpdate: false,
+          updateCommand: null,
+        });
+      }),
+    );
+  });
 
   it("marks providers with unknown current versions as unknown", () => {
     expect(

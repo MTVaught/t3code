@@ -135,7 +135,9 @@ export function isProviderUpdateCandidate(
   return (
     provider.enabled &&
     provider.versionAdvisory?.status === "behind_latest" &&
-    provider.versionAdvisory.latestVersion !== null
+    provider.versionAdvisory.latestVersion !== null &&
+    provider.versionAdvisory.canUpdate === true &&
+    provider.versionAdvisory.updateCommand !== null
   );
 }
 
