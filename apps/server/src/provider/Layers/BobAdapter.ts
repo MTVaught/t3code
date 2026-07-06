@@ -40,8 +40,10 @@ import {
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -60,6 +62,7 @@ import { type BobAdapterShape } from "../Services/BobAdapter.ts";
 
 const PROVIDER = ProviderDriverKind.make("bob");
 const STDERR_TAIL_LIMIT = 4_000;
+const INIT_RESUME_CURSOR_WAIT_MS = 1_500;
 
 interface BobToolInFlight {
   readonly itemId: string;
@@ -82,6 +85,7 @@ interface BobTurnState {
   assistantCompleted: boolean;
   completed: boolean;
   totalCostUsd: number | undefined;
+  readonly initSessionId: Deferred.Deferred<string>;
   readonly tools: Map<string, BobToolInFlight>;
   readonly items: Array<unknown>;
 }
@@ -588,6 +592,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         if (sessionId && isUuid(sessionId)) {
           context.resumeSessionId = sessionId;
           updateResumeCursor(context);
+          yield* Deferred.succeed(turnState.initSessionId, sessionId).pipe(Effect.ignore);
         }
         return;
       }
@@ -849,6 +854,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const chatMode = resolveBobChatMode(input.interactionMode, bobConfig);
 
     const turnId = TurnId.make(yield* randomUUIDv4);
+    const initSessionId = yield* Deferred.make<string>();
     const turnState: BobTurnState = {
       turnId,
       assistantItemId: yield* randomUUIDv4,
@@ -861,6 +867,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       assistantCompleted: false,
       completed: false,
       totalCostUsd: undefined,
+      initSessionId,
       tools: new Map(),
       items: [],
     };
@@ -900,12 +907,17 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const fiber = yield* pump.pipe(Effect.forkIn(adapterScope));
     context.processFiber = fiber;
 
+    const initializedSessionId = yield* Deferred.await(initSessionId).pipe(
+      Effect.timeoutOption(INIT_RESUME_CURSOR_WAIT_MS),
+    );
+    const resumeCursor = Option.isSome(initializedSessionId)
+      ? { resumeSessionId: initializedSessionId.value }
+      : context.session.resumeCursor;
+
     return {
       threadId: context.session.threadId,
       turnId,
-      ...(context.session.resumeCursor !== undefined
-        ? { resumeCursor: context.session.resumeCursor }
-        : {}),
+      ...(resumeCursor !== undefined ? { resumeCursor } : {}),
     };
   });
 
