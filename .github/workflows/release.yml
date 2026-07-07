@@ -2,11 +2,11 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*.*.*"
       - "!v*-nightly.*"
+  schedule:
+    - cron: "17 8 * * *"
   workflow_dispatch:
     inputs:
       channel:
@@ -22,11 +22,9 @@ on:
         required: false
         type: string
 
-# Fork note: the upstream nightly `schedule:` trigger and its `check_changes`
-# job were removed so a fork does not build (and publish) every few hours and
-# burn Actions minutes. Trigger releases via a `v*.*.*` tag push or a manual
-# "Run workflow" (workflow_dispatch). Re-add the schedule block if you want
-# automated nightlies.
+# Nightly releases are scheduled once per day. The preflight job skips the
+# expensive build/publish matrix when there are no file changes since the
+# previous nightly tag.
 
 permissions:
   contents: read
@@ -44,6 +42,7 @@ jobs:
       release_name: ${{ steps.release_meta.outputs.name }}
       short_sha: ${{ steps.release_meta.outputs.short_sha }}
       previous_tag: ${{ steps.previous_tag.outputs.previous_tag }}
+      should_release: ${{ steps.check_changes.outputs.should_release }}
       cli_dist_tag: ${{ steps.release_meta.outputs.cli_dist_tag }}
       is_prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
       make_latest: ${{ steps.release_meta.outputs.make_latest }}
@@ -75,13 +74,11 @@ jobs:
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          # A push to a branch (for example main) has no human-picked semver,
-          # so publish it through the nightly/prerelease channel, which derives
-          # a version from the date + run number + SHA. Stable releases still
-          # come from a v*.*.* tag push or a workflow_dispatch with a version.
+          # Scheduled and manually requested nightly runs derive a prerelease
+          # version from the date, run number, and SHA. Stable releases come
+          # from a v*.*.* tag push or a workflow_dispatch with a version.
           if [[ "${GITHUB_EVENT_NAME}" == "schedule" \
-             || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) \
-             || ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) ]]; then
+             || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
@@ -125,15 +122,6 @@ jobs:
             fi
           fi
 
-      - name: Check
-        run: vp check
-
-      - name: Typecheck
-        run: vp run typecheck
-
-      - name: Test
-        run: vp run test
-
       - id: previous_tag
         name: Resolve previous release tag
         run: |
@@ -142,12 +130,42 @@ jobs:
             --current-tag "${{ steps.release_meta.outputs.tag }}" \
             --github-output
 
+      - id: check_changes
+        name: Check release changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should_release=true
+          previous_tag="${{ steps.previous_tag.outputs.previous_tag }}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" && -n "$previous_tag" ]]; then
+            if git diff --quiet "$previous_tag" "$GITHUB_SHA"; then
+              echo "No changes since previous nightly $previous_tag; skipping nightly release."
+              should_release=false
+            fi
+          fi
+
+          echo "should_release=$should_release" >> "$GITHUB_OUTPUT"
+
+      - name: Check
+        if: steps.check_changes.outputs.should_release == 'true'
+        run: vp check
+
+      - name: Typecheck
+        if: steps.check_changes.outputs.should_release == 'true'
+        run: vp run typecheck
+
+      - name: Test
+        if: steps.check_changes.outputs.should_release == 'true'
+        run: vp run test
+
   # The WSL backend runs under Linux Node and cannot load Electron's Windows
   # node-pty binary. Build the Linux binary separately for the Windows package.
   build_wsl_node_pty:
     name: Build WSL node-pty (linux-x64)
     needs: [preflight]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.should_release == 'true' }}
     # The runner's glibc becomes the shipped pty.node floor; bump deliberately.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -189,7 +207,7 @@ jobs:
     # require its success here: `!cancelled()` lets macOS/Linux build if it fails;
     # the Windows-only artifact download then fails just that platform.
     needs: [preflight, build_wsl_node_pty]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' }}
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.should_release == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     # Fork note: the upstream relay public-config job (which reads T3 Connect
@@ -459,7 +477,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [preflight, build]
-    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.should_release == 'true' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Fork note: upstream minted a GitHub App token (RELEASE_APP_ID /

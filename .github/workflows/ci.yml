@@ -100,3 +100,158 @@ jobs:
 
       - name: Exercise release-only workflow steps
         run: node scripts/release-smoke.ts
+
+  pr_wsl_node_pty:
+    name: PR Build WSL node-pty (linux-x64)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Build node-pty linux-x64 prebuild
+        shell: bash
+        run: |
+          set -euo pipefail
+          pty_pkg="$(node -e "console.log(require.resolve('node-pty/package.json', { paths: ['$GITHUB_WORKSPACE/apps/server'] }))")"
+          pty_dir="$(dirname "$pty_pkg")"
+          ( cd "$pty_dir" && npx --yes node-gyp rebuild )
+          mkdir -p wsl-prebuild
+          cp "$pty_dir/build/Release/pty.node" wsl-prebuild/pty.node
+          file wsl-prebuild/pty.node
+
+      - name: Upload node-pty linux-x64 prebuild
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-wsl-node-pty-x64
+          path: wsl-prebuild/pty.node
+          if-no-files-found: error
+
+  pr_desktop_artifacts:
+    name: PR Desktop Artifact ${{ matrix.label }}
+    if: github.event_name == 'pull_request'
+    needs: [check, test, release_smoke, pr_wsl_node_pty]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-latest
+            platform: mac
+            target: dmg
+            arch: arm64
+          - label: Linux x64
+            runner: ubuntu-latest
+            platform: linux
+            target: AppImage
+            arch: x64
+          - label: Windows x64
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Download WSL node-pty prebuild
+        if: matrix.platform == 'win'
+        uses: actions/download-artifact@v7
+        with:
+          name: pr-wsl-node-pty-x64
+          path: wsl-prebuild
+
+      - name: Install Spectre-mitigated MSVC libs
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -products * -latest -property installationPath
+          $setupExe = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $proc = Start-Process -FilePath $setupExe `
+            -ArgumentList "modify", "--installPath", "`"$installPath`"", "--add", `
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64.Spectre", "--quiet", "--norestart" `
+            -Wait -PassThru -NoNewWindow
+          if ($null -eq $proc -or $proc.ExitCode -ne 0) {
+            $code = if ($null -ne $proc) { $proc.ExitCode } else { 1 }
+            Write-Error "Visual Studio Installer failed with exit code $code"
+            exit $code
+          }
+
+      - name: Install ImageMagick
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y imagemagick
+          fi
+
+          if command -v magick >/dev/null 2>&1; then
+              magick -version
+          else
+              convert -version
+          fi
+
+      - name: Build desktop artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          args=(
+            --platform "${{ matrix.platform }}"
+            --target "${{ matrix.target }}"
+            --arch "${{ matrix.arch }}"
+            --build-version "$version"
+            --verbose
+          )
+
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            args+=(--wsl-prebuild "$GITHUB_WORKSPACE/wsl-prebuild/pty.node")
+          fi
+
+          vp run dist:desktop:artifact "${args[@]}"
+
+      - name: Collect desktop artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pr-desktop-artifacts
+
+          shopt -s nullglob
+          for pattern in \
+            "release/*.dmg" \
+            "release/*.zip" \
+            "release/*.AppImage" \
+            "release/*.exe" \
+            "release/*.blockmap" \
+            "release/*.yml"; do
+            for file in $pattern; do
+              cp "$file" pr-desktop-artifacts/
+            done
+          done
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: pr-desktop-artifacts/*
+          if-no-files-found: error
