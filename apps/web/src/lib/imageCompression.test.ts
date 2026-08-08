@@ -123,9 +123,11 @@ describe("compressImageForStash", () => {
   });
 
   it("reports too-large when even the smallest encoding overflows the budget", async () => {
-    const { close } = stubCanvasPipeline(() => 8_000_000);
+    // Keep every generated data URL just over budget without allocating the
+    // ~120MB of synthetic blobs that made this boundary test load-sensitive.
+    const { close } = stubCanvasPipeline(() => 1_000_000);
 
-    const result = await compressImageForStash(makeFile(9_000_000));
+    const result = await compressImageForStash(makeFile(1_000_000));
 
     expect(result).toEqual({ ok: false, reason: "too-large" });
     // The bitmap must still be released on the give-up path.
