@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { makeBobTextGeneration } from "../../textGeneration/BobTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeBobAdapter } from "../Layers/BobAdapter.ts";
@@ -53,6 +54,7 @@ const UPDATE = makeStaticProviderMaintenanceResolver(
 );
 
 export type BobDriverEnv =
+  | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
