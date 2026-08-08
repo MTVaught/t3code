@@ -79,12 +79,7 @@ export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set(
 export function bobModelsFromSettings(
   customModels: ReadonlyArray<string> | undefined,
 ): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings(
-    BOB_BUILT_IN_MODELS,
-    BOB_PROVIDER,
-    customModels ?? [],
-    EMPTY_CAPABILITIES,
-  );
+  return providerModelsFromSettings(BOB_BUILT_IN_MODELS, customModels ?? [], EMPTY_CAPABILITIES);
 }
 
 export function buildInitialBobProviderSnapshot(

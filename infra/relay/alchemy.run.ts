@@ -10,7 +10,7 @@ import * as Planetscale from "alchemy/Planetscale";
 import * as RelayDb from "./src/db.ts";
 import { RelayObservability } from "./src/observability.ts";
 import { ManagedEndpointZone, RelayApiZone } from "./src/zone.ts";
-import Api from "./src/worker.ts";
+import ApiLive, { Api } from "./src/worker.ts";
 
 export default Alchemy.Stack(
   "T3CodeRelay",
@@ -41,5 +41,5 @@ export default Alchemy.Stack(
       relayApiZoneId: relayApiZone.zoneId,
       managedEndpointZoneId: managedEndpointZone.zoneId,
     };
-  }),
+  }).pipe(Effect.provide(ApiLive)),
 );
