@@ -28,6 +28,7 @@ import {
   type ProviderInstanceId,
   type ServerProvider,
   type ServerProviderUpdateState,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -39,6 +40,7 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as Semaphore from "effect/Semaphore";
+import * as Schema from "effect/Schema";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
@@ -54,6 +56,8 @@ import {
 import type { ProviderInstance } from "../ProviderDriver.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type { ProviderSnapshotSource } from "../builtInProviderCatalog.ts";
+import { ProviderAdapterRequestError } from "../Errors.ts";
+const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 
 const loadProviders = (
   providerSources: ReadonlyArray<ProviderSnapshotSource>,
@@ -710,6 +714,60 @@ export const ProviderRegistryLive = Layer.effect(
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      getProjectMetadata: (instanceId: ProviderInstanceId, cwd: string) =>
+        instanceRegistry.getInstance(instanceId).pipe(
+          Effect.flatMap((instance) =>
+            instance?.adapter.getProjectMetadata
+              ? instance.adapter.getProjectMetadata(cwd).pipe(
+                  Effect.orElseSucceed(() => ({
+                    workspaceTrusted: false,
+                    modes: [],
+                    slashCommands: [],
+                    skills: [],
+                  })),
+                )
+              : Effect.succeed({
+                  workspaceTrusted: true,
+                  modes: [],
+                  slashCommands: [],
+                  skills: [],
+                }),
+          ),
+        ),
+      resetContext: (instanceId: ProviderInstanceId, threadId: ThreadId) =>
+        instanceRegistry.getInstance(instanceId).pipe(
+          Effect.flatMap((instance) => {
+            if (!instance) {
+              return Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: ProviderDriverKind.make("bob"),
+                  method: "thread/resetContext",
+                  detail: `Unknown provider instance '${instanceId}'.`,
+                }),
+              );
+            }
+            if (!instance.adapter.resetContext) {
+              return Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: instance.driverKind,
+                  method: "thread/resetContext",
+                  detail: `Provider '${instance.driverKind}' cannot reset context.`,
+                }),
+              );
+            }
+            return instance.adapter.resetContext(threadId).pipe(Effect.asVoid);
+          }),
+          Effect.mapError((error) =>
+            isProviderAdapterRequestError(error)
+              ? error
+              : new ProviderAdapterRequestError({
+                  provider: ProviderDriverKind.make("bob"),
+                  method: "thread/resetContext",
+                  detail: error instanceof Error ? error.message : "Provider context reset failed.",
+                  cause: error,
+                }),
+          ),
+        ),
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {

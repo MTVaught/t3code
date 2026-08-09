@@ -3,6 +3,7 @@ import type {
   ModelCapabilities,
   ServerProvider,
   ServerProviderAuth,
+  ServerProviderCapabilities,
   ServerProviderSkill,
   ServerProviderSlashCommand,
   ServerProviderModel,
@@ -57,6 +58,7 @@ export interface ServerProviderPresentation {
   readonly badgeLabel?: string;
   readonly showInteractionModeToggle?: boolean;
   readonly requiresNewThreadForModelChange?: boolean;
+  readonly capabilities?: ServerProviderCapabilities;
 }
 
 export type ServerProviderDraft = Omit<ServerProvider, "instanceId" | "driver">;
@@ -233,6 +235,20 @@ export function buildServerProvider(input: {
     ...(typeof input.presentation.requiresNewThreadForModelChange === "boolean"
       ? { requiresNewThreadForModelChange: input.presentation.requiresNewThreadForModelChange }
       : {}),
+    capabilities: input.presentation.capabilities ?? {
+      modelPicker: true,
+      attachments: true,
+      approvals: true,
+      structuredInput: true,
+      steering: true,
+      rollback: true,
+      providerModes: false,
+      commands: true,
+      skills: true,
+      subagentProgress: "live",
+      tokenUsage: true,
+      billingUnits: [],
+    },
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,

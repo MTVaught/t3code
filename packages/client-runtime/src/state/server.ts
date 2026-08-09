@@ -724,6 +724,20 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId }) => environmentId,
       },
     }),
+    providerProjectMetadata: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:provider-project-metadata",
+      tag: WS_METHODS.serverGetProviderProjectMetadata,
+      staleTimeMs: 2_000,
+      refreshIntervalMs: 5_000,
+    }),
+    resetProviderContext: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:reset-provider-context",
+      tag: WS_METHODS.serverResetProviderContext,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.threadId}`,
+      },
+    }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,

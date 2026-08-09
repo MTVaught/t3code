@@ -2,10 +2,9 @@
  * BobEnvironment — environment + command resolution helpers for the IBM Bob
  * provider.
  *
- * `bob` authenticates via the `BOBSHELL_API_KEY` environment variable. When the
- * user configures an explicit `apiKey` in settings we inject it; otherwise we
- * inherit whatever is already on the ambient environment (the common case for a
- * machine where `bob` is already logged in).
+ * Bob 2 authenticates via `BOB_API_KEY` and still accepts the legacy
+ * `BOBSHELL_API_KEY`. Configured credentials use the current name; an
+ * unconfigured instance inherits either ambient variable and Bob's own login.
  *
  * @module provider/Drivers/BobEnvironment
  */
@@ -23,7 +22,7 @@ export function makeBobEnvironment(
   const apiKey = bobSettings.apiKey.trim();
   return {
     ...base,
-    ...(apiKey.length > 0 ? { BOBSHELL_API_KEY: apiKey } : {}),
+    ...(apiKey.length > 0 ? { BOB_API_KEY: apiKey } : {}),
   } satisfies NodeJS.ProcessEnv;
 }
 

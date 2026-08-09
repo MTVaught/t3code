@@ -35,6 +35,10 @@
       "types": "./src/platform/index.ts",
       "default": "./src/platform/index.ts"
     },
+    "./provider-access": {
+      "types": "./src/providerAccess.ts",
+      "default": "./src/providerAccess.ts"
+    },
     "./relay": {
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"

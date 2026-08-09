@@ -19,9 +19,13 @@ const BobTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.c
   prefix: "t3code-bob-text-generation-test-",
 }).pipe(Layer.provideMerge(NodeServices.layer));
 
-/** Build a single bob stream-json line. */
-function streamLine(event: Record<string, unknown>): string {
-  return JSON.stringify(event);
+function bobJsonResult(lastMessage: unknown): string {
+  return JSON.stringify({
+    type: "result",
+    status: "success",
+    last_message: JSON.stringify(lastMessage),
+    stats: { task_id: "11111111111111111111111111111111" },
+  });
 }
 
 function makeFakeBobBinary(dir: string) {
@@ -136,27 +140,11 @@ function withFakeBobEnv<A, E, R>(
 }
 
 it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
-  it.effect("generates a commit message from the attempt_completion result", () =>
+  it.effect("generates a commit message from result.last_message", () =>
     withFakeBobEnv(
       {
-        output: [
-          streamLine({ type: "init", session_id: "00000000-0000-4000-8000-000000000000" }),
-          streamLine({
-            type: "message",
-            role: "assistant",
-            content: "<thinking>Summarize the staged change.</thinking>",
-          }),
-          streamLine({
-            type: "tool_use",
-            tool_name: "attempt_completion",
-            parameters: {
-              result: JSON.stringify({ subject: "Add Bob text generation", body: "" }),
-            },
-          }),
-          streamLine({ type: "result", status: "success", stats: { total_tokens: 42 } }),
-        ].join("\n"),
-        // Non-interactive read-only flags must be present.
-        argsMustContain: "stream-json",
+        output: bobJsonResult({ subject: "Add Bob text generation", body: "" }),
+        argsMustContain: "run --format json",
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -177,18 +165,11 @@ it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
     ),
   );
 
-  it.effect("passes read-only chat mode to bob", () =>
+  it.effect("passes ask mode and side-effect restrictions to Bob", () =>
     withFakeBobEnv(
       {
-        output: [
-          streamLine({
-            type: "tool_use",
-            tool_name: "attempt_completion",
-            parameters: { result: JSON.stringify({ title: "Investigate reconnect failures" }) },
-          }),
-          streamLine({ type: "result", status: "success" }),
-        ].join("\n"),
-        argsMustContain: "--chat-mode ask",
+        output: bobJsonResult({ title: "Investigate reconnect failures" }),
+        argsMustContain: "--mode ask --disable-mcp --disable-subagents --disable-tool-groups",
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -206,17 +187,10 @@ it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
     ),
   );
 
-  it.effect("falls back to assistant message text when there is no completion", () =>
+  it.effect("generates a branch name from result.last_message", () =>
     withFakeBobEnv(
       {
-        output: [
-          streamLine({
-            type: "message",
-            role: "assistant",
-            content: `Here you go: ${JSON.stringify({ branch: "fix-reconnect" })}`,
-          }),
-          streamLine({ type: "result", status: "success" }),
-        ].join("\n"),
+        output: bobJsonResult({ branch: "fix-reconnect" }),
       },
       (textGeneration) =>
         Effect.gen(function* () {
@@ -237,13 +211,11 @@ it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
   it.effect("surfaces a bob result error", () =>
     withFakeBobEnv(
       {
-        output: [
-          streamLine({
-            type: "result",
-            status: "error",
-            error: { message: "insufficient coins" },
-          }),
-        ].join("\n"),
+        output: JSON.stringify({
+          type: "result",
+          status: "error",
+          error: { message: "insufficient coins" },
+        }),
       },
       (textGeneration) =>
         Effect.gen(function* () {

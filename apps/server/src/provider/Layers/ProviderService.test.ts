@@ -23,6 +23,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 import { it, assert, vi } from "@effect/vitest";
 
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -1476,6 +1477,78 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("persists a terminal cursor from the exact adapter before publishing completion", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-late-cursor");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const terminalCursor = { version: 1, taskId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+      fanout.codex.updateSession(threadId, (session) => ({
+        ...session,
+        resumeCursor: terminalCursor,
+        status: "ready",
+      }));
+      const completed = yield* Deferred.make<void>();
+      const consumer = yield* Stream.runForEach(provider.streamEvents, (event) =>
+        event.type === "turn.completed" ? Deferred.succeed(completed, undefined) : Effect.void,
+      ).pipe(Effect.forkChild);
+      yield* advanceTestClock(50);
+      fanout.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("evt-late-cursor"),
+        provider: CODEX_DRIVER,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId,
+        turnId: asTurnId("turn-late-cursor"),
+        status: "completed",
+      });
+      yield* Deferred.await(completed);
+
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      assert.deepEqual(binding?.resumeCursor, terminalCursor);
+      yield* Fiber.interrupt(consumer);
+    }),
+  );
+
+  it.effect("does not clear a resume cursor for ordinary session configuration events", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-session-configured");
+      const session = yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const configured = yield* Deferred.make<void>();
+      const consumer = yield* Stream.runForEach(provider.streamEvents, (event) =>
+        event.type === "session.configured" ? Deferred.succeed(configured, undefined) : Effect.void,
+      ).pipe(Effect.forkChild);
+      yield* advanceTestClock(50);
+      fanout.codex.emit({
+        type: "session.configured",
+        eventId: asEventId("evt-session-configured"),
+        provider: CODEX_DRIVER,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId,
+        payload: { config: { model: "gpt-test" } },
+      });
+      yield* Deferred.await(configured);
+
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      assert.deepEqual(binding?.resumeCursor, session.resumeCursor);
+      yield* Fiber.interrupt(consumer);
+    }),
+  );
+
   it.effect("fans out adapter turn completion events", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

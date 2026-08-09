@@ -103,6 +103,10 @@ export function useThreadComposerState() {
   const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
   const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
   const interactionMode = selectedDraft?.interactionMode ?? selectedThread?.interactionMode ?? null;
+  const providerMode =
+    selectedDraft?.providerMode !== undefined
+      ? selectedDraft.providerMode
+      : (selectedThread?.providerMode ?? null);
 
   const selectedThreadSessionActivity = useMemo(() => {
     const selectedThread = selectedThreadDetail ?? selectedThreadShell;
@@ -164,6 +168,7 @@ export function useThreadComposerState() {
       modelSelection: draft.modelSelection ?? thread.modelSelection,
       runtimeMode: draft.runtimeMode ?? thread.runtimeMode,
       interactionMode: draft.interactionMode ?? thread.interactionMode,
+      ...(draft.providerMode !== undefined ? { providerMode: draft.providerMode } : {}),
       createdAt: metadata.createdAt,
     });
     clearComposerDraftContent(threadKey);
@@ -298,6 +303,13 @@ export function useThreadComposerState() {
     },
     [selectedThreadKey],
   );
+  const onUpdateProviderMode = useCallback(
+    (value: string | null) => {
+      if (!selectedThreadKey) return;
+      updateComposerDraftSettings(selectedThreadKey, { providerMode: value });
+    },
+    [selectedThreadKey],
+  );
 
   return {
     selectedThreadFeed,
@@ -308,6 +320,7 @@ export function useThreadComposerState() {
     modelSelection,
     runtimeMode,
     interactionMode,
+    providerMode,
     activeThreadBusy,
     onChangeDraftMessage,
     onPickDraftImages,
@@ -318,5 +331,6 @@ export function useThreadComposerState() {
     onUpdateModelSelection,
     onUpdateRuntimeMode,
     onUpdateInteractionMode,
+    onUpdateProviderMode,
   };
 }

@@ -362,17 +362,15 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
-const BobMaxCoins = TrimmedString.check(
-  Schema.makeFilter(
-    (value) =>
-      value.length === 0 ||
-      (Number.isFinite(Number(value)) && Number(value) > 0) ||
-      "Max coins must be empty or a positive number",
-  ),
-);
+const BobPositiveNumber = Schema.Number.check(Schema.isGreaterThan(0));
+const BobPositiveInteger = Schema.Int.check(Schema.isGreaterThan(0));
 
 export const BobSettings = makeProviderSettingsSchema(
   {
+    schemaVersion: Schema.Literal(2).pipe(
+      Schema.withDecodingDefault(Effect.succeed(2 as const)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
     enabled: Schema.Boolean.pipe(
       // Gated off by default: Bob is an early-access provider and only spins up
       // once the user explicitly enables it in settings.
@@ -389,41 +387,65 @@ export const BobSettings = makeProviderSettingsSchema(
     apiKey: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
-        title: "BOBSHELL_API_KEY",
+        title: "BOB_API_KEY",
         description: "API key for bob. Leave blank to inherit from the environment.",
         providerSettingsForm: { control: "password", clearWhenEmpty: "omit" },
       }),
     ),
-    approvalMode: Schema.Literals(["default", "auto_edit", "yolo"]).pipe(
-      Schema.withDecodingDefault(Effect.succeed("auto_edit")),
+    teamId: TrimmedString.pipe(
+      Schema.optionalKey,
       Schema.annotateKey({
-        title: "Approval mode",
-        description:
-          "Bob cannot request approval through T3 Code. 'default' leaves tools requiring approval unavailable; 'auto_edit' auto-approves edits; 'yolo' auto-approves all tools, including commands.",
-      }),
-    ),
-    chatMode: Schema.Literals(["plan", "code", "advanced", "ask"]).pipe(
-      Schema.withDecodingDefault(Effect.succeed("code")),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
-    maxCoins: BobMaxCoins.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "Max coins",
-        description: "Optional per-turn spend cap passed to bob via --max-coins.",
+        title: "Team ID",
+        description: "Optional Bob team used for tasks from this instance.",
         providerSettingsForm: { clearWhenEmpty: "omit" },
       }),
     ),
-    customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(Effect.succeed([])),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    defaultMode: TrimmedNonEmptyString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("agent")),
+      Schema.annotateKey({
+        title: "Default mode",
+        description: "Bob mode slug used when a thread has not selected another mode.",
+      }),
+    ),
+    taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber).pipe(
+      Schema.annotateKey({
+        title: "Task cost threshold (Bobcoins)",
+        description:
+          "Optional soft cumulative task threshold passed to Bob. The first inference can exceed it.",
+        providerSettingsForm: { clearWhenEmpty: "omit" },
+      }),
+    ),
+    maxTurns: Schema.optionalKey(BobPositiveInteger).pipe(
+      Schema.annotateKey({
+        title: "Maximum turns",
+        description: "Optional maximum number of Bob inference turns per invocation.",
+        providerSettingsForm: { clearWhenEmpty: "omit" },
+      }),
+    ),
+    toolAccessCeiling: Schema.Literals(["read-only", "edits", "full"]).pipe(
+      Schema.withDecodingDefault(Effect.succeed("edits")),
+      Schema.annotateKey({
+        title: "Tool access ceiling",
+        description:
+          "Maximum tool access Bob may receive. The thread runtime mode can restrict it further.",
+      }),
     ),
   },
   {
-    order: ["binaryPath", "apiKey", "approvalMode", "maxCoins"],
+    order: [
+      "binaryPath",
+      "apiKey",
+      "teamId",
+      "defaultMode",
+      "taskCostThresholdBobcoins",
+      "maxTurns",
+      "toolAccessCeiling",
+    ],
   },
 );
 export type BobSettings = typeof BobSettings.Type;
+
+export const BobSettingsConfig = BobSettings;
 
 export const CursorSettings = makeProviderSettingsSchema(
   {
@@ -661,7 +683,7 @@ export const ServerSettings = Schema.Struct({
   providers: Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-    bob: BobSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    bob: BobSettingsConfig.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
@@ -748,13 +770,15 @@ const ClaudeSettingsPatch = Schema.Struct({
 });
 
 const BobSettingsPatch = Schema.Struct({
+  schemaVersion: Schema.optionalKey(Schema.Literal(2)),
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
   apiKey: Schema.optionalKey(TrimmedString),
-  approvalMode: Schema.optionalKey(Schema.Literals(["default", "auto_edit", "yolo"])),
-  chatMode: Schema.optionalKey(Schema.Literals(["plan", "code", "advanced", "ask"])),
-  maxCoins: Schema.optionalKey(BobMaxCoins),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  teamId: Schema.optionalKey(TrimmedString),
+  defaultMode: Schema.optionalKey(TrimmedNonEmptyString),
+  taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber),
+  maxTurns: Schema.optionalKey(BobPositiveInteger),
+  toolAccessCeiling: Schema.optionalKey(Schema.Literals(["read-only", "edits", "full"])),
 });
 
 const CursorSettingsPatch = Schema.Struct({

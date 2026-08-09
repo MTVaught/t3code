@@ -1207,6 +1207,10 @@ function ChatViewContent(props: ChatViewProps) {
   const revertThreadCheckpoint = useAtomCommand(threadEnvironment.revertCheckpoint, {
     reportFailure: false,
   });
+  const resetProviderContext = useAtomCommand(serverEnvironment.resetProviderContext, {
+    reportFailure: false,
+  });
+  const [isResettingProviderContext, setIsResettingProviderContext] = useState(false);
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const closePreview = useAtomCommand(previewEnvironment.close, "preview close");
   const { environments } = useEnvironments();
@@ -1491,6 +1495,12 @@ function ChatViewContent(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
+  const [providerModeOverride, setProviderModeOverride] = useState<string | null | undefined>();
+  useEffect(() => setProviderModeOverride(undefined), [activeThreadId]);
+  const providerMode =
+    providerModeOverride !== undefined
+      ? providerModeOverride
+      : (activeThread?.providerMode ?? null);
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -2541,6 +2551,11 @@ function ChatViewContent(props: ChatViewProps) {
   )
     ? activeProviderStatus
     : null;
+  const supportsConversationRollback = activeProviderStatus?.capabilities?.rollback !== false;
+  const canResetMissingBobContext =
+    activeProviderStatus?.driver === "bob" &&
+    threadError !== null &&
+    /(?:no task found|task\s+[^\n]*not found|bob continuation state is invalid)/i.test(threadError);
   const hasTimelineTopBanner = Boolean(threadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
@@ -4666,7 +4681,8 @@ function ChatViewContent(props: ChatViewProps) {
   const onRevertToTurnCount = useCallback(
     async (turnCount: number) => {
       const localApi = readLocalApi();
-      if (!localApi || !activeThread || isRevertingCheckpoint) return;
+      if (!localApi || !activeThread || isRevertingCheckpoint || !supportsConversationRollback)
+        return;
 
       if (activeEnvironmentUnavailable && activeEnvironmentUnavailableLabel) {
         setThreadError(
@@ -4719,8 +4735,34 @@ function ChatViewContent(props: ChatViewProps) {
       phase,
       revertThreadCheckpoint,
       setThreadError,
+      supportsConversationRollback,
     ],
   );
+
+  const onResetProviderContext = useCallback(async () => {
+    if (!activeThread || isResettingProviderContext) return;
+    setIsResettingProviderContext(true);
+    const result = await resetProviderContext({
+      environmentId,
+      input: { threadId: activeThread.id },
+    });
+    if (result._tag === "Success") {
+      setThreadError(activeThread.id, null);
+    } else if (!isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      setThreadError(
+        activeThread.id,
+        error instanceof Error ? error.message : "Failed to reset provider context.",
+      );
+    }
+    setIsResettingProviderContext(false);
+  }, [
+    activeThread,
+    environmentId,
+    isResettingProviderContext,
+    resetProviderContext,
+    setThreadError,
+  ]);
 
   const onSend = async (
     e?: { preventDefault: () => void },
@@ -5076,6 +5118,7 @@ function ChatViewContent(props: ChatViewProps) {
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
+                      providerMode,
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -5110,6 +5153,7 @@ function ChatViewContent(props: ChatViewProps) {
           titleSeed: title,
           runtimeMode,
           interactionMode,
+          providerMode,
           ...(bootstrap ? { bootstrap } : {}),
           createdAt: messageCreatedAt,
         },
@@ -5464,6 +5508,7 @@ function ChatViewContent(props: ChatViewProps) {
             titleSeed: activeThread.title,
             runtimeMode,
             interactionMode: nextInteractionMode,
+            providerMode,
             ...(nextInteractionMode === "default" && activeProposedPlan
               ? {
                   sourceProposedPlan: {
@@ -5507,6 +5552,7 @@ function ChatViewContent(props: ChatViewProps) {
       isServerThread,
       localCheckoutBranchMismatch,
       persistThreadSettingsForNextTurn,
+      providerMode,
       resetLocalDispatch,
       runtimeMode,
       setComposerDraftInteractionMode,
@@ -5573,6 +5619,7 @@ function ChatViewContent(props: ChatViewProps) {
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
+        providerMode,
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
         createdAt,
@@ -5596,6 +5643,7 @@ function ChatViewContent(props: ChatViewProps) {
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
+          providerMode,
           sourceProposedPlan: {
             threadId: activeThread.id,
             planId: activeProposedPlan.id,
@@ -5667,6 +5715,7 @@ function ChatViewContent(props: ChatViewProps) {
     isSendBusy,
     isServerThread,
     navigate,
+    providerMode,
     resetLocalDispatch,
     runtimeMode,
     startThreadTurn,
@@ -6003,6 +6052,15 @@ function ChatViewContent(props: ChatViewProps) {
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => setThreadError(activeThread.id, null)}
+          {...(canResetMissingBobContext
+            ? {
+                recoveryAction: {
+                  label: "Start new Bob context",
+                  onClick: () => void onResetProviderContext(),
+                  pending: isResettingProviderContext,
+                },
+              }
+            : {})}
         />
         {/* Main content area with optional plan sidebar */}
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -6038,7 +6096,11 @@ function ChatViewContent(props: ChatViewProps) {
                 activeThreadEnvironmentId={activeThread.environmentId}
                 routeThreadKey={routeThreadKey}
                 onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                revertTurnCountByUserMessageId={
+                  supportsConversationRollback
+                    ? revertTurnCountByUserMessageId
+                    : new Map<MessageId, number>()
+                }
                 onRevertUserMessage={onRevertUserMessage}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
@@ -6167,11 +6229,14 @@ function ChatViewContent(props: ChatViewProps) {
                             activeProposedPlan={activeProposedPlan}
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
+                            providerMode={providerMode}
+                            onProviderModeChange={setProviderModeOverride}
                             lockedProvider={lockedProvider}
                             providerStatuses={providerStatuses as ServerProvider[]}
                             activeProjectDefaultModelSelection={
                               activeProject?.defaultModelSelection
                             }
+                            activeProjectId={activeProject?.id ?? null}
                             activeThreadModelSelection={activeThread?.modelSelection}
                             activeThreadActivities={activeThread?.activities}
                             resolvedTheme={resolvedTheme}

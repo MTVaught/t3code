@@ -212,18 +212,29 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-  const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
-    McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
-      Effect.tap((credential) =>
-        credential
-          ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
-          : Effect.void,
-      ),
-    );
-  const clearMcpSession = (threadId: ThreadId) =>
-    McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
-      Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
-    );
+  const prepareMcpSession = (
+    adapter: ProviderAdapterShape<ProviderAdapterError>,
+    threadId: ThreadId,
+    providerInstanceId: ProviderInstanceId,
+  ) =>
+    adapter.capabilities.t3McpInjection === false
+      ? Effect.void
+      : McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
+          Effect.tap((credential) =>
+            credential
+              ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
+              : Effect.void,
+          ),
+        );
+  const clearMcpSession = (
+    adapter: ProviderAdapterShape<ProviderAdapterError>,
+    threadId: ThreadId,
+  ) =>
+    adapter.capabilities.t3McpInjection === false
+      ? Effect.void
+      : McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
+          Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
+        );
 
   const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Effect.succeed(event).pipe(
@@ -283,6 +294,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     source: {
       readonly instanceId: ProviderInstanceId;
       readonly provider: ProviderDriverKind;
+      readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
     },
     event: ProviderRuntimeEvent,
   ): Effect.Effect<void> =>
@@ -293,6 +305,52 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             provider: canonicalEvent.provider,
             eventType: canonicalEvent.type,
           });
+          const isBobContinuationReset =
+            canonicalEvent.type === "session.configured" &&
+            canonicalEvent.provider === "bob" &&
+            canonicalEvent.payload.config.continuation === "reset";
+          if (canonicalEvent.type === "turn.completed" || isBobContinuationReset) {
+            yield* Effect.gen(function* () {
+              const sessions = yield* source.adapter.listSessions();
+              const session = sessions.find(
+                (candidate) => candidate.threadId === canonicalEvent.threadId,
+              );
+              if (session) {
+                if (isBobContinuationReset) {
+                  const providerInstanceId = yield* requireBindingInstanceId(
+                    "ProviderService.processRuntimeEvent",
+                    session,
+                  );
+                  yield* directory.upsert({
+                    threadId: canonicalEvent.threadId,
+                    provider: session.provider,
+                    providerInstanceId,
+                    runtimeMode: session.runtimeMode,
+                    status: toRuntimeStatus(session),
+                    resumeCursor: null,
+                    runtimePayload: toRuntimePayloadFromSession(session, {
+                      lastRuntimeEvent: canonicalEvent.type,
+                      lastRuntimeEventAt: canonicalEvent.createdAt,
+                    }),
+                  });
+                } else {
+                  yield* upsertSessionBinding(session, canonicalEvent.threadId, {
+                    lastRuntimeEvent: canonicalEvent.type,
+                    lastRuntimeEventAt: canonicalEvent.createdAt,
+                  });
+                }
+              }
+            }).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("Failed to persist terminal provider resume state.", {
+                  provider: canonicalEvent.provider,
+                  providerInstanceId: source.instanceId,
+                  threadId: canonicalEvent.threadId,
+                  cause,
+                }),
+              ),
+            );
+          }
           yield* publishRuntimeEvent(canonicalEvent);
         }),
       ),
@@ -337,6 +395,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             {
               instanceId: id,
               provider: adapter.provider,
+              adapter,
             },
             event,
           ),
@@ -393,7 +452,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
-      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
+      yield* prepareMcpSession(adapter, input.binding.threadId, bindingInstanceId);
       const resumed = yield* adapter
         .startSession({
           threadId: input.binding.threadId,
@@ -404,9 +463,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         })
-        .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
+        .pipe(Effect.onError(() => clearMcpSession(adapter, input.binding.threadId)));
       if (resumed.provider !== adapter.provider) {
-        yield* clearMcpSession(input.binding.threadId);
+        yield* clearMcpSession(adapter, input.binding.threadId);
         return yield* toValidationError(
           input.operation,
           `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.provider}'.`,
@@ -579,7 +638,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.cwd.effective": effectiveCwd ?? "",
         });
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        yield* prepareMcpSession(threadId, resolvedInstanceId);
+        yield* prepareMcpSession(adapter, threadId, resolvedInstanceId);
         const session = yield* adapter
           .startSession({
             ...input,
@@ -587,10 +646,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
             ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
           })
-          .pipe(Effect.onError(() => clearMcpSession(threadId)));
+          .pipe(Effect.onError(() => clearMcpSession(adapter, threadId)));
 
         if (session.provider !== adapter.provider) {
-          yield* clearMcpSession(threadId);
+          yield* clearMcpSession(adapter, threadId);
           return yield* toValidationError(
             "ProviderService.startSession",
             `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
@@ -664,7 +723,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // an already-spawned agent process, so we keep the existing token valid
       // rather than issuing a new one: sessions that go a long time between
       // browser tool calls used to lose the toolkit outright.
-      yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
+      if (routed.adapter.capabilities.t3McpInjection !== false) {
+        yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
+      }
       const turn = yield* routed.adapter.sendTurn(input);
       yield* directory.upsert({
         threadId: input.threadId,
@@ -821,7 +882,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         if (routed.isActive) {
           yield* routed.adapter.stopSession(routed.threadId);
         }
-        yield* clearMcpSession(input.threadId);
+        yield* clearMcpSession(routed.adapter, input.threadId);
         yield* directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,
@@ -933,6 +994,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const getCapabilities: ProviderServiceMethod<"getCapabilities"> = (instanceId) =>
     registry.getByInstance(instanceId).pipe(Effect.map((adapter) => adapter.capabilities));
 
+  const getProjectMetadata: ProviderServiceMethod<"getProjectMetadata"> = (instanceId, cwd) =>
+    registry
+      .getByInstance(instanceId)
+      .pipe(
+        Effect.flatMap((adapter) =>
+          adapter.getProjectMetadata
+            ? adapter.getProjectMetadata(cwd)
+            : Effect.succeed({ workspaceTrusted: true, modes: [], slashCommands: [], skills: [] }),
+        ),
+      );
+
   const getInstanceInfo: ProviderServiceMethod<"getInstanceInfo"> = (instanceId) =>
     registry.getInstanceInfo(instanceId);
 
@@ -1037,6 +1109,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     stopSession,
     listSessions,
     getCapabilities,
+    getProjectMetadata,
     getInstanceInfo,
     rollbackConversation,
     // Each access creates a fresh PubSub subscription so that multiple

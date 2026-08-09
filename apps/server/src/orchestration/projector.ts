@@ -286,6 +286,7 @@ export function projectEvent(
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
+            providerMode: payload.providerMode ?? null,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
             latestTurn: null,
@@ -523,6 +524,18 @@ export function projectEvent(
             updatedAt: event.occurredAt,
           }),
         };
+      });
+
+    case "thread.turn-start-requested":
+      return Effect.succeed({
+        ...nextBase,
+        threads:
+          event.payload.providerMode === undefined
+            ? nextBase.threads
+            : updateThread(nextBase.threads, event.payload.threadId, {
+                providerMode: event.payload.providerMode,
+                updatedAt: event.payload.createdAt,
+              }),
       });
 
     case "thread.session-set":

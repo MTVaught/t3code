@@ -6,6 +6,8 @@ import type {
   ProviderInteractionMode,
   ProviderOptionSelection,
   RuntimeMode,
+  ServerProviderCapabilities,
+  ServerProviderSlashCommand,
   ServerProviderSkill,
 } from "@t3tools/contracts";
 import {
@@ -41,6 +43,8 @@ import {
   useComposerDraft,
 } from "../../state/use-composer-drafts";
 import { useBranches } from "../../state/queries";
+import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
 import {
   flattenQueuedThreadMessages,
   threadOutboxManager,
@@ -132,6 +136,8 @@ type NewTaskFlowContextValue = {
   readonly availableBranches: ReadonlyArray<VcsRef>;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly providerMode: string | null;
+  readonly providerModes: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
   readonly expandedProvider: string | null;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
@@ -142,6 +148,8 @@ type NewTaskFlowContextValue = {
   readonly selectedModel: ModelSelection | null;
   readonly selectedModelOption: ModelOption | null;
   readonly selectedProviderSkills: ReadonlyArray<ServerProviderSkill>;
+  readonly selectedProviderSlashCommands: ReadonlyArray<ServerProviderSlashCommand>;
+  readonly selectedProviderCapabilities: ServerProviderCapabilities | null;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly filteredBranches: ReadonlyArray<VcsRef>;
   readonly reset: () => void;
@@ -165,6 +173,7 @@ type NewTaskFlowContextValue = {
   readonly loadBranches: () => Promise<void>;
   readonly setRuntimeMode: (value: RuntimeMode) => void;
   readonly setInteractionMode: (value: ProviderInteractionMode) => void;
+  readonly setProviderMode: (value: string | null) => void;
   readonly setSelectedModelOptions: (
     value: ReadonlyArray<ProviderOptionSelection> | undefined,
   ) => void;
@@ -358,6 +367,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     true;
   const runtimeMode = selectedProjectDraft.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode = selectedProjectDraft.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE;
+  const providerMode = selectedProjectDraft.providerMode ?? null;
 
   // Stored selections (draft and project default) only count while their
   // provider is usable on the server; otherwise the server's default model
@@ -396,13 +406,31 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         option.selection.instanceId === selectedModel.instanceId &&
         option.selection.model === selectedModel.model,
     ) ?? null;
-  const selectedProviderSkills = useMemo(
+  const providerDefaultSkills = useMemo(
     () =>
       selectedEnvironmentServerConfig?.providers.find(
         (provider) => provider.instanceId === selectedModel?.instanceId,
       )?.skills ?? [],
     [selectedEnvironmentServerConfig, selectedModel?.instanceId],
   );
+  const selectedProviderCapabilities = useMemo(
+    () =>
+      selectedEnvironmentServerConfig?.providers.find(
+        (provider) => provider.instanceId === selectedModel?.instanceId,
+      )?.capabilities ?? null,
+    [selectedEnvironmentServerConfig, selectedModel?.instanceId],
+  );
+  const projectMetadata = useEnvironmentQuery(
+    selectedProject && selectedModel && selectedProviderCapabilities?.providerModes === true
+      ? serverEnvironment.providerProjectMetadata({
+          environmentId: selectedProject.environmentId,
+          input: { instanceId: selectedModel.instanceId, projectId: selectedProject.id },
+        })
+      : null,
+  ).data;
+  const providerModes = projectMetadata?.modes ?? [];
+  const selectedProviderSkills = projectMetadata?.skills ?? providerDefaultSkills;
+  const selectedProviderSlashCommands = projectMetadata?.slashCommands ?? [];
   const setSelectedModelKey = useCallback(
     (key: string | null) => {
       if (!key || !selectedProjectDraftKey) {
@@ -640,6 +668,14 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     },
     [selectedProjectDraftKey],
   );
+  const setProviderMode = useCallback(
+    (value: string | null) => {
+      if (selectedProjectDraftKey) {
+        updateComposerDraftSettings(selectedProjectDraftKey, { providerMode: value });
+      }
+    },
+    [selectedProjectDraftKey],
+  );
 
   const beginEditingPendingTask = useCallback((messageId: string): boolean => {
     const message = findQueuedPendingTask(messageId);
@@ -655,6 +691,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         modelSelection: message.modelSelection,
         runtimeMode: message.runtimeMode,
         interactionMode: message.interactionMode,
+        providerMode: message.providerMode,
         workspaceSelection: {
           mode: message.creation.workspaceMode,
           branch: message.creation.branch,
@@ -687,7 +724,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           selectedEnvironmentServerConfig,
           draft.modelSelection ?? null,
         ) ?? selectedModel;
-      if (text.length === 0 || !draftModelSelection) {
+      if ((text.length === 0 && draft.attachments.length === 0) || !draftModelSelection) {
         return null;
       }
       const workspaceSelection = draft.workspaceSelection;
@@ -715,6 +752,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         modelSelection: draftModelSelection,
         runtimeMode: draft.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         interactionMode: draft.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
+        providerMode: draft.providerMode ?? null,
         creation: {
           projectId: selectedProject.id,
           ...(projectTitle !== undefined ? { projectTitle } : {}),
@@ -854,6 +892,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       availableBranches,
       runtimeMode,
       interactionMode,
+      providerMode,
+      providerModes,
       expandedProvider,
       environments,
       selectedProject,
@@ -861,6 +901,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedModel,
       selectedModelOption,
       selectedProviderSkills,
+      selectedProviderSlashCommands,
+      selectedProviderCapabilities,
       providerGroups,
       filteredBranches,
       reset,
@@ -884,6 +926,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       loadBranches,
       setRuntimeMode,
       setInteractionMode,
+      setProviderMode,
       setSelectedModelOptions,
       setExpandedProvider,
     }),
@@ -901,6 +944,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       filteredBranches,
       finishEditingPendingTask,
       interactionMode,
+      providerMode,
+      providerModes,
       loadBranches,
       projectScopes,
       modelOptions,
@@ -916,6 +961,8 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedModelOption,
       selectedProjectDraftKey,
       selectedProviderSkills,
+      selectedProviderSlashCommands,
+      selectedProviderCapabilities,
       setSelectedModelOptions,
       selectedProject,
       selectedProjectKey,
@@ -924,6 +971,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectBranch,
       selectEnvironment,
       setInteractionMode,
+      setProviderMode,
       setPrompt,
       setRuntimeMode,
       setSelectedModelKey,

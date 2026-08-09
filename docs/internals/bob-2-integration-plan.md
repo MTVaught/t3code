@@ -33,7 +33,7 @@ These observations are implementation requirements, not expectations:
 | Custom mode             | A workspace `.bob/custom_modes.yaml` mode was selected by arbitrary slug and its instructions were applied.                                                                                              | Support arbitrary Bob mode slugs, not an enum.                                                                                                                                                     |
 | Rules                   | Workspace `AGENTS.md` instructions were loaded in headless mode.                                                                                                                                         | Continue to let Bob own its rules and context loading.                                                                                                                                             |
 | Skill                   | Sending `$probe-skill` caused a real `use_skill` call and loaded `.bob/skills/probe-skill/SKILL.md`, including in Ask mode.                                                                              | Literal skill insertion works and should remain provider-native.                                                                                                                                   |
-| Slash command           | Sending `/probe-command VALUE77` to `bob run` did **not** perform native command expansion. Bob eventually reported that the command was unrecognized.                                                   | T3 must expand command files and positional arguments itself before spawning Bob; literal insertion alone is incorrect for headless mode.                                                          |
+| Slash command           | Sending `/probe-command VALUE77` to `bob run` did **not** perform native command expansion. Bob eventually reported that the command was unrecognized.                                                   | Preserve the literal prompt. T3 must not reimplement Bob harness features; slash expansion remains unavailable until Bob exposes it through the headless interface.                                |
 | Native MCP              | A workspace `.bob/mcp.json` server was listed by `bob mcp list` and its tool was called from `bob run`. `--disable-mcp` removed it.                                                                      | Preserve Bob-native MCP. It is distinct from T3 MCP injection.                                                                                                                                     |
 | Subagent                | The parent emitted a `spawn_subagent` tool use and later one `<task_result>` tool result. Bob stored a child task internally, but no child tool progress appeared in the parent stream.                  | Represent start/completion only and do not fabricate live progress.                                                                                                                                |
 | Image in workspace      | Bob displayed and understood an image within `--workspace`.                                                                                                                                              | Bob itself supports image input.                                                                                                                                                                   |
@@ -93,7 +93,8 @@ Bob's final capability declaration is:
 - live subagent progress: unsupported; start/result summary supported
 - T3 MCP injection: unsupported
 - native Bob MCP: supported
-- Bob modes, commands, and skills: supported
+- arbitrary Bob mode slug through instance configuration: supported
+- project command/mode/skill discovery and slash-command autocomplete: unsupported because Bob exposes no structured headless metadata interface
 - Bobcoin and best-effort token usage: supported
 
 ### 2. Keep one routing model even though Bob manages its model
@@ -114,17 +115,11 @@ known driver and directly reads `customModels` from the opaque instance config.
 Add driver/provider presentation metadata to suppress that section for Bob;
 removing `customModels` from the schema alone will not hide it.
 
-### 3. Version and transform Bob settings
+### 3. Use Bob 2 settings only
 
 `ServerSettings.providerInstances[*].config` is `Schema.Unknown`. The instance
-registry decodes it exactly once through `BobDriver.configSchema`. The legacy
-`settings.providers.bob` object is also mirrored into a default instance when
-no explicit instance exists. Replacing fields with decoding defaults would
-silently discard old values; it is not a migration.
-
-Make the Bob 2 config explicitly versioned and implement a pre-decode transform
-in the Bob driver schema that accepts both legacy provider settings and every
-opaque Bob instance config:
+registry decodes it through `BobDriver.configSchema`. Bob 1 compatibility is
+intentionally unsupported; decode only the Bob 2 configuration:
 
 ```ts
 {
@@ -140,17 +135,8 @@ opaque Bob instance config:
 }
 ```
 
-Migration rules:
-
-- preserve `enabled`, `binaryPath`, and `apiKey`
-- map `maxCoins` to `taskCostThresholdBobcoins`
-- map `chatMode`: `code`/`advanced` to `agent`, `plan` to `plan`, and `ask` to `ask`
-- map `approvalMode`: `default` to `read-only`, `auto_edit` to `edits`, and `yolo` to `full`
-- remove `customModels`
-- default newly constructed version-2 configs explicitly; treat an unversioned
-  missing approval field as the legacy `auto_edit` default, not as full access
-- emit configured credentials as `BOB_API_KEY`; when no configured key exists,
-  inherit both current and legacy environment behavior
+Defaults are explicit and safe. Emit configured credentials as `BOB_API_KEY`;
+when no configured key exists, inherit Bob's current environment behavior.
 
 The access ceiling is necessary for a safe migration. Today Bob's default
 provider setting is `auto_edit`, while T3's default thread runtime mode is full
@@ -372,81 +358,23 @@ filesystem/path services, following the existing Claude attachment patterns.
 Test images with spaces and duplicate names, cleanup after success/error/
 interrupt, Windows copy behavior, and a malicious attachment ID.
 
-### 10. Add project-scoped metadata instead of overloading provider status
+### 10. Keep Bob project behavior harness-owned
 
-Built-in modes are Agent, Plan, and Ask. Bob also loads:
+Bob loads its own `AGENTS.md`, custom modes, skills, lifecycle hooks, trust
+rules, settings, and native MCP configuration. T3 passes prompt text unchanged
+and does not scan or reinterpret `.bob`, `.agents`, or `.claude` metadata.
 
-- global modes from `~/.bob/settings/custom_modes.yaml`
-- workspace modes from `<workspace>/.bob/custom_modes.yaml`
-- global commands from `~/.bob/commands/**/*.md`
-- workspace commands from `<workspace>/.bob/commands/**/*.md`
-- global skills from `~/.bob/skills/*/SKILL.md`
-- workspace skills from `<workspace>/.bob/skills/*/SKILL.md`
+Bob 2.0 exposes no structured headless metadata listing. Consequently T3 does
+not advertise Bob project commands, skills, or modes in composer autocomplete.
+The provider instance's arbitrary `defaultMode` slug is passed through the
+documented `--mode` option. Literal `$skill-name` text remains native Bob input.
+Literal slash commands remain literal; their lack of expansion in `bob run` is
+a harness limitation, not a feature T3 should emulate.
 
-Workspace entries override global entries. Current Bob documentation confirms
-the mode paths and precedence in [Custom modes](https://bob.ibm.com/docs/ide/configuration/custom-modes),
-the command format in [Slash commands](https://bob.ibm.com/docs/shell/features/slash-commands),
-and skill roots in [Skills](https://bob.ibm.com/docs/ide/features/skills).
+### 11. Represent modes and subagents honestly
 
-`ServerProvider` snapshots are provider-instance/environment scoped and refresh
-on a timer. A T3 environment can have many projects active concurrently, and
-the Bob driver is created without a project cwd. Putting workspace modes,
-commands, or skills into the global provider snapshot would race projects and
-show the wrong metadata to remote clients.
-
-Add a small project-scoped provider-metadata query keyed by
-`(providerInstanceId, workspaceRoot)`. Cache it by config file mtimes and bound
-the number and size of returned entries. Web and mobile composers request it
-for the selected project and invalidate it on project/config changes. Keep
-global provider health in `ServerProvider`.
-
-The metadata response should contain:
-
-- selectable Bob modes with slug, display name, description, and scope
-- commands with name, description, argument hint, scope, and the server-side
-  resolved file identity
-- skills in the existing `ServerProviderSkill` presentation shape
-
-Bob non-interactive trust is significant: an unknown folder defaults to trusted,
-while an explicitly untrusted folder disables project configuration and MCP.
-Mirror Bob's documented trust result before surfacing workspace metadata, and
-fail closed if an existing trust file is malformed. Do not pass `--trust` or
-write `trustedFolders.json` from T3. See [Trusted folders](https://bob.ibm.com/docs/shell/security/trusted-folders).
-
-Let Bob itself continue to load `AGENTS.md`, mode rules, `.bob/settings.json`,
-lifecycle hooks, trust rules, and native MCP. Lifecycle hooks can block prompts
-and tools and run with the user's permissions, but Bob does not expose dedicated
-hook telemetry; T3 should not invent hook activity. See [Lifecycle hooks](https://bob.ibm.com/docs/shell/configuration/lifecycle-hooks).
-
-### 11. Expand headless slash commands in T3
-
-The composer may continue to insert `/name ` visually, but the Bob adapter must
-resolve and expand a recognized command before invocation because `bob run`
-did not do so.
-
-On send, when the first non-whitespace token is a known Bob command:
-
-1. Resolve it again on the server for the exact workspace and trust state; do
-   not trust stale client metadata or a client-supplied file path.
-2. Parse bounded YAML frontmatter for `description` and `argument-hint`.
-3. Parse shell-like command arguments using Bob-compatible quoting rules.
-4. Replace documented positional placeholders such as `$1`, `$2`, and the
-   supported all-arguments placeholder after confirming its Bob 2 semantics.
-5. Send the expanded body to Bob and preserve the user's literal message in the
-   T3 transcript.
-6. Return a specific error for a command removed between discovery and send.
-
-Unknown slash text remains ordinary user input. Skills remain literal
-`$skill-name` text so Bob performs its native `use_skill` flow.
-
-### 12. Represent modes and subagents honestly
-
-Arbitrary Bob modes cannot fit in T3's current two-value
-`ProviderInteractionMode` (`default`/`plan`). Add provider-mode selection to
-thread/draft state and the start/send contracts, with a generic opaque slug and
-project metadata validation. For Bob, T3's plan toggle should select Bob's
-`plan` mode and returning to default should restore the configured/default
-mode. Mode selection is independent of runtime safety.
+Arbitrary Bob mode slugs are configured on the Bob provider instance and passed
+to `--mode`. Mode selection is independent of runtime safety.
 
 When Bob calls `spawn_subagent`:
 
@@ -461,7 +389,7 @@ Do not query Bob's private child-task/message tables to fabricate live progress;
 that would couple core runtime behavior to private storage and would not be a
 public headless stream.
 
-### 13. Enforce rollback and T3 MCP limits before side effects
+### 12. Enforce rollback and T3 MCP limits before side effects
 
 `CheckpointReactor` currently restores files before calling
 `ProviderService.rollbackConversation`. For Bob that would mutate the workspace
@@ -486,7 +414,7 @@ credential. Preserve Bob's native global `~/.bob/mcp_settings.json` and
 workspace `.bob/mcp.json`; project config takes precedence, as documented in
 [Bob MCP](https://bob.ibm.com/docs/shell/configuration/mcp/mcp-bobshell).
 
-### 14. Cancellation owns the child process lifecycle
+### 13. Cancellation owns the child process lifecycle
 
 The existing Bob adapter interrupts an Effect fiber whose child lives in its
 scope. That closes the process scope too early to drain Bob's final result.
@@ -513,8 +441,7 @@ subagent execution, plus a child that ignores SIGINT.
      missing-task stderr, subagent, and cancellation.
    - Implement the bounded Bob 2 decoder and usage parsers in isolation.
 2. **Settings, version gate, and provider presentation**
-   - Add the versioned config transform and legacy tests for both legacy
-     `providers.bob` and arbitrary `providerInstances` envelopes.
+   - Add the versioned Bob 2 config without Bob 1 migration behavior.
    - Require Bob 2, add the provider-managed routing model, hide model settings,
      and expose client/internal capabilities.
 3. **Chat adapter and terminal cursor persistence**
@@ -529,22 +456,19 @@ subagent execution, plus a child that ignores SIGINT.
      monotonic deltas, and web/mobile presentation.
 6. **Attachments**
    - Add workspace staging and cleanup before terminal/checkpoint events.
-7. **Project metadata and provider modes**
-   - Add the project-scoped metadata query/cache and web/mobile mode selection.
-   - Add trust-aware modes, commands, and skills.
-8. **Command expansion and subagents**
-   - Expand commands server-side and map bounded subagent start/result events.
-9. **Bob text generation**
+7. **Harness-owned project behavior and subagents**
+   - Pass the configured arbitrary mode slug to Bob without scanning project metadata.
+   - Preserve prompts literally and map bounded subagent start/result events.
+8. **Bob text generation**
    - Move title/branch/commit/PR generation to Bob 2 JSON mode with all side
      effects disabled.
-10. **Documentation and integrated verification**
-    - Update user setup/limitations, internals, glossary if needed, and
-      operations troubleshooting.
+9. **Documentation and integrated verification**
+   - Update user setup/limitations, internals, glossary if needed, and
+     operations troubleshooting.
 
 ## Focused automated verification
 
-- Bob 1 settings migration from default and non-default values
-- explicit multi-instance Bob config migration
+- explicit multi-instance Bob 2 config decoding
 - Bob 1.x rejection and Bob 2.x version parsing
 - exact argument construction on macOS/Linux and Windows
 - every known stream event plus unknown/malformed/bounded input
@@ -560,10 +484,8 @@ subagent execution, plus a child that ignores SIGINT.
 - all four runtime modes intersected with every access ceiling
 - actual denied file/command/MCP/subagent effects
 - image staging, prompt references, and cleanup on every terminal path
-- global/workspace metadata precedence, trust, invalid YAML/frontmatter, and
-  concurrent projects
-- slash expansion, quoting, placeholders, stale command, and unknown slash text
-- literal skill invocation
+- literal prompt preservation, including slash text
+- literal skill invocation handled by Bob
 - subagent start/result without fabricated progress
 - rollback rejection before filesystem restore
 - no T3 MCP credential lifecycle for Bob
@@ -576,11 +498,11 @@ Use an authenticated Bob 2 installation and prove:
 
 - a new task plus multiple resumed turns
 - restart the T3 server and resume again
-- Bob Agent, Plan, Ask, and a project custom mode
+- Bob Agent, Plan, Ask, and a configured custom mode slug
 - Supervised, auto-accept edits, Auto, Full access, and an instance ceiling
 - a permitted edit and command plus their restricted equivalents
 - native workspace MCP and `--disable-mcp` behavior
-- a workspace rule, skill, expanded slash command with arguments, and hook
+- a workspace rule, native skill invocation, literal slash text, and hook
 - a subagent start and final result
 - image attachment understanding and staging cleanup
 - cancellation during a long-running tool with cursor retained

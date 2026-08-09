@@ -1,14 +1,19 @@
 /**
  * BobDriver — `ProviderDriver` for the IBM Bob CLI (`bob`) runtime.
  *
- * Bob is a one-shot CLI: each turn spawns `bob -p ... -o stream-json` and
- * streams newline-delimited JSON. The model catalog is a fixed set of tiers, so
- * the snapshot is static (no enrichment). Text generation (commit messages, PR
- * content, etc.) prompts bob for JSON and parses its stream-json output.
+ * Bob is a one-shot CLI: each turn spawns `bob run --format stream-json` and
+ * streams newline-delimited JSON. Bob manages model routing, so T3 keeps only a
+ * hidden compatibility model. Text generation (commit messages, PR content,
+ * etc.) uses Bob 2 JSON mode with side-effecting tool groups disabled.
  *
  * @module provider/Drivers/BobDriver
  */
-import { BobSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  BobSettings,
+  BobSettingsConfig,
+  ProviderDriverKind,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -20,6 +25,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { makeBobTextGeneration } from "../../textGeneration/BobTextGeneration.ts";
+import { ServerConfig } from "../../config.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeBobAdapter } from "../Layers/BobAdapter.ts";
 import { buildInitialBobProviderSnapshot, checkBobProviderStatus } from "../Layers/BobProvider.ts";
@@ -59,6 +65,7 @@ export type BobDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | Path.Path
+  | ServerConfig
   | ServerSettingsService;
 
 const withInstanceIdentity =
@@ -83,7 +90,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
     displayName: "Bob",
     supportsMultipleInstances: true,
   },
-  configSchema: BobSettings,
+  configSchema: BobSettingsConfig,
   defaultConfig: (): BobSettings => decodeBobSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
@@ -91,6 +98,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -111,6 +119,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       const adapter = yield* makeBobAdapter(effectiveConfig, {
         environment: processEnv,
         instanceId,
+        attachmentsDir: serverConfig.attachmentsDir,
       });
       const textGeneration = yield* makeBobTextGeneration(effectiveConfig, processEnv);
 

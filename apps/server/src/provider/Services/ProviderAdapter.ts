@@ -19,6 +19,7 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
+  ServerProviderProjectMetadata,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
@@ -30,6 +31,12 @@ export interface ProviderAdapterCapabilities {
    * Declares whether changing the model on an existing session is supported.
    */
   readonly sessionModelSwitch: ProviderSessionModelSwitchMode;
+  readonly conversationRollback?: boolean;
+  readonly midTurnSteering?: boolean;
+  readonly interactiveApprovals?: boolean;
+  readonly structuredUserInput?: boolean;
+  readonly t3McpInjection?: boolean;
+  readonly attachments?: boolean;
 }
 
 export interface ProviderThreadTurnSnapshot {
@@ -48,6 +55,10 @@ export interface ProviderAdapterShape<TError> {
    */
   readonly provider: ProviderDriverKind;
   readonly capabilities: ProviderAdapterCapabilities;
+  readonly getProjectMetadata?: (
+    cwd: string,
+  ) => Effect.Effect<ServerProviderProjectMetadata, TError>;
+  readonly resetContext?: (threadId: ThreadId) => Effect.Effect<ProviderSession, TError>;
 
   /**
    * Start a provider-backed session.

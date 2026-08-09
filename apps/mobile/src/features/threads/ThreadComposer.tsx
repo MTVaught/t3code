@@ -4,6 +4,7 @@ import type {
   MessageId,
   ModelSelection,
   OrchestrationThreadShell,
+  OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
   ServerConfig as T3ServerConfig,
@@ -37,6 +38,14 @@ import Animated, {
 import { useThemeColor } from "../../lib/useThemeColor";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import { serverEnvironment } from "../../state/server";
+import { useEnvironmentQuery } from "../../state/query";
+import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  effectiveToolAccess,
+  formatToolAccess,
+  runtimeModeToolAccess,
+} from "@t3tools/client-runtime/provider-access";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
@@ -83,6 +92,35 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
  */
 export const COMPOSER_EXPANDED_CHROME = 174;
 
+function finiteUsageNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function formatBobcoins(value: number): string {
+  return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatTokenCount(value: number): string {
+  return Math.round(value).toLocaleString();
+}
+
+function formatUsagePair(
+  total: number,
+  last: number | null,
+  format: (value: number) => string,
+): string {
+  return last === null ? format(total) : `${format(total)} (+${format(last)})`;
+}
+
+function usageDetail(label: string, total: number | null, last: number | null) {
+  return total === null ? null : { label, value: formatUsagePair(total, last, formatTokenCount) };
+}
+
+function formatUsageDuration(value: number): string {
+  if (value < 1_000) return `${Math.round(value)}ms`;
+  return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}s`;
+}
+
 export interface ThreadComposerProps {
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerImageAttachment>;
@@ -104,6 +142,8 @@ export interface ThreadComposerProps {
   readonly activeThreadBusy: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
+  readonly providerMode: string | null;
+  readonly usageActivities: ReadonlyArray<OrchestrationThreadActivity>;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftImages: () => Promise<void>;
@@ -114,6 +154,7 @@ export interface ThreadComposerProps {
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
+  readonly onUpdateProviderMode: (providerMode: string | null) => void;
   readonly onReconnectEnvironment: () => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
 }
@@ -267,6 +308,9 @@ const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(
 });
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
+  const resetProviderContext = useAtomCommand(serverEnvironment.resetProviderContext, {
+    reportFailure: false,
+  });
   const isDarkMode = useColorScheme() === "dark";
   const foregroundColor = useThemeColor("--color-foreground");
   const bodyText = useScaledTextRole("body");
@@ -333,6 +377,78 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const canResetMissingBobContext =
+    selectedProviderStatus?.driver === "bob" &&
+    typeof props.selectedThread.session?.lastError === "string" &&
+    /(?:no task found|task\s+[^\n]*not found|bob continuation state is invalid)/i.test(
+      props.selectedThread.session.lastError,
+    );
+  const projectMetadata = useEnvironmentQuery(
+    props.projectCwd && selectedProviderStatus?.capabilities?.providerModes === true
+      ? serverEnvironment.providerProjectMetadata({
+          environmentId: props.environmentId,
+          input: {
+            instanceId: props.selectedThread.modelSelection.instanceId,
+            projectId: props.selectedThread.projectId,
+          },
+        })
+      : null,
+  ).data;
+  const selectedSlashCommands =
+    projectMetadata?.slashCommands ?? selectedProviderStatus?.slashCommands ?? [];
+  const selectedSkills = projectMetadata?.skills ?? selectedProviderStatus?.skills ?? [];
+  const usagePresentation = useMemo(() => {
+    let billing: Record<string, unknown> | undefined;
+    let tokens: Record<string, unknown> | undefined;
+    for (let index = props.usageActivities.length - 1; index >= 0; index -= 1) {
+      const activity = props.usageActivities[index];
+      if (!activity || !activity.payload || typeof activity.payload !== "object") continue;
+      const payload = activity.payload as Record<string, unknown>;
+      if (!billing && activity.kind === "billing-usage.updated") billing = payload;
+      if (!tokens && activity.kind === "context-window.updated") tokens = payload;
+    }
+    const bobcoins = finiteUsageNumber(billing?.cumulativeAmount);
+    const turnBobcoins = finiteUsageNumber(billing?.turnAmount);
+    const contextTokens = finiteUsageNumber(tokens?.usedTokens);
+    const durationMs = finiteUsageNumber(tokens?.durationMs);
+    const summary = [
+      bobcoins !== null ? `${formatBobcoins(bobcoins)} Bobcoins` : null,
+      contextTokens !== null ? `${formatTokenCount(contextTokens)} context tokens` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const details = [
+      bobcoins !== null
+        ? { label: "Bobcoins", value: formatUsagePair(bobcoins, turnBobcoins, formatBobcoins) }
+        : null,
+      usageDetail("Context", contextTokens, finiteUsageNumber(tokens?.lastUsedTokens)),
+      usageDetail(
+        "Input",
+        finiteUsageNumber(tokens?.inputTokens),
+        finiteUsageNumber(tokens?.lastInputTokens),
+      ),
+      usageDetail(
+        "Output",
+        finiteUsageNumber(tokens?.outputTokens),
+        finiteUsageNumber(tokens?.lastOutputTokens),
+      ),
+      usageDetail(
+        "Cache read",
+        finiteUsageNumber(tokens?.cachedInputTokens),
+        finiteUsageNumber(tokens?.lastCachedInputTokens),
+      ),
+      usageDetail(
+        "Cache write",
+        finiteUsageNumber(tokens?.cacheWriteInputTokens),
+        finiteUsageNumber(tokens?.lastCacheWriteInputTokens),
+      ),
+      usageDetail("Tool calls", finiteUsageNumber(tokens?.toolUses), null),
+      durationMs !== null
+        ? { label: "Last duration", value: formatUsageDuration(durationMs) }
+        : null,
+    ].filter((entry): entry is { label: string; value: string } => entry !== null);
+    return summary ? { summary, details } : null;
+  }, [props.usageActivities]);
 
   // ── Trigger detection ────────────────────────────────────
   const [composerSelection, setComposerSelection] = useState(() => ({
@@ -398,7 +514,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       const builtIn = allBuiltIn.filter((item) => item.command.includes(q));
 
       const providerCommands: ComposerCommandItem[] = [];
-      for (const cmd of selectedProviderStatus?.slashCommands ?? []) {
+      for (const cmd of selectedSlashCommands) {
         if (!cmd.name.toLowerCase().includes(q)) continue;
         providerCommands.push({
           id: `pcmd:${cmd.name}`,
@@ -413,7 +529,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     if (composerTrigger.kind === "skill") {
-      const enabledSkills = (selectedProviderStatus?.skills ?? []).filter((s) => s.enabled);
+      const enabledSkills = selectedSkills.filter((s) => s.enabled);
       const normalizedQuery = normalizeSearchQuery(composerTrigger.query, {
         trimLeadingPattern: /^\$+/,
       });
@@ -510,7 +626,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     }
 
     return [];
-  }, [composerTrigger, pathSearch.entries, selectedProviderStatus]);
+  }, [composerTrigger, pathSearch.entries, selectedSkills, selectedSlashCommands]);
 
   // ── Handle command selection ──────────────────────────────
   const { onChangeDraftMessage, onUpdateInteractionMode, draftMessage, onSendMessage } = props;
@@ -610,6 +726,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     () => buildModelMenuActions(providerGroups, currentModelSelection),
     [providerGroups, currentModelSelection],
   );
+  const bobRuntimeLabels = selectedProviderStatus?.driver === "bob";
+  const bobToolAccessCeiling = selectedProviderStatus?.capabilities?.toolAccessCeiling;
 
   // ── Options menu ─────────────────────────────────────────
   const optionsMenuActions = useMemo(
@@ -618,8 +736,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       {
         id: "options-runtime",
         title: "Runtime",
-        subtitle:
-          currentRuntimeMode === "approval-required"
+        subtitle: bobRuntimeLabels
+          ? formatToolAccess(effectiveToolAccess(currentRuntimeMode, bobToolAccessCeiling))
+          : currentRuntimeMode === "approval-required"
             ? "Approve actions"
             : currentRuntimeMode === "auto-accept-edits"
               ? "Auto-accept edits"
@@ -627,15 +746,23 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 ? "Auto"
                 : "Full access",
         subactions: [
-          { id: "options:runtime:approval-required", title: "Approve actions" },
-          { id: "options:runtime:auto-accept-edits", title: "Auto-accept edits" },
-          { id: "options:runtime:auto", title: "Auto" },
+          {
+            id: "options:runtime:approval-required",
+            title: bobRuntimeLabels ? "Supervised · block tools" : "Approve actions",
+          },
+          {
+            id: "options:runtime:auto-accept-edits",
+            title: bobRuntimeLabels ? "Auto-accept edits · edits only" : "Auto-accept edits",
+          },
+          { id: "options:runtime:auto", title: bobRuntimeLabels ? "Auto · edits only" : "Auto" },
           { id: "options:runtime:full-access", title: "Full access" },
         ].map((option) => {
-          const value = option.id.replace("options:runtime:", "");
+          const value = option.id.replace("options:runtime:", "") as RuntimeMode;
+          const access = effectiveToolAccess(value, bobToolAccessCeiling);
+          const limited = bobRuntimeLabels && access !== runtimeModeToolAccess(value);
           return {
             id: option.id,
-            title: option.title,
+            title: `${option.title}${limited ? ` · limited to ${formatToolAccess(access)}` : ""}`,
             state: currentRuntimeMode === value ? ("on" as const) : undefined,
           };
         }),
@@ -656,8 +783,58 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           };
         }),
       },
+      ...(projectMetadata?.modes.length
+        ? [
+            {
+              id: "options-provider-mode",
+              title: "Bob mode",
+              subtitle:
+                projectMetadata.modes.find((mode) => mode.slug === props.providerMode)?.name ??
+                "Default",
+              subactions: [
+                {
+                  id: "options:provider-mode:",
+                  title: "Default",
+                  state: props.providerMode === null ? ("on" as const) : undefined,
+                },
+                ...projectMetadata.modes.map((mode) => ({
+                  id: `options:provider-mode:${mode.slug}`,
+                  title: mode.name,
+                  state: props.providerMode === mode.slug ? ("on" as const) : undefined,
+                })),
+              ],
+            },
+          ]
+        : []),
+      ...(usagePresentation
+        ? [
+            {
+              id: "options-usage",
+              title: "Usage",
+              subtitle: usagePresentation.summary,
+              subactions: usagePresentation.details.map((detail, index) => ({
+                id: `options:usage:${index}`,
+                title: detail.label,
+                subtitle: detail.value,
+              })),
+            },
+          ]
+        : []),
+      ...(canResetMissingBobContext
+        ? [{ id: "options-reset-provider-context", title: "Start new Bob context" }]
+        : []),
     ],
-    [currentInteractionMode, currentRuntimeMode, providerOptionDescriptors],
+    [
+      bobRuntimeLabels,
+      bobToolAccessCeiling,
+      canResetMissingBobContext,
+      currentInteractionMode,
+      currentRuntimeMode,
+      projectMetadata,
+      props.providerMode,
+      providerOptionDescriptors,
+      usagePresentation,
+    ],
   );
 
   // ── Menu handlers ────────────────────────────────────────
@@ -689,6 +866,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     if (event.startsWith("options:interaction:")) {
       const interactionMode = event.slice("options:interaction:".length) as ProviderInteractionMode;
       props.onUpdateInteractionMode(interactionMode);
+      return;
+    }
+    if (event.startsWith("options:provider-mode:")) {
+      props.onUpdateProviderMode(event.slice("options:provider-mode:".length) || null);
+      return;
+    }
+    if (event === "options-reset-provider-context" && selectedProviderStatus) {
+      void resetProviderContext({
+        environmentId: props.environmentId,
+        input: {
+          threadId: props.selectedThread.id,
+        },
+      });
     }
   }
 
@@ -779,7 +969,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               ref={inputRef}
               multiline
               value={props.draftMessage}
-              skills={selectedProviderStatus?.skills ?? []}
+              skills={selectedSkills}
               selection={composerSelection}
               onChangeText={props.onChangeDraftMessage}
               onSelectionChange={handleSelectionChange}
@@ -855,24 +1045,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 fadeOpaque={toolbarFadeOpaque}
                 fadeTransparent={toolbarFadeTransparent}
               >
-                <ComposerToolbarButton
-                  accessibilityLabel="Add attachment"
-                  icon="plus"
-                  onPress={() => void props.onPickDraftImages()}
-                  showChevron={false}
-                />
-                <ControlPillMenu
-                  actions={modelMenuActions}
-                  onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
-                >
-                  <ComposerToolbarTrigger
-                    accessibilityLabel="Model"
-                    iconNode={
-                      <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
-                    }
-                    label={currentModelOption?.label ?? currentModelSelection.model}
+                {selectedProviderStatus?.capabilities?.attachments !== false ? (
+                  <ComposerToolbarButton
+                    accessibilityLabel="Add attachment"
+                    icon="plus"
+                    onPress={() => void props.onPickDraftImages()}
+                    showChevron={false}
                   />
-                </ControlPillMenu>
+                ) : null}
+                {selectedProviderStatus?.capabilities?.modelPicker !== false ? (
+                  <ControlPillMenu
+                    actions={modelMenuActions}
+                    onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+                  >
+                    <ComposerToolbarTrigger
+                      accessibilityLabel="Model"
+                      iconNode={
+                        <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
+                      }
+                      label={currentModelOption?.label ?? currentModelSelection.model}
+                    />
+                  </ControlPillMenu>
+                ) : null}
                 <ControlPillMenu
                   actions={optionsMenuActions}
                   onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}

@@ -96,6 +96,22 @@ export const ServerProviderSkill = Schema.Struct({
 });
 export type ServerProviderSkill = typeof ServerProviderSkill.Type;
 
+export const ServerProviderMode = Schema.Struct({
+  slug: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+  scope: Schema.Literals(["built-in", "global", "workspace"]),
+});
+export type ServerProviderMode = typeof ServerProviderMode.Type;
+
+export const ServerProviderProjectMetadata = Schema.Struct({
+  workspaceTrusted: Schema.Boolean,
+  modes: Schema.Array(ServerProviderMode),
+  slashCommands: Schema.Array(ServerProviderSlashCommand),
+  skills: Schema.Array(ServerProviderSkill),
+});
+export type ServerProviderProjectMetadata = typeof ServerProviderProjectMetadata.Type;
+
 /**
  * Availability of a configured provider instance from the runtime's POV.
  *
@@ -120,6 +136,33 @@ export const ServerProviderContinuation = Schema.Struct({
   groupKey: TrimmedNonEmptyString,
 });
 export type ServerProviderContinuation = typeof ServerProviderContinuation.Type;
+
+export const ServerProviderSubagentProgress = Schema.Literals(["none", "summary", "live"]);
+export type ServerProviderSubagentProgress = typeof ServerProviderSubagentProgress.Type;
+
+export const ServerProviderToolAccessCeiling = Schema.Literals(["read-only", "edits", "full"]);
+export type ServerProviderToolAccessCeiling = typeof ServerProviderToolAccessCeiling.Type;
+
+export const ServerProviderCapabilities = Schema.Struct({
+  modelPicker: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  attachments: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  approvals: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  structuredInput: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  steering: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  rollback: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  providerModes: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  commands: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  skills: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  subagentProgress: ServerProviderSubagentProgress.pipe(
+    Schema.withDecodingDefault(Effect.succeed("live")),
+  ),
+  tokenUsage: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  billingUnits: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  toolAccessCeiling: Schema.optional(ServerProviderToolAccessCeiling),
+}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
+export type ServerProviderCapabilities = typeof ServerProviderCapabilities.Type;
 
 export const ServerProviderVersionAdvisoryStatus = Schema.Literals([
   "unknown",
@@ -169,6 +212,7 @@ export const ServerProvider = Schema.Struct({
   accentColor: Schema.optional(TrimmedNonEmptyString),
   badgeLabel: Schema.optional(TrimmedNonEmptyString),
   continuation: Schema.optional(ServerProviderContinuation),
+  capabilities: Schema.optionalKey(ServerProviderCapabilities),
   showInteractionModeToggle: Schema.optional(Schema.Boolean),
   requiresNewThreadForModelChange: Schema.optional(Schema.Boolean),
   enabled: Schema.Boolean,
@@ -602,6 +646,18 @@ export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerPro
 ) {
   override get message(): string {
     return `Provider update failed for ${this.provider}: ${this.reason}`;
+  }
+}
+
+export class ServerProviderContextResetError extends Schema.TaggedErrorClass<ServerProviderContextResetError>()(
+  "ServerProviderContextResetError",
+  {
+    threadId: ThreadId,
+    reason: TrimmedNonEmptyString,
+  },
+) {
+  override get message(): string {
+    return `Provider context reset failed: ${this.reason}`;
   }
 }
 

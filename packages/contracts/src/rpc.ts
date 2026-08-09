@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
   AuthAccessStreamError,
@@ -133,6 +134,8 @@ import {
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
   ServerProviderUpdatedPayload,
+  ServerProviderProjectMetadata,
+  ServerProviderContextResetError,
   ServerSelfUpdateError,
   ServerSelfUpdateInput,
   ServerSelfUpdateProgressEvent,
@@ -227,6 +230,8 @@ export const WS_METHODS = {
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  serverGetProviderProjectMetadata: "server.getProviderProjectMetadata",
+  serverResetProviderContext: "server.resetProviderContext",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -303,6 +308,24 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   }),
   success: ServerProviderUpdatedPayload,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsServerGetProviderProjectMetadataRpc = Rpc.make(
+  WS_METHODS.serverGetProviderProjectMetadata,
+  {
+    payload: Schema.Struct({
+      instanceId: ProviderInstanceId,
+      projectId: ProjectId,
+    }),
+    success: ServerProviderProjectMetadata,
+    error: EnvironmentAuthorizationError,
+  },
+);
+
+export const WsServerResetProviderContextRpc = Rpc.make(WS_METHODS.serverResetProviderContext, {
+  payload: Schema.Struct({ threadId: ThreadId }),
+  success: Schema.Struct({}),
+  error: Schema.Union([ServerProviderContextResetError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
@@ -806,6 +829,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsServerGetProviderProjectMetadataRpc,
+  WsServerResetProviderContextRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
   WsServerUpdateServerWithProgressRpc,

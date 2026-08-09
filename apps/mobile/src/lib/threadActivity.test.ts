@@ -56,6 +56,30 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("does not render usage updates as work-log rows", () => {
+    const thread = makeThread({
+      id: ThreadId.make("thread-usage"),
+      projectId: ProjectId.make("project-1"),
+      title: "Usage",
+      activities: [
+        makeActivity({
+          id: EventId.make("context-usage"),
+          kind: "context-window.updated",
+          summary: "Context window updated",
+          createdAt: "2026-04-01T00:00:01.000Z",
+        }),
+        makeActivity({
+          id: EventId.make("billing-usage"),
+          kind: "billing-usage.updated",
+          summary: "Billing usage updated",
+          createdAt: "2026-04-01T00:00:02.000Z",
+        }),
+      ],
+    });
+
+    expect(buildThreadFeed(thread)).toEqual([]);
+  });
+
   it("keeps historic work entries attributed to their turns", () => {
     const thread = makeThread({
       id: ThreadId.make("thread-1"),

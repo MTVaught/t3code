@@ -23,6 +23,7 @@ import type {
   ProviderStopSessionInput,
   ThreadId,
   ProviderTurnStartResult,
+  ServerProviderProjectMetadata,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -92,6 +93,11 @@ export interface ProviderServiceShape {
   readonly getCapabilities: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ProviderAdapterCapabilities, ProviderServiceError>;
+
+  readonly getProjectMetadata?: (
+    instanceId: ProviderInstanceId,
+    cwd: string,
+  ) => Effect.Effect<ServerProviderProjectMetadata, ProviderServiceError>;
 
   readonly getInstanceInfo: (
     instanceId: ProviderInstanceId,
