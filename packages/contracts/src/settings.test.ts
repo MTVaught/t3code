@@ -24,6 +24,7 @@ describe("Bob 2 settings", () => {
       schemaVersion: 2,
       enabled: false,
       binaryPath: "bob",
+      apiKey: "",
       defaultMode: "agent",
       toolAccessCeiling: "edits",
     });
@@ -35,6 +36,7 @@ describe("Bob 2 settings", () => {
         schemaVersion: 2,
         enabled: true,
         binaryPath: "bob2",
+        apiKey: "key",
         teamId: "team",
         defaultMode: "custom-mode",
         taskCostThresholdBobcoins: 0.5,
@@ -45,17 +47,13 @@ describe("Bob 2 settings", () => {
       schemaVersion: 2,
       enabled: true,
       binaryPath: "bob2",
+      apiKey: "key",
       teamId: "team",
       defaultMode: "custom-mode",
       taskCostThresholdBobcoins: 0.5,
       maxTurns: 4,
       toolAccessCeiling: "full",
     });
-  });
-
-  it("ignores obsolete T3-managed Bob API keys", () => {
-    const decoded = decodeBobSettings({ enabled: true, apiKey: "must-not-be-injected" });
-    expect(decoded).not.toHaveProperty("apiKey");
   });
 });
 

@@ -38,7 +38,7 @@ These observations are implementation requirements, not expectations:
 | Subagent                | The parent emitted a `spawn_subagent` tool use and later one `<task_result>` tool result. Bob stored a child task internally, but no child tool progress appeared in the parent stream.                  | Represent start/completion only and do not fabricate live progress.                                                                                                                                |
 | Image in workspace      | Bob displayed and understood an image within `--workspace`.                                                                                                                                              | Bob itself supports image input.                                                                                                                                                                   |
 | Image outside workspace | A direct path outside the workspace was blocked. A link inside the workspace to the same persisted image was readable; a copied image was also readable.                                                 | T3 attachments are supportable by staging a bounded copy inside the workspace for the turn. The earlier “attachments unsupported” conclusion was wrong.                                            |
-| Authentication boundary | Bob 2 authenticates successfully when invoked from the user's configured shell environment.                                                                                                              | Do not collect, validate, or inject Bob credentials in T3. Inherit the server process environment and let Bob own authentication.                                                                  |
+| API-key authentication  | Bob 2 headless execution accepts `BOB_API_KEY`, while GUI-launched apps cannot reliably inherit interactive shell profiles.                                                                              | Offer an optional password-masked `BOB_API_KEY` instance setting; configured values override the ambient environment, while blank values inherit it.                                               |
 
 Bobcoins are IBM's billing unit, not a field denominated in USD. IBM currently
 documents a conversion of one Bobcoin to USD, but also describes Bobcoins as an
@@ -126,6 +126,7 @@ intentionally unsupported; decode only the Bob 2 configuration:
   schemaVersion: 2,
   enabled: boolean,
   binaryPath: string,
+  apiKey: string,
   teamId?: string,
   defaultMode: string,
   taskCostThresholdBobcoins?: number,
@@ -134,9 +135,8 @@ intentionally unsupported; decode only the Bob 2 configuration:
 }
 ```
 
-Defaults are explicit and safe. Bob authentication is outside T3's settings
-model: invoke Bob with the server process environment and let the CLI use the
-credentials or login state the user already configured.
+Defaults are explicit and safe. Emit a configured credential as `BOB_API_KEY`;
+when the setting is blank, inherit Bob's current environment behavior.
 
 The access ceiling is necessary for a safe migration. Today Bob's default
 provider setting is `auto_edit`, while T3's default thread runtime mode is full

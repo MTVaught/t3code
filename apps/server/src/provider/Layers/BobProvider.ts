@@ -3,8 +3,8 @@
  *
  * Bob manages model routing internally, so T3 exposes one hidden routing model
  * and never passes it to the CLI. The status probe requires Bob major version
- * 2. Bob owns authentication and has no separate auth probe, so T3 reports
- * auth status as `unknown` and lets real Bob invocations surface failures.
+ * 2. Bob authenticates via `BOB_API_KEY` and has no separate auth probe, so
+ * auth status is reported as `unknown` until a real invocation runs.
  *
  * @module provider/Layers/BobProvider
  */

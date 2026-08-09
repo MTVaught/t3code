@@ -6,8 +6,9 @@ own sign-in and license flow there, then enable **Bob** in T3 Code
 Settings. T3 invokes the `bob` binary by default; set an explicit binary path on the provider
 instance if it is not on the server process's `PATH`.
 
-T3 does not store or inject a Bob API key. Bob receives the T3 server process environment and owns
-its authentication behavior.
+For headless authentication, set **BOB_API_KEY** on the Bob provider instance. T3 passes the
+configured value only to Bob subprocesses. Leave it blank to inherit `BOB_API_KEY` from the T3
+server process environment instead.
 
 Bob threads use Bob tasks for conversation continuity. T3 stores the task ID after each turn and
 resumes it on the next turn, including after a server restart. If Bob's local task database no

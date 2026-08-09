@@ -6,16 +6,23 @@ import { BobSettings } from "@t3tools/contracts";
 
 const decodeBobSettings = Schema.decodeSync(BobSettings);
 
-it("passes the caller environment through without managing Bob authentication", () => {
-  const base = {
+it("injects the configured API key over the base environment", () => {
+  const settings = decodeBobSettings({ binaryPath: "bob", enabled: true, apiKey: "secret" });
+  const env = makeBobEnvironment(settings, {
+    PATH: "/usr/bin",
+    BOB_API_KEY: "ambient-current",
+  });
+  assert.equal(env.BOB_API_KEY, "secret");
+  assert.equal(env.PATH, "/usr/bin");
+});
+
+it("inherits the ambient API key when none is configured", () => {
+  const settings = decodeBobSettings({ binaryPath: "bob", enabled: true });
+  const env = makeBobEnvironment(settings, {
     PATH: "/usr/bin",
     BOB_API_KEY: "current",
-    BOBSHELL_API_KEY: "ambient",
-  };
-  const env = makeBobEnvironment(base);
-  assert.strictEqual(env, base);
+  });
   assert.equal(env.BOB_API_KEY, "current");
-  assert.equal(env.BOBSHELL_API_KEY, "ambient");
   assert.equal(env.PATH, "/usr/bin");
 });
 

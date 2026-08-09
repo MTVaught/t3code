@@ -377,7 +377,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const adapterScope = yield* Effect.scope;
-  const bobEnvironment = makeBobEnvironment(options?.environment);
+  const bobEnvironment = makeBobEnvironment(bobConfig, options?.environment);
   const binary = resolveBobBinary(bobConfig);
 
   const sessions = new Map<ThreadId, BobSessionContext>();
