@@ -384,14 +384,6 @@ export const BobSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "bob", clearWhenEmpty: "omit" },
       }),
     ),
-    apiKey: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "BOB_API_KEY",
-        description: "API key for bob. Leave blank to inherit from the environment.",
-        providerSettingsForm: { control: "password", clearWhenEmpty: "omit" },
-      }),
-    ),
     teamId: TrimmedString.pipe(
       Schema.optionalKey,
       Schema.annotateKey({
@@ -434,7 +426,6 @@ export const BobSettings = makeProviderSettingsSchema(
   {
     order: [
       "binaryPath",
-      "apiKey",
       "teamId",
       "defaultMode",
       "taskCostThresholdBobcoins",
@@ -773,7 +764,6 @@ const BobSettingsPatch = Schema.Struct({
   schemaVersion: Schema.optionalKey(Schema.Literal(2)),
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
-  apiKey: Schema.optionalKey(TrimmedString),
   teamId: Schema.optionalKey(TrimmedString),
   defaultMode: Schema.optionalKey(TrimmedNonEmptyString),
   taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber),

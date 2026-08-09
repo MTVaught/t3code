@@ -58,7 +58,7 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
   environment?: NodeJS.ProcessEnv,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const bobEnvironment = makeBobEnvironment(bobSettings, environment);
+  const bobEnvironment = makeBobEnvironment(environment);
   const binary = resolveBobBinary(bobSettings);
 
   const readStreamAsString = <E>(

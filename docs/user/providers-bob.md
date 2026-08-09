@@ -1,9 +1,13 @@
 # IBM Bob
 
 T3 Code supports IBM Bob Shell 2.x. Install Bob on the machine running the T3
-server, complete Bob's own sign-in and license flow there, then enable **Bob** in T3 Code
+server, verify that `bob` works from the environment used to launch the T3 server, complete Bob's
+own sign-in and license flow there, then enable **Bob** in T3 Code
 Settings. T3 invokes the `bob` binary by default; set an explicit binary path on the provider
 instance if it is not on the server process's `PATH`.
+
+T3 does not store or inject a Bob API key. Bob receives the T3 server process environment and owns
+its authentication behavior.
 
 Bob threads use Bob tasks for conversation continuity. T3 stores the task ID after each turn and
 resumes it on the next turn, including after a server restart. If Bob's local task database no

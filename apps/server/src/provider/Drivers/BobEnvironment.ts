@@ -2,28 +2,20 @@
  * BobEnvironment — environment + command resolution helpers for the IBM Bob
  * provider.
  *
- * Bob 2 authenticates via `BOB_API_KEY` and still accepts the legacy
- * `BOBSHELL_API_KEY`. Configured credentials use the current name; an
- * unconfigured instance inherits either ambient variable and Bob's own login.
+ * Bob owns its authentication. T3 passes the server process environment (plus
+ * generic provider-instance environment overrides) through unchanged and does
+ * not collect, validate, or inject Bob credentials.
  *
  * @module provider/Drivers/BobEnvironment
  */
 import type { BobSettings } from "@t3tools/contracts";
 
 /**
- * Build the process environment for a Bob invocation, layering the configured
- * API key (if any) on top of the provided base environment.
+ * Build the process environment for a Bob invocation without adding
+ * provider-specific authentication state.
  */
-export function makeBobEnvironment(
-  bobSettings: BobSettings,
-  environment?: NodeJS.ProcessEnv,
-): NodeJS.ProcessEnv {
-  const base = environment ?? process.env;
-  const apiKey = bobSettings.apiKey.trim();
-  return {
-    ...base,
-    ...(apiKey.length > 0 ? { BOB_API_KEY: apiKey } : {}),
-  } satisfies NodeJS.ProcessEnv;
+export function makeBobEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return environment ?? process.env;
 }
 
 /**

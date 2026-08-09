@@ -1,28 +1,22 @@
 import { assert, it } from "@effect/vitest";
+import { makeBobEnvironment, resolveBobBinary } from "./BobEnvironment.ts";
 import * as Schema from "effect/Schema";
 
 import { BobSettings } from "@t3tools/contracts";
 
-import { makeBobEnvironment, resolveBobBinary } from "./BobEnvironment.ts";
-
 const decodeBobSettings = Schema.decodeSync(BobSettings);
 
-it("injects the configured api key over the base environment", () => {
-  const settings = decodeBobSettings({ binaryPath: "bob", enabled: true, apiKey: "secret" });
-  const env = makeBobEnvironment(settings, { PATH: "/usr/bin", BOBSHELL_API_KEY: "ambient" });
-  assert.equal(env.BOB_API_KEY, "secret");
-  assert.equal(env.BOBSHELL_API_KEY, "ambient");
-  assert.equal(env.PATH, "/usr/bin");
-});
-
-it("inherits the ambient api key when none is configured", () => {
-  const settings = decodeBobSettings({ binaryPath: "bob", enabled: true });
-  const env = makeBobEnvironment(settings, {
+it("passes the caller environment through without managing Bob authentication", () => {
+  const base = {
+    PATH: "/usr/bin",
     BOB_API_KEY: "current",
     BOBSHELL_API_KEY: "ambient",
-  });
+  };
+  const env = makeBobEnvironment(base);
+  assert.strictEqual(env, base);
   assert.equal(env.BOB_API_KEY, "current");
   assert.equal(env.BOBSHELL_API_KEY, "ambient");
+  assert.equal(env.PATH, "/usr/bin");
 });
 
 it("resolves the bob binary with a bare fallback", () => {
