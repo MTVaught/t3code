@@ -1011,6 +1011,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env: bobEnvironment,
         cwd: workspace,
+        // Bob 2 waits for EOF on stdin even when the prompt is supplied as an
+        // argument. An empty stream closes the pipe immediately after spawn.
+        stdin: Stream.empty,
         shell: spawnCommand.shell,
         forceKillAfter: "2 seconds",
       });

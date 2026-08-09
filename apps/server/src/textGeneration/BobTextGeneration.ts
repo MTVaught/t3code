@@ -121,6 +121,9 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env: bobEnvironment,
         cwd,
+        // Bob 2 waits for EOF on stdin even when the prompt is supplied as an
+        // argument. An empty stream closes the pipe immediately after spawn.
+        stdin: Stream.empty,
         shell: spawnCommand.shell,
       });
 

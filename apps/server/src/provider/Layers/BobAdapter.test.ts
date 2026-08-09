@@ -112,8 +112,12 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
   it.effect("streams Bob 2 deltas and persists its terminal task cursor in the adapter", () =>
     Effect.gen(function* () {
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const spawnedStdin: Array<unknown> = [];
       const fakeSpawner = ChildProcessSpawner.make((command) => {
         spawnedArgs.push((command as { readonly args: ReadonlyArray<string> }).args);
+        spawnedStdin.push(
+          (command as { readonly options: { readonly stdin?: unknown } }).options.stdin,
+        );
         return Effect.succeed(makeHandle({ stdout: successStream }));
       });
       const adapter = yield* makeBobAdapter(
@@ -159,6 +163,7 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
       assert.equal((session?.resumeCursor as { taskId?: string } | undefined)?.taskId, TASK_ID);
       assert.deepStrictEqual(spawnedArgs[0]?.slice(0, 3), ["run", "--format", "stream-json"]);
       assert.notInclude(spawnedArgs[0] ?? [], "-m");
+      assert.isTrue(Stream.isStream(spawnedStdin[0]));
     }),
   );
 
