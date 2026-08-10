@@ -42,8 +42,9 @@ orchestration, contract, or client change is required for the common case.
 
 Bob is a one-shot provider rather than a long-lived stdio server. Each turn runs `bob run --format
 stream-json`; the adapter persists Bob's terminal task ID as an opaque resume cursor. Bob also
-exposes billing in Bobcoins. Rules, modes, commands, skills, hooks, trust, and native MCP remain
-owned by Bob; T3 does not scan or reinterpret Bob's project metadata.
+exposes billing in Bobcoins. Mode behavior remains owned by Bob; T3 reads built-in, global, and
+workspace mode display metadata for the composer and persists successful Bob-initiated switches.
+Rules, commands, skills, hooks, trust, and native MCP remain owned by Bob.
 
 ## How provider work is requested
 

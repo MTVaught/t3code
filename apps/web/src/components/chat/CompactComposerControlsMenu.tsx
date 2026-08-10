@@ -74,12 +74,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           <>
             <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Bob mode</div>
             <MenuRadioGroup
-              value={props.providerMode ?? "__default__"}
-              onValueChange={(value) =>
-                props.onProviderModeChange(value === "__default__" ? null : value)
-              }
+              value={props.providerMode ?? "agent"}
+              onValueChange={(value) => props.onProviderModeChange(value)}
             >
-              <MenuRadioItem value="__default__">Default</MenuRadioItem>
               {props.providerModes.map((mode) => (
                 <MenuRadioItem key={mode.slug} value={mode.slug}>
                   {mode.name}

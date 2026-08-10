@@ -33,7 +33,7 @@ describe("BobProvider", () => {
 
       assert.equal(snapshot.capabilities?.commands, false);
       assert.equal(snapshot.capabilities?.skills, false);
-      assert.equal(snapshot.capabilities?.providerModes, false);
+      assert.equal(snapshot.capabilities?.providerModes, true);
       assert.equal(snapshot.capabilities?.toolAccessCeiling, "read-only");
     }),
   );

@@ -790,19 +790,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               title: "Bob mode",
               subtitle:
                 projectMetadata.modes.find((mode) => mode.slug === props.providerMode)?.name ??
-                "Default",
-              subactions: [
-                {
-                  id: "options:provider-mode:",
-                  title: "Default",
-                  state: props.providerMode === null ? ("on" as const) : undefined,
-                },
-                ...projectMetadata.modes.map((mode) => ({
-                  id: `options:provider-mode:${mode.slug}`,
-                  title: mode.name,
-                  state: props.providerMode === mode.slug ? ("on" as const) : undefined,
-                })),
-              ],
+                "Agent",
+              subactions: projectMetadata.modes.map((mode) => ({
+                id: `options:provider-mode:${mode.slug}`,
+                title: mode.name,
+                state: (props.providerMode ?? "agent") === mode.slug ? ("on" as const) : undefined,
+              })),
             },
           ]
         : []),

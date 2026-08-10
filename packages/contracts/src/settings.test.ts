@@ -25,7 +25,6 @@ describe("Bob 2 settings", () => {
       enabled: false,
       binaryPath: "bob",
       apiKey: "",
-      defaultMode: "agent",
       toolAccessCeiling: "edits",
     });
   });
@@ -38,7 +37,6 @@ describe("Bob 2 settings", () => {
         binaryPath: "bob2",
         apiKey: "key",
         teamId: "team",
-        defaultMode: "custom-mode",
         taskCostThresholdBobcoins: 0.5,
         maxTurns: 4,
         toolAccessCeiling: "full",
@@ -49,7 +47,6 @@ describe("Bob 2 settings", () => {
       binaryPath: "bob2",
       apiKey: "key",
       teamId: "team",
-      defaultMode: "custom-mode",
       taskCostThresholdBobcoins: 0.5,
       maxTurns: 4,
       toolAccessCeiling: "full",

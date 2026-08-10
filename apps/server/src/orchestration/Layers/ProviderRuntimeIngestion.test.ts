@@ -2776,7 +2776,7 @@ describe("ProviderRuntimeIngestion", () => {
       threadId: asThreadId("thread-1"),
       payload: {
         name: "Renamed by provider",
-        metadata: { source: "provider" },
+        metadata: { source: "provider", providerMode: "reviewer" },
       },
     });
 
@@ -2843,6 +2843,7 @@ describe("ProviderRuntimeIngestion", () => {
       harness.readModel,
       (entry) =>
         entry.title === "Renamed by provider" &&
+        entry.providerMode === "reviewer" &&
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "turn.plan.updated",
         ) &&
@@ -2858,6 +2859,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     expect(thread.title).toBe("Renamed by provider");
+    expect(thread.providerMode).toBe("reviewer");
 
     const planActivity = thread.activities.find(
       (activity: ProviderRuntimeTestActivity) => activity.id === "evt-turn-plan-updated",

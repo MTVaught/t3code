@@ -623,20 +623,12 @@ export function NewTaskDraftScreen(props: {
               id: "options-provider-mode",
               title: "Bob mode",
               subtitle:
-                flow.providerModes.find((mode) => mode.slug === flow.providerMode)?.name ??
-                "Default",
-              subactions: [
-                {
-                  id: "options:provider-mode:",
-                  title: "Default",
-                  state: flow.providerMode === null ? ("on" as const) : undefined,
-                },
-                ...flow.providerModes.map((mode) => ({
-                  id: `options:provider-mode:${mode.slug}`,
-                  title: mode.name,
-                  state: flow.providerMode === mode.slug ? ("on" as const) : undefined,
-                })),
-              ],
+                flow.providerModes.find((mode) => mode.slug === flow.providerMode)?.name ?? "Agent",
+              subactions: flow.providerModes.map((mode) => ({
+                id: `options:provider-mode:${mode.slug}`,
+                title: mode.name,
+                state: (flow.providerMode ?? "agent") === mode.slug ? ("on" as const) : undefined,
+              })),
             },
           ]
         : []),

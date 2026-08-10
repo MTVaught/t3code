@@ -400,13 +400,6 @@ export const BobSettings = makeProviderSettingsSchema(
         providerSettingsForm: { clearWhenEmpty: "omit" },
       }),
     ),
-    defaultMode: TrimmedNonEmptyString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("agent")),
-      Schema.annotateKey({
-        title: "Default mode",
-        description: "Bob mode slug used when a thread has not selected another mode.",
-      }),
-    ),
     taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber).pipe(
       Schema.annotateKey({
         title: "Task cost threshold (Bobcoins)",
@@ -436,7 +429,6 @@ export const BobSettings = makeProviderSettingsSchema(
       "binaryPath",
       "apiKey",
       "teamId",
-      "defaultMode",
       "taskCostThresholdBobcoins",
       "maxTurns",
       "toolAccessCeiling",
@@ -775,7 +767,6 @@ const BobSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(TrimmedString),
   apiKey: Schema.optionalKey(TrimmedString),
   teamId: Schema.optionalKey(TrimmedString),
-  defaultMode: Schema.optionalKey(TrimmedNonEmptyString),
   taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber),
   maxTurns: Schema.optionalKey(BobPositiveInteger),
   toolAccessCeiling: Schema.optionalKey(Schema.Literals(["read-only", "edits", "full"])),
