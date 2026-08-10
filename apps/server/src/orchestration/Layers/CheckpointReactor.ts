@@ -8,6 +8,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type ProviderRuntimeEvent,
+  type ProviderInstanceId,
   type VcsStatusLocalResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -154,11 +155,21 @@ const make = Effect.gen(function* () {
 
   const resolveSessionRuntimeForThread = Effect.fn("resolveSessionRuntimeForThread")(function* (
     threadId: ThreadId,
-  ): Effect.fn.Return<Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }>> {
+  ): Effect.fn.Return<
+    Option.Option<{
+      readonly threadId: ThreadId;
+      readonly cwd: string;
+      readonly providerInstanceId: ProviderInstanceId | undefined;
+    }>
+  > {
     const sessions = yield* providerService.listSessions();
     const session = sessions.find((entry) => entry.threadId === threadId);
     return session?.cwd
-      ? Option.some({ threadId: session.threadId, cwd: session.cwd })
+      ? Option.some({
+          threadId: session.threadId,
+          cwd: session.cwd,
+          providerInstanceId: session.providerInstanceId,
+        })
       : Option.none();
   });
 
@@ -721,6 +732,22 @@ const make = Effect.gen(function* () {
         createdAt: now,
       }).pipe(Effect.catch(() => Effect.void));
       return;
+    }
+
+    if (sessionRuntime.value.providerInstanceId !== undefined) {
+      const capabilities = yield* providerService.getCapabilities(
+        sessionRuntime.value.providerInstanceId,
+      );
+      if (capabilities.conversationRollback === false) {
+        yield* appendRevertFailureActivity({
+          threadId: event.payload.threadId,
+          turnCount: event.payload.turnCount,
+          detail:
+            "This provider cannot rewind its conversation. The workspace was not changed; start a new provider context before restoring files.",
+          createdAt: now,
+        }).pipe(Effect.catch(() => Effect.void));
+        return;
+      }
     }
 
     const currentTurnCount = thread.checkpoints.reduce(

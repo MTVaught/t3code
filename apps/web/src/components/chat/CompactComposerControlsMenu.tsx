@@ -1,4 +1,13 @@
-import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
+import {
+  ProviderInteractionMode,
+  RuntimeMode,
+  type ServerProviderToolAccessCeiling,
+} from "@t3tools/contracts";
+import {
+  effectiveToolAccess,
+  formatToolAccess,
+  runtimeModeToolAccess,
+} from "@t3tools/client-runtime/provider-access";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -14,10 +23,15 @@ import {
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
+  providerMode: string | null;
+  providerModes: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
   showInteractionModeToggle: boolean;
+  isBob: boolean;
+  toolAccessCeiling?: ServerProviderToolAccessCeiling;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
+  onProviderModeChange: (mode: string | null) => void;
 }) {
   return (
     <Menu>
@@ -56,6 +70,25 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuDivider />
           </>
         ) : null}
+        {props.providerModes.length > 0 ? (
+          <>
+            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Bob mode</div>
+            <MenuRadioGroup
+              value={props.providerMode ?? "__default__"}
+              onValueChange={(value) =>
+                props.onProviderModeChange(value === "__default__" ? null : value)
+              }
+            >
+              <MenuRadioItem value="__default__">Default</MenuRadioItem>
+              {props.providerModes.map((mode) => (
+                <MenuRadioItem key={mode.slug} value={mode.slug}>
+                  {mode.name}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+            <MenuDivider />
+          </>
+        ) : null}
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
         <MenuRadioGroup
           value={props.runtimeMode}
@@ -64,10 +97,23 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             props.onRuntimeModeChange(value as RuntimeMode);
           }}
         >
-          <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
-          <MenuRadioItem value="auto-accept-edits">Auto-accept edits</MenuRadioItem>
-          <MenuRadioItem value="auto">Auto</MenuRadioItem>
-          <MenuRadioItem value="full-access">Full access</MenuRadioItem>
+          {(
+            [
+              ["approval-required", "Supervised"],
+              ["auto-accept-edits", "Auto-accept edits"],
+              ["auto", "Auto"],
+              ["full-access", "Full access"],
+            ] as const
+          ).map(([mode, label]) => {
+            const access = effectiveToolAccess(mode, props.toolAccessCeiling);
+            const limited = props.isBob && access !== runtimeModeToolAccess(mode);
+            return (
+              <MenuRadioItem key={mode} value={mode}>
+                {label}
+                {limited ? ` · limited to ${formatToolAccess(access)}` : ""}
+              </MenuRadioItem>
+            );
+          })}
         </MenuRadioGroup>
       </MenuPopup>
     </Menu>

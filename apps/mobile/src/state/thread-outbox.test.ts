@@ -92,6 +92,7 @@ describe("thread outbox", () => {
       },
       runtimeMode: "approval-required",
       interactionMode: "plan",
+      providerMode: "reviewer",
     } satisfies QueuedThreadMessage;
 
     expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(selectedMessage))).toEqual(
@@ -102,12 +103,26 @@ describe("thread outbox", () => {
         modelSelection: selectedMessage.modelSelection,
         runtimeMode: selectedMessage.runtimeMode,
         interactionMode: selectedMessage.interactionMode,
+        providerMode: "agent",
       }),
     ).toEqual({
       modelSelection: selectedMessage.modelSelection,
       runtimeMode: selectedMessage.runtimeMode,
       interactionMode: selectedMessage.interactionMode,
+      providerMode: "agent",
     });
+
+    expect(
+      resolveQueuedThreadSettings(
+        { ...selectedMessage, providerMode: null },
+        {
+          modelSelection: selectedMessage.modelSelection,
+          runtimeMode: selectedMessage.runtimeMode,
+          interactionMode: selectedMessage.interactionMode,
+          providerMode: "reviewer",
+        },
+      ).providerMode,
+    ).toBeNull();
   });
 
   it("compares model options as part of the queued settings change", () => {

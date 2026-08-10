@@ -7,7 +7,7 @@ orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
 
-[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with five entries:
+[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with six entries:
 
 | Driver kind   | Driver source                           |
 | ------------- | --------------------------------------- |
@@ -16,6 +16,7 @@ orchestration layer does not know which one is behind a thread.
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
+| `bob`         | [`Drivers/BobDriver.ts`][bob]           |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
 adapter in a child scope. Adapter implementations live beside them in
@@ -38,6 +39,11 @@ directory to route session and turn operations for a thread, so callers name a t
 
 Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
 orchestration, contract, or client change is required for the common case.
+
+Bob is a one-shot provider rather than a long-lived stdio server. Each turn runs `bob run --format
+stream-json`; the adapter persists Bob's terminal task ID as an opaque resume cursor. Bob also
+exposes billing in Bobcoins. Rules, modes, commands, skills, hooks, trust, and native MCP remain
+owned by Bob; T3 does not scan or reinterpret Bob's project metadata.
 
 ## How provider work is requested
 
@@ -81,6 +87,7 @@ when a request opens (approval) or user input is requested, via
 [cursor]: ../../apps/server/src/provider/Drivers/CursorDriver.ts
 [grok]: ../../apps/server/src/provider/Drivers/GrokDriver.ts
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
+[bob]: ../../apps/server/src/provider/Drivers/BobDriver.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts

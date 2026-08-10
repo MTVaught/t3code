@@ -1,10 +1,10 @@
 /**
  * BobProvider — snapshot + status probe for the IBM Bob provider.
  *
- * Bob exposes a fixed catalog of model tiers (no dynamic discovery endpoint),
- * so the model list is static and the status probe is a simple `bob --version`
- * health check. Bob authenticates via `BOBSHELL_API_KEY` and has no separate
- * auth probe, so auth status is always reported as `unknown`.
+ * Bob manages model routing internally, so T3 exposes one hidden routing model
+ * and never passes it to the CLI. The status probe requires Bob major version
+ * 2. Bob authenticates via `BOB_API_KEY` and has no separate auth probe, so
+ * auth status is reported as `unknown` until a real invocation runs.
  *
  * @module provider/Layers/BobProvider
  */
@@ -28,17 +28,42 @@ import {
   detailFromResult,
   isCommandMissingCause,
   parseGenericCliVersion,
-  providerModelsFromSettings,
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
 
-const BOB_PRESENTATION = {
-  displayName: "Bob",
-  badgeLabel: "Early Access",
-  showInteractionModeToggle: false,
-  requiresNewThreadForModelChange: false,
+const bobPresentation = (settings: BobSettings) =>
+  ({
+    displayName: "Bob",
+    badgeLabel: "Early Access",
+    showInteractionModeToggle: false,
+    requiresNewThreadForModelChange: false,
+    capabilities: {
+      modelPicker: false,
+      attachments: true,
+      approvals: false,
+      structuredInput: false,
+      steering: false,
+      rollback: false,
+      providerModes: false,
+      commands: false,
+      skills: false,
+      subagentProgress: "summary",
+      tokenUsage: true,
+      billingUnits: ["bobcoin"],
+      toolAccessCeiling: settings.toolAccessCeiling,
+    },
+  }) as const;
+
+export const BOB_ADAPTER_CAPABILITIES = {
+  sessionModelSwitch: "unsupported",
+  conversationRollback: false,
+  midTurnSteering: false,
+  interactiveApprovals: false,
+  structuredUserInput: false,
+  t3McpInjection: false,
+  attachments: true,
 } as const;
 
 export const BOB_PROVIDER = ProviderDriverKind.make("bob");
@@ -50,36 +75,33 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 
 /**
- * Bob's selectable models.
- *
- * bob advertises several tier aliases internally (`standard`, `basic`, `fast`,
- * `lite`, `granite-3-3-8b-instruct`), but as of bob v1.0.4 only `premium` is
- * actually usable — every other tier is accepted by `-m` yet crashes the run
- * with `Cannot read properties of undefined (reading 'maxTokens')` and returns
- * `status: "error"`. So only `premium` is advertised here; users who know their
- * account supports another model can still add it via `customModels`.
+ * Bob's provider-routing sentinel. Bob 2 chooses the actual model itself.
  */
 export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
   {
     slug: DEFAULT_BOB_MODEL,
-    name: "Premium",
+    name: "Bob managed",
     isCustom: false,
     capabilities: EMPTY_CAPABILITIES,
   },
 ];
 
 /**
- * The set of built-in model slugs, used by the adapter to validate a selected
- * model before passing it to bob via `-m`.
+ * Kept for persisted model-selection compatibility. The adapter never passes
+ * this slug to Bob.
  */
 export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set(
   BOB_BUILT_IN_MODELS.map((model) => model.slug),
 );
 
-export function bobModelsFromSettings(
-  customModels: ReadonlyArray<string> | undefined,
-): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings(BOB_BUILT_IN_MODELS, customModels ?? [], EMPTY_CAPABILITIES);
+export function bobModelsFromSettings(): ReadonlyArray<ServerProviderModel> {
+  return BOB_BUILT_IN_MODELS;
+}
+
+export function isCompatibleBob2Version(version: string | null): boolean {
+  if (version === null) return false;
+  const major = Number.parseInt(version.split(".", 1)[0] ?? "", 10);
+  return major === 2;
 }
 
 export function buildInitialBobProviderSnapshot(
@@ -87,11 +109,11 @@ export function buildInitialBobProviderSnapshot(
 ): Effect.Effect<ServerProviderDraft> {
   return Effect.gen(function* () {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
-    const models = bobModelsFromSettings(bobSettings.customModels);
+    const models = bobModelsFromSettings();
 
     if (!bobSettings.enabled) {
       return buildServerProvider({
-        presentation: BOB_PRESENTATION,
+        presentation: bobPresentation(bobSettings),
         enabled: false,
         checkedAt,
         models,
@@ -106,7 +128,7 @@ export function buildInitialBobProviderSnapshot(
     }
 
     return buildServerProvider({
-      presentation: BOB_PRESENTATION,
+      presentation: bobPresentation(bobSettings),
       enabled: true,
       checkedAt,
       models,
@@ -141,11 +163,11 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
   environment: NodeJS.ProcessEnv = process.env,
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const models = bobModelsFromSettings(bobSettings.customModels);
+  const models = bobModelsFromSettings();
 
   if (!bobSettings.enabled) {
     return buildServerProvider({
-      presentation: BOB_PRESENTATION,
+      presentation: bobPresentation(bobSettings),
       enabled: false,
       checkedAt,
       models,
@@ -167,7 +189,7 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
   if (Result.isFailure(versionResult)) {
     const error = versionResult.failure;
     return buildServerProvider({
-      presentation: BOB_PRESENTATION,
+      presentation: bobPresentation(bobSettings),
       enabled: bobSettings.enabled,
       checkedAt,
       models,
@@ -185,7 +207,7 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
 
   if (Option.isNone(versionResult.success)) {
     return buildServerProvider({
-      presentation: BOB_PRESENTATION,
+      presentation: bobPresentation(bobSettings),
       enabled: bobSettings.enabled,
       checkedAt,
       models,
@@ -204,7 +226,7 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
   if (versionOutput.code !== 0) {
     const detail = detailFromResult(versionOutput);
     return buildServerProvider({
-      presentation: BOB_PRESENTATION,
+      presentation: bobPresentation(bobSettings),
       enabled: bobSettings.enabled,
       checkedAt,
       models,
@@ -220,8 +242,27 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
     });
   }
 
+  if (!isCompatibleBob2Version(version)) {
+    return buildServerProvider({
+      presentation: bobPresentation(bobSettings),
+      enabled: bobSettings.enabled,
+      checkedAt,
+      models,
+      probe: {
+        installed: true,
+        version,
+        status: "error",
+        auth: { status: "unknown" },
+        message:
+          version === null
+            ? "Bob CLI returned an unknown version. T3 Code requires Bob 2.x."
+            : `Bob CLI ${version} is incompatible. T3 Code requires Bob 2.x.`,
+      },
+    });
+  }
+
   return buildServerProvider({
-    presentation: BOB_PRESENTATION,
+    presentation: bobPresentation(bobSettings),
     enabled: bobSettings.enabled,
     checkedAt,
     models,

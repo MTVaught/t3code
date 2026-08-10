@@ -2,16 +2,13 @@
  * BobTextGeneration — text generation for the IBM Bob provider.
  *
  * `bob` has no structured-output (`--schema`) flag, so — like the Grok ACP
- * backend — we prompt bob for a JSON object, collect its stream-json output, and
+ * backend — we prompt Bob for a JSON object, collect its bounded JSON output, and
  * parse the result ourselves. Each operation spawns a one-shot
  *
- *   bob -p "<prompt>" -o stream-json -m <tier> --chat-mode ask
+ *   bob run --format json --workspace <cwd> --mode ask <prompt>
  *
- * subprocess. bob streams newline-delimited JSON events; the authoritative final
- * answer is the `attempt_completion` tool's `result` parameter, falling back to
- * the accumulated assistant `message` text when bob answers without a completion
- * call. The JSON object is then extracted from that answer and validated against
- * the operation's schema.
+ * subprocess. The result's `last_message` is extracted and validated against the
+ * operation schema. All mutating and external tool groups are disabled.
  *
  * @module textGeneration/BobTextGeneration
  */
@@ -27,7 +24,11 @@ import { extractJsonObject } from "@t3tools/shared/schemaJson";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import { makeBobEnvironment, resolveBobBinary } from "../provider/Drivers/BobEnvironment.ts";
-import { BOB_BUILT_IN_MODEL_SLUGS } from "../provider/Layers/BobProvider.ts";
+import {
+  BOB2_PROTOCOL_LIMITS,
+  classifyBob2StartupFailure,
+  decodeBob2Line,
+} from "../provider/Bob2Protocol.ts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -50,108 +51,7 @@ type TextGenerationOperation =
   | "generateBranchName"
   | "generateThreadTitle";
 
-function readString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function parseJsonRecord(line: string): Record<string, unknown> | undefined {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Extract the human-readable error from a bob `result` event, if present. */
-function readBobResultError(event: Record<string, unknown>): string | undefined {
-  const error = event.error;
-  if (error && typeof error === "object" && !Array.isArray(error)) {
-    return readString((error as Record<string, unknown>).message);
-  }
-  return readString(event.error);
-}
-
-interface BobStreamOutcome {
-  /** Final answer from `attempt_completion`, the authoritative output. */
-  readonly finalAnswer: string | undefined;
-  /** Accumulated assistant `message` text — fallback when there is no completion. */
-  readonly assistantText: string;
-  /** Error surfaced by a non-success `result` event. */
-  readonly errorMessage: string | undefined;
-}
-
-/**
- * Parse bob's newline-delimited stream-json stdout into the final answer text
- * (and any error). Mirrors the event handling in {@link BobAdapter}: the answer
- * lives in `attempt_completion`, intermediary assistant `message` events are
- * reasoning we only fall back to, and inline `[using tool ...]`/`<thinking>`
- * noise is stripped.
- */
-function parseBobStream(stdout: string): BobStreamOutcome {
-  let finalAnswer: string | undefined;
-  let assistantText = "";
-  let errorMessage: string | undefined;
-
-  for (const rawLine of stdout.split("\n")) {
-    const line = rawLine.trim();
-    if (line.length === 0) continue;
-    const event = parseJsonRecord(line);
-    if (!event) continue;
-
-    switch (readString(event.type)) {
-      case "tool_use": {
-        if (readString(event.tool_name) !== "attempt_completion") break;
-        const params = event.parameters;
-        const result =
-          params && typeof params === "object" && !Array.isArray(params)
-            ? readString((params as Record<string, unknown>).result)
-            : undefined;
-        if (result) finalAnswer = result;
-        break;
-      }
-      case "message": {
-        if (readString(event.role) !== "assistant") break;
-        const content = readString(event.content);
-        if (!content || content.startsWith("[using tool ")) break;
-        assistantText += content;
-        break;
-      }
-      case "result": {
-        const status = readString(event.status);
-        if (status !== undefined && status !== "success") {
-          errorMessage = readBobResultError(event);
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  return {
-    finalAnswer,
-    assistantText: assistantText.split("<thinking>").join("").split("</thinking>").join(""),
-    errorMessage,
-  };
-}
-
-/**
- * Resolve the bob model tier from the selection, falling back to bob's default
- * ("premium") when unset or unknown. Mirrors `resolveBobTier` in BobAdapter.
- */
-function resolveBobTier(
-  modelSelection: ModelSelection,
-  customModels: ReadonlyArray<string>,
-): string {
-  const slug = modelSelection.model;
-  if (slug && (BOB_BUILT_IN_MODEL_SLUGS.has(slug) || customModels.includes(slug))) {
-    return slug;
-  }
-  return "premium";
-}
+const BOB_JSON_OUTPUT_LIMIT = BOB2_PROTOCOL_LIMITS.lineCharacters;
 
 export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function* (
   bobSettings: BobSettings,
@@ -169,7 +69,7 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
       Stream.decodeText(),
       Stream.runFold(
         () => "",
-        (acc, chunk) => acc + chunk,
+        (acc, chunk) => `${acc}${chunk}`.slice(0, BOB_JSON_OUTPUT_LIMIT),
       ),
       Effect.mapError((cause) =>
         normalizeCliError("bob", operation, cause, "Failed to collect process output"),
@@ -177,7 +77,7 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
     );
 
   /**
-   * Spawn the bob CLI, parse its stream-json output, and return the parsed,
+   * Spawn the Bob CLI, parse its JSON output, and return the parsed,
    * schema-validated structured result.
    */
   const runBobJson = Effect.fn("runBobJson")(function* <S extends Schema.Top>({
@@ -193,28 +93,37 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
     outputSchema: S;
     modelSelection: ModelSelection;
   }): Effect.fn.Return<S["Type"], TextGenerationError, S["DecodingServices"]> {
-    const tier = resolveBobTier(modelSelection, bobSettings.customModels);
+    void modelSelection;
 
     const runBobCommand = Effect.fn("runBobJson.runBobCommand")(function* () {
       const args = [
-        "-p",
-        prompt,
-        "-o",
-        "stream-json",
-        "-m",
-        tier,
-        // `ask` completes non-interactively without granting write or command
-        // approval. Bob's built-in attempt_completion tool remains available.
-        "--chat-mode",
+        "run",
+        "--format",
+        "json",
+        "--workspace",
+        cwd,
+        "--mode",
         "ask",
-        ...(bobSettings.maxCoins.trim().length > 0
-          ? ["--max-coins", bobSettings.maxCoins.trim()]
+        "--disable-mcp",
+        "--disable-subagents",
+        "--disable-tool-groups",
+        "edit,execute,browser,mode,mcp,subagent",
+        ...(bobSettings.teamId ? ["--team-id", bobSettings.teamId] : []),
+        ...(bobSettings.taskCostThresholdBobcoins !== undefined
+          ? ["--max-cost", String(bobSettings.taskCostThresholdBobcoins)]
           : []),
+        ...(bobSettings.maxTurns !== undefined
+          ? ["--max-turns", String(bobSettings.maxTurns)]
+          : []),
+        prompt,
       ];
       const spawnCommand = yield* resolveSpawnCommand(binary, args, { env: bobEnvironment });
       const command = ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env: bobEnvironment,
         cwd,
+        // Bob 2 waits for EOF on stdin even when the prompt is supplied as an
+        // argument. An empty stream closes the pipe immediately after spawn.
+        stdin: Stream.empty,
         shell: spawnCommand.shell,
       });
 
@@ -239,10 +148,10 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
         { concurrency: "unbounded" },
       );
 
-      const outcome = parseBobStream(stdout);
+      const outcome = decodeBob2Line(stdout.trim());
 
       if (exitCode !== 0) {
-        const detail = outcome.errorMessage ?? (stderr.trim() || stdout.trim());
+        const detail = classifyBob2StartupFailure(stderr.trim() || stdout.trim()).message;
         return yield* new TextGenerationError({
           operation,
           detail:
@@ -252,14 +161,17 @@ export const makeBobTextGeneration = Effect.fn("makeBobTextGeneration")(function
         });
       }
 
-      if (outcome.errorMessage) {
+      if (outcome.type !== "result" || outcome.status !== "success") {
         return yield* new TextGenerationError({
           operation,
-          detail: `Bob CLI command failed: ${outcome.errorMessage}`,
+          detail:
+            outcome.type === "result" && outcome.errorMessage
+              ? `Bob CLI command failed: ${outcome.errorMessage}`
+              : "Bob CLI returned an invalid or unsuccessful result.",
         });
       }
 
-      const answer = (outcome.finalAnswer ?? outcome.assistantText).trim();
+      const answer = outcome.lastMessage?.trim() ?? "";
       if (answer.length === 0) {
         return yield* new TextGenerationError({
           operation,

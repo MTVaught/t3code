@@ -44,6 +44,7 @@ export interface ComposerDraft {
   readonly modelSelection?: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly providerMode?: string | null;
   readonly workspaceSelection?: ComposerDraftWorkspaceSelection;
 }
 
@@ -62,7 +63,7 @@ export interface ComposerDraftWorkspaceSelection {
 
 export type ComposerDraftSettingsUpdate = Pick<
   ComposerDraft,
-  "modelSelection" | "runtimeMode" | "interactionMode" | "workspaceSelection"
+  "modelSelection" | "runtimeMode" | "interactionMode" | "providerMode" | "workspaceSelection"
 >;
 
 const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
@@ -79,6 +80,7 @@ const ComposerDraftSchema = Schema.Struct({
   modelSelection: Schema.optional(ModelSelectionSchema),
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
+  providerMode: Schema.optional(Schema.NullOr(Schema.String)),
   workspaceSelection: Schema.optional(ComposerDraftWorkspaceSelectionSchema),
 });
 
@@ -131,6 +133,7 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
+    draft.providerMode === undefined &&
     draft.workspaceSelection === undefined
   );
 }

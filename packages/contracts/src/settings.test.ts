@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
+  BobSettingsConfig,
   ClientSettingsSchema,
   ClientSettingsPatch,
   DEFAULT_SERVER_SETTINGS,
@@ -15,6 +16,46 @@ const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const decodeBobSettings = Schema.decodeUnknownSync(BobSettingsConfig);
+
+describe("Bob 2 settings", () => {
+  it("constructs an explicit safe version-2 default", () => {
+    expect(decodeBobSettings({})).toEqual({
+      schemaVersion: 2,
+      enabled: false,
+      binaryPath: "bob",
+      apiKey: "",
+      defaultMode: "agent",
+      toolAccessCeiling: "edits",
+    });
+  });
+
+  it("preserves explicit version-2 instance fields", () => {
+    expect(
+      decodeBobSettings({
+        schemaVersion: 2,
+        enabled: true,
+        binaryPath: "bob2",
+        apiKey: "key",
+        teamId: "team",
+        defaultMode: "custom-mode",
+        taskCostThresholdBobcoins: 0.5,
+        maxTurns: 4,
+        toolAccessCeiling: "full",
+      }),
+    ).toEqual({
+      schemaVersion: 2,
+      enabled: true,
+      binaryPath: "bob2",
+      apiKey: "key",
+      teamId: "team",
+      defaultMode: "custom-mode",
+      taskCostThresholdBobcoins: 0.5,
+      maxTurns: 4,
+      toolAccessCeiling: "full",
+    });
+  });
+});
 
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {

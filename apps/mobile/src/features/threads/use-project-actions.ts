@@ -35,6 +35,7 @@ export function useCreateProjectThread() {
       readonly startFromOrigin?: boolean;
       readonly runtimeMode: RuntimeMode;
       readonly interactionMode: ProviderInteractionMode;
+      readonly providerMode?: string | null;
       readonly initialMessageText: string;
       readonly initialAttachments: ReadonlyArray<DraftComposerImageAttachment>;
       /** Reuse identifiers from a queued pending task instead of minting new ones. */
@@ -70,6 +71,7 @@ export function useCreateProjectThread() {
           modelSelection: input.modelSelection,
           runtimeMode: input.runtimeMode,
           interactionMode: input.interactionMode,
+          providerMode: input.providerMode,
           workspaceMode: input.envMode,
           branch: input.branch,
           worktreePath: input.worktreePath,

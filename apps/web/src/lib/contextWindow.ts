@@ -78,11 +78,13 @@ export function deriveLatestContextWindowSnapshot(
       remainingPercentage,
       inputTokens: asFiniteNumber(payload?.inputTokens),
       cachedInputTokens: asFiniteNumber(payload?.cachedInputTokens),
+      cacheWriteInputTokens: asFiniteNumber(payload?.cacheWriteInputTokens),
       outputTokens: asFiniteNumber(payload?.outputTokens),
       reasoningOutputTokens: asFiniteNumber(payload?.reasoningOutputTokens),
       lastUsedTokens: asFiniteNumber(payload?.lastUsedTokens),
       lastInputTokens: asFiniteNumber(payload?.lastInputTokens),
       lastCachedInputTokens: asFiniteNumber(payload?.lastCachedInputTokens),
+      lastCacheWriteInputTokens: asFiniteNumber(payload?.lastCacheWriteInputTokens),
       lastOutputTokens: asFiniteNumber(payload?.lastOutputTokens),
       lastReasoningOutputTokens: asFiniteNumber(payload?.lastReasoningOutputTokens),
       toolUses: asFiniteNumber(payload?.toolUses),
@@ -92,6 +94,33 @@ export function deriveLatestContextWindowSnapshot(
     };
   }
 
+  return null;
+}
+
+export interface BillingUsageSnapshot {
+  readonly unit: string;
+  readonly cumulativeAmount: number;
+  readonly turnAmount: number | null;
+  readonly updatedAt: string;
+}
+
+export function deriveLatestBillingUsageSnapshot(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): BillingUsageSnapshot | null {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index];
+    if (!activity || activity.kind !== "billing-usage.updated") continue;
+    const payload = asRecord(activity.payload);
+    const unit = typeof payload?.unit === "string" ? payload.unit : null;
+    const cumulativeAmount = asFiniteNumber(payload?.cumulativeAmount);
+    if (!unit || cumulativeAmount === null || cumulativeAmount < 0) continue;
+    return {
+      unit,
+      cumulativeAmount,
+      turnAmount: asFiniteNumber(payload?.turnAmount),
+      updatedAt: activity.createdAt,
+    };
+  }
   return null;
 }
 

@@ -7,9 +7,15 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
   onDismiss,
+  recoveryAction,
 }: {
   error: string | null;
   onDismiss?: () => void;
+  recoveryAction?: {
+    readonly label: string;
+    readonly onClick: () => void;
+    readonly pending?: boolean;
+  };
 }) {
   if (!error) return null;
   return (
@@ -24,11 +30,30 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             </TooltipPopup>
           </Tooltip>
         </AlertDescription>
-        {onDismiss && (
+        {(recoveryAction || onDismiss) && (
           <AlertAction>
-            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-              <XIcon className="text-destructive" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {recoveryAction ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={recoveryAction.pending}
+                  onClick={recoveryAction.onClick}
+                >
+                  {recoveryAction.pending ? "Resetting…" : recoveryAction.label}
+                </Button>
+              ) : null}
+              {onDismiss ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Dismiss error"
+                  onClick={onDismiss}
+                >
+                  <XIcon className="text-destructive" />
+                </Button>
+              ) : null}
+            </div>
           </AlertAction>
         )}
       </Alert>

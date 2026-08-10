@@ -774,7 +774,7 @@ export function ProviderInstanceCard({
               />
             ) : null}
 
-            {driverOption !== undefined ? (
+            {driverOption !== undefined && liveProvider?.capabilities?.modelPicker !== false ? (
               <ProviderModelsSection
                 instanceId={instanceId}
                 driverKind={driverKind}
@@ -788,7 +788,7 @@ export function ProviderInstanceCard({
                 onFavoriteModelsChange={onFavoriteModelsChange}
                 onModelOrderChange={onModelOrderChange}
               />
-            ) : (
+            ) : driverOption === undefined ? (
               <div>
                 <p className="text-xs text-muted-foreground">
                   This instance uses a driver (
@@ -797,7 +797,7 @@ export function ProviderInstanceCard({
                   edited from this surface.
                 </p>
               </div>
-            )}
+            ) : null}
           </div>
         </CollapsibleContent>
       </Collapsible>

@@ -781,6 +781,21 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "thread.billing-usage.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "billing-usage.updated",
+          summary: "Billing usage updated",
+          payload: event.payload.usage,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];

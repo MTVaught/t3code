@@ -28,6 +28,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
@@ -81,6 +82,7 @@ function createProviderServiceHarness(
   hasSession = true,
   sessionCwd = cwd,
   providerName: ProviderSession["provider"] = ProviderDriverKind.make("codex"),
+  conversationRollback = true,
 ) {
   const now = "2026-01-01T00:00:00.000Z";
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
@@ -95,6 +97,7 @@ function createProviderServiceHarness(
       ? Effect.succeed([
           {
             provider: providerName,
+            providerInstanceId: ProviderInstanceId.make(providerName),
             status: "ready",
             runtimeMode: "full-access",
             threadId: ThreadId.make("thread-1"),
@@ -112,7 +115,8 @@ function createProviderServiceHarness(
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
     listSessions,
-    getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
+    getCapabilities: () =>
+      Effect.succeed({ sessionModelSwitch: "in-session", conversationRollback }),
     getInstanceInfo: (instanceId) =>
       Effect.succeed({
         instanceId,
@@ -284,6 +288,7 @@ describe("CheckpointReactor", () => {
     readonly localStatusRefName?: string | null;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderDriverKind;
+    readonly conversationRollback?: boolean;
     readonly gitStatusRefreshCalls?: Array<string>;
   }) {
     const cwd = createGitRepository();
@@ -293,6 +298,7 @@ describe("CheckpointReactor", () => {
       options?.hasSession ?? true,
       options?.providerSessionCwd ?? cwd,
       options?.providerName ?? ProviderDriverKind.make("codex"),
+      options?.conversationRollback ?? true,
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
@@ -1081,6 +1087,66 @@ describe("CheckpointReactor", () => {
       gitRefExists(harness.cwd, checkpointRefForThreadTurn(ThreadId.make("thread-1"), 2)),
     ).toBe(false);
   });
+
+  effectIt.effect("rejects Bob rollback before restoring the workspace", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          providerName: ProviderDriverKind.make("bob"),
+          conversationRollback: false,
+        }),
+      );
+      const createdAt = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("cmd-session-set-bob"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "bob",
+          providerInstanceId: ProviderInstanceId.make("bob"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.make("cmd-diff-bob"),
+        threadId: ThreadId.make("thread-1"),
+        turnId: asTurnId("turn-1"),
+        completedAt: createdAt,
+        checkpointRef: checkpointRefForThreadTurn(ThreadId.make("thread-1"), 1),
+        status: "ready",
+        files: [],
+        checkpointTurnCount: 1,
+        createdAt,
+      });
+      NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "must stay\n", "utf8");
+
+      yield* harness.engine.dispatch({
+        type: "thread.checkpoint.revert",
+        commandId: CommandId.make("cmd-revert-bob"),
+        threadId: ThreadId.make("thread-1"),
+        turnCount: 0,
+        createdAt,
+      });
+      yield* Effect.promise(() =>
+        waitForThread(harness.readModel, (thread) =>
+          thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+        ),
+      );
+
+      expect(NodeFS.readFileSync(NodePath.join(harness.cwd, "README.md"), "utf8")).toBe(
+        "must stay\n",
+      );
+      expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+    }),
+  );
 
   it("executes provider revert and emits thread.reverted for claude sessions", async () => {
     const harness = await createHarness({ providerName: ProviderDriverKind.make("claudeAgent") });

@@ -50,6 +50,7 @@ import {
   AssetWorkspaceContextResolutionError,
   RpcClientId,
   EnvironmentAuthorizationError,
+  ServerProviderContextResetError,
   ThreadId,
   type TerminalAttachStreamEvent,
   type TerminalError,
@@ -122,6 +123,7 @@ import * as SessionStore from "./auth/SessionStore.ts";
 import { failEnvironmentAuthInvalid, failEnvironmentInternal } from "./auth/http.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
 const isOrchestrationDispatchCommandError = Schema.is(OrchestrationDispatchCommandError);
+const isServerProviderContextResetError = Schema.is(ServerProviderContextResetError);
 
 const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 const EDITOR_DISCOVERY_TIMEOUT = Duration.seconds(5);
@@ -1411,6 +1413,62 @@ const makeWsRpcLayer = (
               ? providerRegistry.refreshInstance(input.instanceId)
               : providerRegistry.refresh()
             ).pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverGetProviderProjectMetadata]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverGetProviderProjectMetadata,
+            projectionSnapshotQuery.getProjectShellById(input.projectId).pipe(
+              Effect.flatMap((project) =>
+                Option.match(project, {
+                  onNone: () =>
+                    Effect.succeed({
+                      workspaceTrusted: false,
+                      modes: [],
+                      slashCommands: [],
+                      skills: [],
+                    }),
+                  onSome: (value) =>
+                    providerRegistry.getProjectMetadata!(input.instanceId, value.workspaceRoot),
+                }),
+              ),
+              Effect.orElseSucceed(() => ({
+                workspaceTrusted: false,
+                modes: [],
+                slashCommands: [],
+                skills: [],
+              })),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverResetProviderContext]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverResetProviderContext,
+            Effect.gen(function* () {
+              const thread = Option.getOrUndefined(
+                yield* projectionSnapshotQuery.getThreadShellById(input.threadId),
+              );
+              if (!thread) {
+                return yield* new ServerProviderContextResetError({
+                  threadId: input.threadId,
+                  reason: "Thread does not exist.",
+                });
+              }
+              yield* providerRegistry.resetContext!(
+                thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
+                input.threadId,
+              );
+            }).pipe(
+              Effect.mapError((error) =>
+                isServerProviderContextResetError(error)
+                  ? error
+                  : new ServerProviderContextResetError({
+                      threadId: input.threadId,
+                      reason: error instanceof Error ? error.message : "Unknown provider error.",
+                    }),
+              ),
+              Effect.as({}),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>

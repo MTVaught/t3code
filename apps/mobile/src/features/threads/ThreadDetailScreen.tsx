@@ -8,6 +8,7 @@ import type {
   MessageId,
   ModelSelection,
   OrchestrationThreadShell,
+  OrchestrationThread,
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
@@ -66,6 +67,8 @@ export interface ThreadDetailScreenProps {
   readonly activeThreadBusy: boolean;
   readonly environmentId: EnvironmentId;
   readonly projectWorkspaceRoot: string | null;
+  readonly providerMode: string | null;
+  readonly usageActivities: OrchestrationThread["activities"];
   readonly threadCwd: string | null;
   readonly selectedThreadQueueCount: number;
   readonly serverConfig: T3ServerConfig | null;
@@ -83,6 +86,7 @@ export interface ThreadDetailScreenProps {
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateThreadInteractionMode: (interactionMode: ProviderInteractionMode) => void;
+  readonly onUpdateThreadProviderMode: (providerMode: string | null) => void;
   readonly onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -435,6 +439,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               activeThreadBusy={props.activeThreadBusy}
               environmentId={props.environmentId}
               projectCwd={props.projectWorkspaceRoot}
+              providerMode={props.providerMode}
+              usageActivities={props.usageActivities}
               bottomInset={composerBottomInset}
               onChangeDraftMessage={props.onChangeDraftMessage}
               onPickDraftImages={props.onPickDraftImages}
@@ -446,6 +452,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               onUpdateModelSelection={props.onUpdateThreadModelSelection}
               onUpdateRuntimeMode={props.onUpdateThreadRuntimeMode}
               onUpdateInteractionMode={props.onUpdateThreadInteractionMode}
+              onUpdateProviderMode={props.onUpdateThreadProviderMode}
               onExpandedChange={setComposerExpanded}
             />
           </View>

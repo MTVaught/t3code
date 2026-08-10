@@ -7,7 +7,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColor } from "../../lib/useThemeColor";
 import { useFontFamily } from "../../lib/useFontFamily";
 
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, type RuntimeMode } from "@t3tools/contracts";
+import {
+  effectiveToolAccess,
+  formatToolAccess,
+  runtimeModeToolAccess,
+} from "@t3tools/client-runtime/provider-access";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -556,6 +561,8 @@ export function NewTaskDraftScreen(props: {
       }),
     [flow.selectedModel?.options, flow.selectedModelOption?.capabilities],
   );
+  const bobRuntimeLabels = flow.selectedModelOption?.providerDriver === "bob";
+  const bobToolAccessCeiling = flow.selectedProviderCapabilities?.toolAccessCeiling;
 
   const optionsMenuActions = useMemo(
     () => [
@@ -563,8 +570,9 @@ export function NewTaskDraftScreen(props: {
       {
         id: "options-runtime",
         title: "Runtime",
-        subtitle:
-          flow.runtimeMode === "approval-required"
+        subtitle: bobRuntimeLabels
+          ? formatToolAccess(effectiveToolAccess(flow.runtimeMode, bobToolAccessCeiling))
+          : flow.runtimeMode === "approval-required"
             ? "Approve actions"
             : flow.runtimeMode === "auto-accept-edits"
               ? "Auto-accept edits"
@@ -572,15 +580,23 @@ export function NewTaskDraftScreen(props: {
                 ? "Auto"
                 : "Full access",
         subactions: [
-          { id: "options:runtime:approval-required", title: "Approve actions" },
-          { id: "options:runtime:auto-accept-edits", title: "Auto-accept edits" },
-          { id: "options:runtime:auto", title: "Auto" },
+          {
+            id: "options:runtime:approval-required",
+            title: bobRuntimeLabels ? "Supervised · block tools" : "Approve actions",
+          },
+          {
+            id: "options:runtime:auto-accept-edits",
+            title: bobRuntimeLabels ? "Auto-accept edits · edits only" : "Auto-accept edits",
+          },
+          { id: "options:runtime:auto", title: bobRuntimeLabels ? "Auto · edits only" : "Auto" },
           { id: "options:runtime:full-access", title: "Full access" },
         ].map((option) => {
-          const value = option.id.replace("options:runtime:", "");
+          const value = option.id.replace("options:runtime:", "") as RuntimeMode;
+          const access = effectiveToolAccess(value, bobToolAccessCeiling);
+          const limited = bobRuntimeLabels && access !== runtimeModeToolAccess(value);
           return {
             id: option.id,
-            title: option.title,
+            title: `${option.title}${limited ? ` · limited to ${formatToolAccess(access)}` : ""}`,
             state: flow.runtimeMode === value ? ("on" as const) : undefined,
           };
         }),
@@ -601,8 +617,54 @@ export function NewTaskDraftScreen(props: {
           };
         }),
       },
+      ...(flow.providerModes.length > 0
+        ? [
+            {
+              id: "options-provider-mode",
+              title: "Bob mode",
+              subtitle:
+                flow.providerModes.find((mode) => mode.slug === flow.providerMode)?.name ??
+                "Default",
+              subactions: [
+                {
+                  id: "options:provider-mode:",
+                  title: "Default",
+                  state: flow.providerMode === null ? ("on" as const) : undefined,
+                },
+                ...flow.providerModes.map((mode) => ({
+                  id: `options:provider-mode:${mode.slug}`,
+                  title: mode.name,
+                  state: flow.providerMode === mode.slug ? ("on" as const) : undefined,
+                })),
+              ],
+            },
+          ]
+        : []),
+      ...(flow.selectedProviderSlashCommands.length > 0
+        ? [
+            {
+              id: "options-provider-command",
+              title: "Bob command",
+              subtitle: "Start a workspace command",
+              subactions: flow.selectedProviderSlashCommands.map((command) => ({
+                id: `options:provider-command:${command.name}`,
+                title: `/${command.name}`,
+                ...(command.description ? { subtitle: command.description } : {}),
+              })),
+            },
+          ]
+        : []),
     ],
-    [flow.interactionMode, flow.runtimeMode, providerOptionDescriptors],
+    [
+      bobRuntimeLabels,
+      bobToolAccessCeiling,
+      flow.interactionMode,
+      flow.providerMode,
+      flow.providerModes,
+      flow.runtimeMode,
+      flow.selectedProviderSlashCommands,
+      providerOptionDescriptors,
+    ],
   );
 
   const workspaceMenuActions = useMemo(() => {
@@ -721,6 +783,15 @@ export function NewTaskDraftScreen(props: {
       flow.setInteractionMode(
         event.slice("options:interaction:".length) as Parameters<typeof flow.setInteractionMode>[0],
       );
+      return;
+    }
+    if (event.startsWith("options:provider-mode:")) {
+      flow.setProviderMode(event.slice("options:provider-mode:".length) || null);
+      return;
+    }
+    if (event.startsWith("options:provider-command:")) {
+      const command = event.slice("options:provider-command:".length);
+      flow.setPrompt(`/${command}${flow.prompt.trim() ? ` ${flow.prompt.trim()}` : " "}`);
     }
   }
 
@@ -796,11 +867,12 @@ export function NewTaskDraftScreen(props: {
     const startFromOrigin = draft.workspaceSelection?.startFromOrigin ?? flow.startFromOrigin;
     const runtimeMode = draft.runtimeMode ?? flow.runtimeMode;
     const interactionMode = draft.interactionMode ?? flow.interactionMode;
+    const providerMode = draft.providerMode ?? flow.providerMode;
     const initialMessageText = draft.text.trim();
 
     if (
       !modelSelection ||
-      initialMessageText.length === 0 ||
+      (initialMessageText.length === 0 && draft.attachments.length === 0) ||
       flow.submitting ||
       (workspaceMode === "worktree" && !selectedBranchName)
     ) {
@@ -867,6 +939,7 @@ export function NewTaskDraftScreen(props: {
       startFromOrigin,
       runtimeMode,
       interactionMode,
+      providerMode,
       initialMessageText,
       initialAttachments: draft.attachments,
       ...(editingPendingTask
@@ -934,7 +1007,7 @@ export function NewTaskDraftScreen(props: {
   const canStart =
     Boolean(flow.selectedProject) &&
     Boolean(flow.selectedModel) &&
-    flow.prompt.trim().length > 0 &&
+    (flow.prompt.trim().length > 0 || flow.attachments.length > 0) &&
     isIncomingShareReady &&
     !isImportingShare &&
     !flow.submitting &&
@@ -978,23 +1051,29 @@ export function NewTaskDraftScreen(props: {
 
   const toolbarPills = (
     <>
-      <ComposerToolbarButton
-        icon="plus"
-        onPress={() => void handlePickImages()}
-        showChevron={false}
-        disabled={isIncomingShareTransferPending}
-      />
-      <ControlPillMenu
-        actions={modelMenuActions}
-        onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
-      >
-        <ComposerToolbarTrigger
-          accessibilityLabel="Model"
+      {flow.selectedProviderCapabilities?.attachments !== false ? (
+        <ComposerToolbarButton
+          icon="plus"
+          onPress={() => void handlePickImages()}
+          showChevron={false}
           disabled={isIncomingShareTransferPending}
-          iconNode={<ProviderIcon provider={flow.selectedModelOption?.providerDriver} size={16} />}
-          label={flow.selectedModelOption?.label ?? "Model"}
         />
-      </ControlPillMenu>
+      ) : null}
+      {flow.selectedProviderCapabilities?.modelPicker !== false ? (
+        <ControlPillMenu
+          actions={modelMenuActions}
+          onPressAction={({ nativeEvent }) => handleModelMenuAction(nativeEvent.event)}
+        >
+          <ComposerToolbarTrigger
+            accessibilityLabel="Model"
+            disabled={isIncomingShareTransferPending}
+            iconNode={
+              <ProviderIcon provider={flow.selectedModelOption?.providerDriver} size={16} />
+            }
+            label={flow.selectedModelOption?.label ?? "Model"}
+          />
+        </ControlPillMenu>
+      ) : null}
       <ControlPillMenu
         actions={optionsMenuActions}
         onPressAction={({ nativeEvent }) => handleOptionsMenuAction(nativeEvent.event)}

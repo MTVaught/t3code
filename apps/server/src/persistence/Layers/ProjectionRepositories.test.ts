@@ -85,6 +85,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         },
         runtimeMode: "full-access",
         interactionMode: "default",
+        providerMode: "reviewer",
         branch: null,
         worktreePath: null,
         latestTurnId: null,
@@ -131,6 +132,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-opus-4-6",
       });
+      assert.strictEqual(Option.getOrNull(persisted)?.providerMode, "reviewer");
     }),
   );
 

@@ -113,6 +113,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import { DEFAULT_SERVER_PROVIDER_CAPABILITIES } from "./provider/providerSnapshot.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -4521,6 +4522,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           version: "1.0.0",
           status: "ready" as const,
           auth: { status: "authenticated" as const },
+          capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
           checkedAt: "2026-04-11T00:00:00.000Z",
           models: [],
           slashCommands: [],
@@ -4609,6 +4611,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           version: "1.0.0",
           status: "ready" as const,
           auth: { status: "authenticated" as const },
+          capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
           checkedAt: "2026-04-11T00:00:00.000Z",
           models: [],
           slashCommands: [],
