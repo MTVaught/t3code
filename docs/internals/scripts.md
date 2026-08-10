@@ -63,6 +63,9 @@ authenticated.
 - `vp run lint:mobile`: Mobile native static analysis (`scripts/mobile-native-static-check.ts`).
 - `node apps/server/scripts/t3-sqlite-state.ts <query|exec> --base-dir <path> ...`: Inspects or seeds
   an isolated T3 SQLite database; writes create a private backup first.
+- `node apps/server/scripts/import-bob-threads.ts [options]`: Dry-runs or imports Bob 2 user and
+  assistant messages into an existing T3 project. Stop T3 first and pass `--apply`; the script
+  creates a SQLite backup before appending canonical orchestration events.
 
 ## Desktop artifacts
 
