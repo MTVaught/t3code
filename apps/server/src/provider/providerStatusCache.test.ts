@@ -10,6 +10,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
+import { DEFAULT_SERVER_PROVIDER_CAPABILITIES } from "./providerSnapshot.ts";
 
 import {
   hydrateCachedProvider,
@@ -35,6 +36,7 @@ const makeProvider = (
   version: "1.0.0",
   status: "ready",
   auth: { status: "authenticated" },
+  capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
   checkedAt: "2026-04-11T00:00:00.000Z",
   models: [],
   slashCommands: [],
