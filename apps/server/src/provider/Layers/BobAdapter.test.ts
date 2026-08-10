@@ -366,6 +366,43 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
     }),
   );
 
+  it.effect("starts a new Bob task when the selected mode differs from the resumed task", () =>
+    Effect.gen(function* () {
+      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            spawnedArgs.push((command as { readonly args: ReadonlyArray<string> }).args);
+            return Effect.succeed(makeHandle({ stdout: successStream }));
+          }),
+        ),
+      );
+      const threadId = ThreadId.make("bob2-mode-change");
+      const completed = yield* Deferred.make<void>();
+      yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        event.type === "turn.completed" ? Deferred.succeed(completed, undefined) : Effect.void,
+      ).pipe(Effect.forkScoped);
+      yield* adapter.startSession({
+        threadId,
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        resumeCursor: { version: 1, taskId: TASK_ID, mode: "agent" },
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "use the custom mode",
+        providerMode: "t3-mode-probe",
+      });
+      yield* Deferred.await(completed);
+
+      assert.notInclude(spawnedArgs[0] ?? [], "--resume");
+      assert.include(spawnedArgs[0] ?? [], "t3-mode-probe");
+      const [session] = yield* adapter.listSessions();
+      assert.equal((session?.resumeCursor as { mode?: string } | undefined)?.mode, "t3-mode-probe");
+    }),
+  );
+
   it.effect("drains Bob after SIGINT and keeps the T3 turn interrupted", () =>
     Effect.gen(function* () {
       const release = yield* Deferred.make<string>();
