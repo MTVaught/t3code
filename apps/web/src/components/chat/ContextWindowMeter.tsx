@@ -24,6 +24,7 @@ export function ContextWindowMeter(props: {
 }) {
   const { usage, providerDisplayName, billing } = props;
   if (!usage && !billing) return null;
+  const hasContextMaximum = usage?.maxTokens !== null && usage?.maxTokens !== undefined;
   const usedPercentage = formatPercentage(usage?.usedPercentage ?? null);
   const normalizedPercentage = Math.max(0, Math.min(100, usage?.usedPercentage ?? 0));
   const radius = 9.75;
@@ -46,7 +47,10 @@ export function ContextWindowMeter(props: {
           <button
             type="button"
             className={cn(
-              "inline-flex size-7 cursor-pointer items-center justify-center rounded-full border border-transparent text-muted-foreground outline-none transition-colors",
+              "inline-flex h-7 cursor-pointer items-center justify-center border border-transparent text-muted-foreground outline-none transition-colors",
+              hasContextMaximum || !usage
+                ? "w-7 rounded-full"
+                : "rounded-md px-1.5 text-xs tabular-nums",
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
@@ -58,7 +62,9 @@ export function ContextWindowMeter(props: {
                   : `${billing?.cumulativeAmount ?? 0} Bobcoins used`
             }
           >
-            {usage ? (
+            {usage && !hasContextMaximum ? (
+              <span>{formatContextWindowTokens(usage.usedTokens)}</span>
+            ) : usage ? (
               <span className="relative flex size-5 items-center justify-center">
                 <svg
                   viewBox="0 0 24 24"
@@ -120,7 +126,7 @@ export function ContextWindowMeter(props: {
               )}
             </div>
           ) : null}
-          {usage?.maxTokens !== null && usage?.maxTokens !== undefined ? (
+          {hasContextMaximum ? (
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60"
               role="progressbar"
