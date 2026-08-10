@@ -46,7 +46,7 @@ const bobPresentation = (settings: BobSettings) =>
       structuredInput: false,
       steering: false,
       rollback: false,
-      providerModes: false,
+      providerModes: true,
       commands: false,
       skills: false,
       subagentProgress: "summary",

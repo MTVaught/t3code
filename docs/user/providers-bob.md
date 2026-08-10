@@ -17,9 +17,15 @@ workspace but deliberately starts a fresh Bob conversation.
 
 ## Modes, commands, and skills
 
-Set the Bob mode slug on the provider instance. T3 passes that value to Bob's supported `--mode`
-option and otherwise leaves project behavior to Bob. Bob loads its own rules, trust configuration,
-custom modes, skills, hooks, and MCP configuration.
+Choose the Bob mode in the thread composer. T3 lists Agent, Ask, and Plan together with custom
+modes from Bob's global and workspace configuration. Workspace modes override global or built-in
+modes with the same slug. The provider instance setting remains the default for threads that have
+not selected one.
+
+T3 passes the selected slug to Bob's supported `--mode` option and otherwise leaves project
+behavior to Bob. Bob loads its own rules, trust configuration, custom modes, skills, hooks, and MCP
+configuration. When Bob switches mode during a turn, T3 updates the thread selection so the next
+turn resumes in that mode.
 
 T3 sends prompt text unchanged. Literal `$skill-name` invocation remains provider-native. Bob's
 headless interface does not currently expand interactive slash commands, and T3 does not emulate

@@ -57,6 +57,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { makeBobEnvironment, resolveBobBinary } from "../Drivers/BobEnvironment.ts";
+import { discoverBobModes } from "../Drivers/BobModes.ts";
 import { BOB_ADAPTER_CAPABILITIES } from "./BobProvider.ts";
 import { type BobAdapterShape } from "../Services/BobAdapter.ts";
 import {
@@ -149,6 +150,18 @@ function readCumulativeUsage(value: unknown): BobCumulativeUsage {
       : {}),
     ...(number("contextTokens") !== undefined ? { contextTokens: number("contextTokens") } : {}),
   };
+}
+
+function switchedBobMode(tool: BobToolInFlight): string | undefined {
+  if (tool.toolName !== "switch_mode" || !tool.parameters || typeof tool.parameters !== "object") {
+    return undefined;
+  }
+  const parameters = tool.parameters as Record<string, unknown>;
+  for (const key of ["mode", "mode_slug", "modeSlug", "slug"]) {
+    const value = parameters[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function readString(value: unknown): string | undefined {
@@ -906,6 +919,20 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         },
       },
     });
+    const providerMode = switchedBobMode(tool);
+    if (providerMode && (toolResult.status === "success" || toolResult.status === undefined)) {
+      const modeStamp = yield* makeEventStamp();
+      yield* offerRuntimeEvent({
+        type: "thread.metadata.updated",
+        eventId: modeStamp.eventId,
+        provider: PROVIDER,
+        providerInstanceId: boundInstanceId,
+        createdAt: modeStamp.createdAt,
+        threadId: context.session.threadId,
+        turnId: turnState.turnId,
+        payload: { metadata: { providerMode } },
+      });
+    }
     if (tool.taskId) {
       const taskStamp = yield* makeEventStamp();
       const summary = stripTaskResultWrapper(toolResult.output);
@@ -1439,6 +1466,12 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   return {
     provider: PROVIDER,
     capabilities: BOB_ADAPTER_CAPABILITIES,
+    getProjectMetadata: (cwd) =>
+      discoverBobModes(cwd, bobEnvironment).pipe(
+        Effect.map((modes) => ({ workspaceTrusted: true, modes, slashCommands: [], skills: [] })),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+      ),
     resetContext: (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((context) => {

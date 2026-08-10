@@ -1909,6 +1909,18 @@ const make = Effect.gen(function* () {
         });
       }
 
+      if (event.type === "thread.metadata.updated") {
+        const providerMode = event.payload.metadata?.providerMode;
+        if (typeof providerMode === "string" && providerMode.trim()) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: yield* providerCommandId(event, "thread-provider-mode-update"),
+            threadId: thread.id,
+            providerMode: providerMode.trim(),
+          });
+        }
+      }
+
       if (event.type === "turn.diff.updated") {
         const turnId = toTurnId(event.turnId);
         const checkpointContext = turnId

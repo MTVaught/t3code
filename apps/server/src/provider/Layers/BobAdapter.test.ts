@@ -201,6 +201,46 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
     }),
   );
 
+  it.effect("reports a successful Bob-initiated mode switch", () =>
+    Effect.gen(function* () {
+      const output = streamJson([
+        {
+          type: "tool_use",
+          tool_name: "switch_mode",
+          tool_id: "mode-1",
+          parameters: { mode_slug: "reviewer" },
+        },
+        { type: "tool_result", tool_id: "mode-1", status: "success", output: "Switched" },
+        { type: "result", status: "success", stats: { task_id: TASK_ID } },
+      ]);
+      const fakeSpawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(makeHandle({ stdout: output })),
+      );
+      const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, fakeSpawner),
+      );
+      const modeChanged = yield* Deferred.make<ProviderRuntimeEvent>();
+      yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        event.type === "thread.metadata.updated"
+          ? Deferred.succeed(modeChanged, event)
+          : Effect.void,
+      ).pipe(Effect.forkScoped);
+      const threadId = ThreadId.make("bob2-mode-switch");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId, input: "review this" });
+      const event = yield* Deferred.await(modeChanged);
+      assert.equal(
+        event.type === "thread.metadata.updated" ? event.payload.metadata?.providerMode : undefined,
+        "reviewer",
+      );
+    }),
+  );
+
   it.effect("classifies a missing resume task emitted only on stderr", () =>
     Effect.gen(function* () {
       const fakeSpawner = ChildProcessSpawner.make(() =>
