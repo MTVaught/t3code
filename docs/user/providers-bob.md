@@ -19,8 +19,7 @@ workspace but deliberately starts a fresh Bob conversation.
 
 Choose the Bob mode in the thread composer. T3 lists Agent, Ask, and Plan together with custom
 modes from Bob's global and workspace configuration. Workspace modes override global or built-in
-modes with the same slug. The provider instance setting remains the default for threads that have
-not selected one.
+modes with the same slug. New Bob threads start in Agent mode.
 
 T3 passes the selected slug to Bob's supported `--mode` option and otherwise leaves project
 behavior to Bob. Bob loads its own rules, trust configuration, custom modes, skills, hooks, and MCP

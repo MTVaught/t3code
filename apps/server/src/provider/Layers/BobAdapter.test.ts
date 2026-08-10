@@ -340,12 +340,10 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
     }),
   );
 
-  it.effect("passes slash text literally and uses the configured mode slug", () =>
+  it.effect("passes slash text literally and defaults Bob mode to agent", () =>
     Effect.gen(function* () {
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
-      const adapter = yield* makeBobAdapter(
-        decodeBobSettings({ enabled: true, defaultMode: "workspace-reviewer" }),
-      ).pipe(
+      const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
         Effect.provideService(
           ChildProcessSpawner.ChildProcessSpawner,
           ChildProcessSpawner.make((command) => {
@@ -363,7 +361,7 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
       yield* adapter.sendTurn({ threadId, input: "/review VALUE77" });
       yield* Deferred.await(completed);
 
-      assert.include(spawnedArgs[0] ?? [], "workspace-reviewer");
+      assert.include(spawnedArgs[0] ?? [], "agent");
       assert.equal(spawnedArgs[0]?.at(-1), "/review VALUE77");
     }),
   );

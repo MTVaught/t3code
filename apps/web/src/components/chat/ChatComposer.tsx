@@ -428,10 +428,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       {interactionModeToggle}
       {props.providerModes.length > 0 ? (
         <Select
-          value={props.providerMode ?? "__default__"}
-          onValueChange={(value) =>
-            props.onProviderModeChange(value === "__default__" ? null : value!)
-          }
+          value={props.providerMode ?? "agent"}
+          onValueChange={(value) => props.onProviderModeChange(value!)}
         >
           <ComposerSelectControl aria-label="Bob mode">
             <SelectValue>
@@ -439,9 +437,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             </SelectValue>
           </ComposerSelectControl>
           <SelectPopup alignItemWithTrigger={false}>
-            <SelectItem value="__default__" hideIndicator>
-              Default
-            </SelectItem>
             {props.providerModes.map((mode) => (
               <SelectItem key={mode.slug} value={mode.slug} hideIndicator>
                 <div className="grid gap-0.5">

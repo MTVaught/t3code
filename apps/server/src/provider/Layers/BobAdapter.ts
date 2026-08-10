@@ -317,11 +317,10 @@ function summarizeToolRequest(toolName: string, parameters: unknown): string {
  */
 function resolveBobChatMode(
   interactionMode: "default" | "plan" | undefined,
-  config: BobSettings,
   providerMode?: string,
 ): string {
   if (interactionMode === "plan") return "plan";
-  return providerMode ?? config.defaultMode;
+  return providerMode ?? "agent";
 }
 
 const READ_ONLY_GROUPS = ["edit", "execute", "mcp", "subagent", "browser", "mode"] as const;
@@ -1266,7 +1265,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
     const modelSelection =
       input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
-    const mode = resolveBobChatMode(input.interactionMode, bobConfig, input.providerMode);
+    const mode = resolveBobChatMode(input.interactionMode, input.providerMode);
 
     const turnId = TurnId.make(yield* randomUUIDv4);
     const turnState: BobTurnState = {
