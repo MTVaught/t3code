@@ -28,6 +28,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import { it as effectIt } from "@effect/vitest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as CheckpointStore from "../../checkpointing/CheckpointStore.ts";
@@ -1087,15 +1088,17 @@ describe("CheckpointReactor", () => {
     ).toBe(false);
   });
 
-  it("rejects Bob rollback before restoring the workspace", async () => {
-    const harness = await createHarness({
-      providerName: ProviderDriverKind.make("bob"),
-      conversationRollback: false,
-    });
-    const createdAt = "2026-01-01T00:00:00.000Z";
+  effectIt.effect("rejects Bob rollback before restoring the workspace", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          providerName: ProviderDriverKind.make("bob"),
+          conversationRollback: false,
+        }),
+      );
+      const createdAt = "2026-01-01T00:00:00.000Z";
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.make("cmd-session-set-bob"),
         threadId: ThreadId.make("thread-1"),
@@ -1110,10 +1113,8 @@ describe("CheckpointReactor", () => {
           updatedAt: createdAt,
         },
         createdAt,
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      });
+      yield* harness.engine.dispatch({
         type: "thread.turn.diff.complete",
         commandId: CommandId.make("cmd-diff-bob"),
         threadId: ThreadId.make("thread-1"),
@@ -1124,28 +1125,28 @@ describe("CheckpointReactor", () => {
         files: [],
         checkpointTurnCount: 1,
         createdAt,
-      }),
-    );
-    NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "must stay\n", "utf8");
+      });
+      NodeFS.writeFileSync(NodePath.join(harness.cwd, "README.md"), "must stay\n", "utf8");
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
+      yield* harness.engine.dispatch({
         type: "thread.checkpoint.revert",
         commandId: CommandId.make("cmd-revert-bob"),
         threadId: ThreadId.make("thread-1"),
         turnCount: 0,
         createdAt,
-      }),
-    );
-    await waitForThread(harness.readModel, (thread) =>
-      thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
-    );
+      });
+      yield* Effect.promise(() =>
+        waitForThread(harness.readModel, (thread) =>
+          thread.activities.some((activity) => activity.kind === "checkpoint.revert.failed"),
+        ),
+      );
 
-    expect(NodeFS.readFileSync(NodePath.join(harness.cwd, "README.md"), "utf8")).toBe(
-      "must stay\n",
-    );
-    expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
-  });
+      expect(NodeFS.readFileSync(NodePath.join(harness.cwd, "README.md"), "utf8")).toBe(
+        "must stay\n",
+      );
+      expect(harness.provider.rollbackConversation).not.toHaveBeenCalled();
+    }),
+  );
 
   it("executes provider revert and emits thread.reverted for claude sessions", async () => {
     const harness = await createHarness({ providerName: ProviderDriverKind.make("claudeAgent") });
