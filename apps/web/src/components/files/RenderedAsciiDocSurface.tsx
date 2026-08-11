@@ -36,7 +36,7 @@ export default function RenderedAsciiDocSurface({ contents }: { contents: string
     );
   }
 
-  if (result.error) {
+  if ("error" in result) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-xs text-destructive">
         {result.error}
