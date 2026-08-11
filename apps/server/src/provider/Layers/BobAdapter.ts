@@ -1280,14 +1280,11 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
     const modelSelection =
       input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
-    const mode = resolveBobChatMode(input.interactionMode, input.providerMode);
-    if (context.resumeMode !== undefined && context.resumeMode !== mode) {
-      return yield* new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "turn/start",
-        detail: `Bob mode is locked to '${context.resumeMode}' for this task. Start a new T3 task to use '${mode}'.`,
-      });
-    }
+    // A persisted resume cursor is the authoritative identity of the Bob task.
+    // Older T3 versions could leave the projected thread mode stale, so heal
+    // that metadata instead of rejecting an otherwise resumable turn.
+    const mode =
+      context.resumeMode ?? resolveBobChatMode(input.interactionMode, input.providerMode);
     context.resumeMode = mode;
 
     const modeStamp = yield* makeEventStamp();
