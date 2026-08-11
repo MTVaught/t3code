@@ -5,7 +5,11 @@ import {
   normalizeFileCommentRange,
   remapFileCommentAnnotations,
 } from "./fileCommentAnnotations";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import {
+  isAsciiDocPreviewFile,
+  isMarkdownPreviewFile,
+  setMarkdownTaskChecked,
+} from "./filePreviewMode";
 
 describe("file comment annotations", () => {
   it("normalizes and formats selected line ranges", () => {
@@ -63,6 +67,19 @@ describe("isMarkdownPreviewFile", () => {
   it("does not treat other text files as markdown", () => {
     expect(isMarkdownPreviewFile("docs/guide.txt")).toBe(false);
     expect(isMarkdownPreviewFile("docs/markdown.ts")).toBe(false);
+  });
+});
+
+describe("isAsciiDocPreviewFile", () => {
+  it("recognizes common AsciiDoc extensions case-insensitively", () => {
+    expect(isAsciiDocPreviewFile("README.adoc")).toBe(true);
+    expect(isAsciiDocPreviewFile("docs/guide.ASCIIDOC")).toBe(true);
+    expect(isAsciiDocPreviewFile("notes.asc")).toBe(true);
+  });
+
+  it("does not treat other text files as AsciiDoc", () => {
+    expect(isAsciiDocPreviewFile("docs/guide.txt")).toBe(false);
+    expect(isAsciiDocPreviewFile("src/asciidoc.ts")).toBe(false);
   });
 });
 
