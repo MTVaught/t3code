@@ -14,7 +14,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlState } from "~/assets/assetUrls";
@@ -55,7 +55,11 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
-import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
+import {
+  isAsciiDocPreviewFile,
+  isMarkdownPreviewFile,
+  setMarkdownTaskChecked,
+} from "./filePreviewMode";
 import { FileSaveCoordinator } from "./fileSaveCoordinator";
 import {
   confirmProjectFileQueryData,
@@ -125,6 +129,8 @@ const FILE_LINK_REVEAL_UNSAFE_CSS = `
     color: var(--diffs-selection-number-fg) !important;
   }
 `;
+
+const RenderedAsciiDocSurface = lazy(() => import("./RenderedAsciiDocSurface"));
 type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
 
 function WorkspaceImagePreview(props: {
@@ -781,7 +787,7 @@ export default function FilePreviewPanel({
   const isImage = relativePath !== null && isWorkspaceImagePreviewPath(relativePath);
   const file = useProjectFileQuery(environmentId, cwd, relativePath, !isImage);
   const [explorerOpen, setExplorerOpen] = useState(initialExplorerOpen);
-  // Reading markdown rendered is a preference, not a property of one file. Keeping
+  // Reading documents rendered is a preference, not a property of one file. Keeping
   // it on the panel meant a thread switch dropped it and forced source back.
   const [renderMarkdownPreferred, setRenderMarkdownPreferred] = useLocalStorage(
     RENDER_MARKDOWN_STORAGE_KEY,
@@ -796,9 +802,11 @@ export default function FilePreviewPanel({
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = relativePath ? isMarkdownPreviewFile(relativePath) : false;
+  const isAsciiDoc = relativePath ? isAsciiDocPreviewFile(relativePath) : false;
+  const isRenderedDocument = isMarkdown || isAsciiDoc;
   // A reveal still wins over the preference: the line only exists in the source.
-  const renderMarkdown =
-    isMarkdown &&
+  const renderDocument =
+    isRenderedDocument &&
     renderMarkdownPreferred &&
     (revealLine === null ||
       (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId));
@@ -900,13 +908,13 @@ export default function FilePreviewPanel({
               enableShortcut={false}
             />
           ) : null}
-          {isMarkdown ? (
+          {isRenderedDocument ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <Toggle
                     className="shrink-0"
-                    pressed={renderMarkdown}
+                    pressed={renderDocument}
                     onPressedChange={(pressed) => {
                       setRenderMarkdownPreferred(pressed);
                       setHandledReveal(
@@ -915,16 +923,16 @@ export default function FilePreviewPanel({
                           : null,
                       );
                     }}
-                    aria-label={renderMarkdown ? "Show markdown source" : "Show rendered markdown"}
+                    aria-label={renderDocument ? "Show source" : "Show rendered document"}
                     variant="ghost"
                     size="sm"
                   >
-                    {renderMarkdown ? <Code2 className="size-3.5" /> : <Eye className="size-3.5" />}
+                    {renderDocument ? <Code2 className="size-3.5" /> : <Eye className="size-3.5" />}
                   </Toggle>
                 }
               />
               <TooltipPopup>
-                {renderMarkdown ? "Show markdown source" : "Show rendered markdown"}
+                {renderDocument ? "Show source" : "Show rendered document"}
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -997,7 +1005,7 @@ export default function FilePreviewPanel({
               <LoaderCircle className="size-5 animate-spin" />
             </div>
           ) : relativePath && file.data ? (
-            isMarkdown && renderMarkdown ? (
+            isMarkdown && renderDocument ? (
               <RenderedMarkdownSurface
                 environmentId={environmentId}
                 cwd={cwd}
@@ -1006,6 +1014,16 @@ export default function FilePreviewPanel({
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />
+            ) : isAsciiDoc && renderDocument ? (
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+                    <LoaderCircle className="size-5 animate-spin" />
+                  </div>
+                }
+              >
+                <RenderedAsciiDocSurface contents={file.data.contents} />
+              </Suspense>
             ) : file.data.truncated ? (
               <Virtualizer
                 key={`${relativePath}:${resolvedTheme}:${file.data.byteLength}`}

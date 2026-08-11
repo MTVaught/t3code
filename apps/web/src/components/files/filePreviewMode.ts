@@ -1,5 +1,8 @@
 export const isMarkdownPreviewFile = (path: string): boolean => /\.(?:md|mdx)$/i.test(path);
 
+export const isAsciiDocPreviewFile = (path: string): boolean =>
+  /\.(?:adoc|asciidoc|asc)$/i.test(path);
+
 export function setMarkdownTaskChecked(
   markdown: string,
   markerOffset: number,

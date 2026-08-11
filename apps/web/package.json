@@ -12,6 +12,7 @@
     "test": "vp test run --passWithNoTests --project unit"
   },
   "dependencies": {
+    "@asciidoctor/core": "^4.0.8",
     "@base-ui/react": "^1.4.1",
     "@clerk/electron": "catalog:",
     "@clerk/react": "catalog:",
@@ -31,6 +32,7 @@
     "@tanstack/react-pacer": "^0.19.4",
     "@tanstack/react-router": "^1.160.2",
     "class-variance-authority": "^0.7.1",
+    "dompurify": "^3.4.13",
     "effect": "catalog:",
     "jose": "catalog:",
     "lexical": "^0.41.0",
