@@ -795,6 +795,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 id: `options:provider-mode:${mode.slug}`,
                 title: mode.name,
                 state: (props.providerMode ?? "agent") === mode.slug ? ("on" as const) : undefined,
+                attributes: { disabled: true },
               })),
             },
           ]

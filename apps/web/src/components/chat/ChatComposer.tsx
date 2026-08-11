@@ -315,6 +315,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   providerMode: string | null;
+  providerModeLocked: boolean;
   providerModes: ReadonlyArray<{ slug: string; name: string; description?: string | undefined }>;
   runtimeMode: RuntimeMode;
   isBob: boolean;
@@ -429,6 +430,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       {props.providerModes.length > 0 ? (
         <Select
           value={props.providerMode ?? "agent"}
+          disabled={props.providerModeLocked}
           onValueChange={(value) => props.onProviderModeChange(value!)}
         >
           <ComposerSelectControl aria-label="Bob mode">
@@ -684,7 +686,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
-    isServerThread: _isServerThread,
+    isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -3243,6 +3245,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     interactionMode={interactionMode}
                     runtimeMode={runtimeMode}
                     providerMode={providerMode}
+                    providerModeLocked={isServerThread}
                     providerModes={projectMetadata?.modes ?? []}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                     isBob={selectedProvider === "bob"}
@@ -3268,6 +3271,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                       interactionMode={interactionMode}
                       providerMode={providerMode}
+                      providerModeLocked={isServerThread}
                       providerModes={projectMetadata?.modes ?? []}
                       runtimeMode={runtimeMode}
                       isBob={selectedProvider === "bob"}

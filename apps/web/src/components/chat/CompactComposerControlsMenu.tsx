@@ -24,6 +24,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   providerMode: string | null;
+  providerModeLocked: boolean;
   providerModes: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
   showInteractionModeToggle: boolean;
   isBob: boolean;
@@ -78,7 +79,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               onValueChange={(value) => props.onProviderModeChange(value)}
             >
               {props.providerModes.map((mode) => (
-                <MenuRadioItem key={mode.slug} value={mode.slug}>
+                <MenuRadioItem
+                  key={mode.slug}
+                  value={mode.slug}
+                  disabled={props.providerModeLocked}
+                >
                   {mode.name}
                 </MenuRadioItem>
               ))}
