@@ -114,6 +114,7 @@ interface BobTurnState {
 interface BobSessionContext {
   session: ProviderSession;
   resumeTaskId: string | undefined;
+  resumeMode: string | undefined;
   continuationError: string | undefined;
   turnState: BobTurnState | undefined;
   processFiber: Fiber.Fiber<void> | undefined;
@@ -505,6 +506,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
             resumeCursor: {
               version: 1,
               taskId: context.resumeTaskId,
+              ...(context.resumeMode ? { mode: context.resumeMode } : {}),
               cumulativeUsage: context.cumulativeUsage,
             },
           }
@@ -920,6 +922,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     });
     const providerMode = switchedBobMode(tool);
     if (providerMode && (toolResult.status === "success" || toolResult.status === undefined)) {
+      context.resumeMode = providerMode;
+      updateResumeCursor(context);
       const modeStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "thread.metadata.updated",
@@ -1183,12 +1187,15 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
           ? (resumeCursor as Record<string, unknown>)
           : undefined;
       const candidateTaskId = resumeRecord ? readString(resumeRecord.taskId) : undefined;
+      const candidateMode = resumeRecord ? readString(resumeRecord.mode) : undefined;
       const validResumeCursor =
         resumeCursor === undefined ||
         (resumeRecord?.version === 1 &&
           candidateTaskId !== undefined &&
           isBob2TaskId(candidateTaskId));
       const resumeTaskId = validResumeCursor ? candidateTaskId : undefined;
+      // Before provider modes, non-plan Bob turns always used agent mode.
+      const resumeMode = resumeTaskId ? (candidateMode ?? "agent") : undefined;
       const cumulativeUsage =
         validResumeCursor && resumeRecord ? readCumulativeUsage(resumeRecord.cumulativeUsage) : {};
 
@@ -1200,7 +1207,14 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         ...(input.cwd ? { cwd: input.cwd } : {}),
         threadId: input.threadId,
         ...(resumeTaskId
-          ? { resumeCursor: { version: 1, taskId: resumeTaskId, cumulativeUsage } }
+          ? {
+              resumeCursor: {
+                version: 1,
+                taskId: resumeTaskId,
+                mode: resumeMode,
+                cumulativeUsage,
+              },
+            }
           : {}),
         createdAt: startedAt,
         updatedAt: startedAt,
@@ -1209,6 +1223,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       const context: BobSessionContext = {
         session,
         resumeTaskId,
+        resumeMode,
         continuationError: validResumeCursor
           ? undefined
           : "Bob continuation state is invalid. Start a new Bob context before sending another message.",
@@ -1266,6 +1281,13 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const modelSelection =
       input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
     const mode = resolveBobChatMode(input.interactionMode, input.providerMode);
+    if (context.resumeTaskId && context.resumeMode !== mode) {
+      context.resumeTaskId = undefined;
+      context.resumeMode = undefined;
+      context.cumulativeUsage = {};
+      updateResumeCursor(context);
+    }
+    context.resumeMode = mode;
 
     const turnId = TurnId.make(yield* randomUUIDv4);
     const turnState: BobTurnState = {
@@ -1485,6 +1507,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
           }
           return Effect.gen(function* () {
             context.resumeTaskId = undefined;
+            context.resumeMode = undefined;
             context.continuationError = undefined;
             context.cumulativeUsage = {};
             updateResumeCursor(context);

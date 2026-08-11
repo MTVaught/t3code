@@ -433,7 +433,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
         >
           <ComposerSelectControl aria-label="Bob mode">
             <SelectValue>
-              {props.providerModes.find((mode) => mode.slug === props.providerMode)?.name ?? "Mode"}
+              {props.providerModes.find((mode) => mode.slug === (props.providerMode ?? "agent"))
+                ?.name ?? "Mode"}
             </SelectValue>
           </ComposerSelectControl>
           <SelectPopup alignItemWithTrigger={false}>
