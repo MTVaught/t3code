@@ -15,6 +15,8 @@ import {
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
   Columns2Icon,
+  FileCode2Icon,
+  Globe2Icon,
   PilcrowIcon,
   RefreshCwIcon,
   Rows3Icon,
@@ -71,10 +73,18 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
+import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
+import { assetEnvironment } from "../state/assets";
+import { previewEnvironment } from "../state/preview";
+import { useEnvironmentHttpBaseUrl } from "../state/environments";
+import { isBrowserPreviewFile, openFileInPreview } from "../browser/openFileInPreview";
+import { isPreviewSupportedInRuntime } from "../previewStateStore";
+import { resolvePathLinkTarget } from "../terminal-links";
+import { stackedThreadToast, toastManager } from "./ui/toast";
 
 type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
@@ -351,6 +361,13 @@ export default function DiffPanel({
     serverConfig?.availableEditors ?? [],
   );
   const getDiffFileContents = useAtomCommand(reviewEnvironment.diffFileContents);
+  const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(activeThread?.environmentId ?? null);
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
+    reportFailure: false,
+  });
+  const openPreview = useAtomCommand(previewEnvironment.open, {
+    reportFailure: false,
+  });
   const gitStatusQuery = useEnvironmentQuery(
     activeThread !== null && activeThread !== undefined && activeCwd != null
       ? vcsEnvironment.status({
@@ -703,6 +720,30 @@ export default function DiffPanel({
       });
     },
     [activeCwd, openInPreferredEditor, routeThreadRef],
+  );
+  const previewDiffFile = useCallback(
+    (filePath: string) => {
+      if (!routeThreadRef || !activeCwd || !environmentHttpBaseUrl) return;
+      void (async () => {
+        const result = await openFileInPreview({
+          threadRef: routeThreadRef,
+          filePath: resolvePathLinkTarget(filePath, activeCwd),
+          httpBaseUrl: environmentHttpBaseUrl,
+          createAssetUrl,
+          openPreview,
+        });
+        if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in preview",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      })();
+    },
+    [activeCwd, createAssetUrl, environmentHttpBaseUrl, openPreview, routeThreadRef],
   );
   const toggleDiffFileCollapsed = useCallback(
     (fileKey: string) => {
@@ -1150,6 +1191,58 @@ export default function DiffPanel({
                           {collapsed ? "Expand diff" : "Collapse diff"}
                         </TooltipPopup>
                       </Tooltip>
+                    );
+                  }}
+                  renderHeaderFilenameSuffix={(fileDiff) => {
+                    const filePath = resolveFileDiffPath(fileDiff);
+                    const canPreview =
+                      fileDiff.type !== "deleted" &&
+                      routeThreadRef !== null &&
+                      activeCwd !== undefined &&
+                      environmentHttpBaseUrl !== null &&
+                      isPreviewSupportedInRuntime() &&
+                      isBrowserPreviewFile(filePath);
+                    return (
+                      <div className="ms-1 inline-flex items-center gap-0.5">
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden"
+                                aria-label={`Open ${filePath}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openDiffFile(filePath);
+                                }}
+                              >
+                                <FileCode2Icon className="size-3.5" />
+                              </button>
+                            }
+                          />
+                          <TooltipPopup>Open file</TooltipPopup>
+                        </Tooltip>
+                        {canPreview ? (
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <button
+                                  type="button"
+                                  className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden"
+                                  aria-label={`Preview ${filePath}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    previewDiffFile(filePath);
+                                  }}
+                                >
+                                  <Globe2Icon className="size-3.5" />
+                                </button>
+                              }
+                            />
+                            <TooltipPopup>Open file in preview</TooltipPopup>
+                          </Tooltip>
+                        ) : null}
+                      </div>
                     );
                   }}
                   options={{
