@@ -367,7 +367,7 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
     }),
   );
 
-  it.effect("rejects changing the mode of a resumed Bob task", () =>
+  it.effect("uses a resumed Bob task's stored mode and repairs stale thread metadata", () =>
     Effect.gen(function* () {
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
       const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
@@ -380,23 +380,34 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
         ),
       );
       const threadId = ThreadId.make("bob2-mode-change");
+      const completed = yield* Deferred.make<void>();
+      const repairedMode = yield* Deferred.make<string>();
+      yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        event.type === "turn.completed"
+          ? Deferred.succeed(completed, undefined)
+          : event.type === "thread.metadata.updated" &&
+              typeof event.payload.metadata?.providerMode === "string"
+            ? Deferred.succeed(repairedMode, event.payload.metadata.providerMode)
+            : Effect.void,
+      ).pipe(Effect.forkScoped);
       yield* adapter.startSession({
         threadId,
         cwd: process.cwd(),
         runtimeMode: "full-access",
         resumeCursor: { version: 1, taskId: TASK_ID, mode: "agent" },
       });
-      const error = yield* adapter
-        .sendTurn({
-          threadId,
-          input: "use the custom mode",
-          providerMode: "t3-mode-probe",
-        })
-        .pipe(Effect.flip);
+      yield* adapter.sendTurn({
+        threadId,
+        input: "continue the existing task",
+        providerMode: "t3-mode-probe",
+      });
+      yield* Deferred.await(completed);
 
-      assert.equal(error._tag, "ProviderAdapterRequestError");
-      assert.include(error.message, "Bob mode is locked to 'agent'");
-      assert.deepEqual(spawnedArgs, []);
+      assert.equal(yield* Deferred.await(repairedMode), "agent");
+      assert.include(spawnedArgs[0] ?? [], "--resume");
+      assert.include(spawnedArgs[0] ?? [], TASK_ID);
+      assert.include(spawnedArgs[0] ?? [], "agent");
+      assert.notInclude(spawnedArgs[0] ?? [], "t3-mode-probe");
       const [session] = yield* adapter.listSessions();
       assert.equal((session?.resumeCursor as { mode?: string } | undefined)?.mode, "agent");
     }),
