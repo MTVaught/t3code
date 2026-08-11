@@ -221,7 +221,8 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
       );
       const modeChanged = yield* Deferred.make<ProviderRuntimeEvent>();
       yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        event.type === "thread.metadata.updated"
+        event.type === "thread.metadata.updated" &&
+        event.payload.metadata?.providerMode === "reviewer"
           ? Deferred.succeed(modeChanged, event)
           : Effect.void,
       ).pipe(Effect.forkScoped);
@@ -366,7 +367,7 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
     }),
   );
 
-  it.effect("starts a new Bob task when the selected mode differs from the resumed task", () =>
+  it.effect("rejects changing the mode of a resumed Bob task", () =>
     Effect.gen(function* () {
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
       const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
@@ -379,27 +380,48 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
         ),
       );
       const threadId = ThreadId.make("bob2-mode-change");
-      const completed = yield* Deferred.make<void>();
-      yield* Stream.runForEach(adapter.streamEvents, (event) =>
-        event.type === "turn.completed" ? Deferred.succeed(completed, undefined) : Effect.void,
-      ).pipe(Effect.forkScoped);
       yield* adapter.startSession({
         threadId,
         cwd: process.cwd(),
         runtimeMode: "full-access",
         resumeCursor: { version: 1, taskId: TASK_ID, mode: "agent" },
       });
-      yield* adapter.sendTurn({
-        threadId,
-        input: "use the custom mode",
-        providerMode: "t3-mode-probe",
-      });
-      yield* Deferred.await(completed);
+      const error = yield* adapter
+        .sendTurn({
+          threadId,
+          input: "use the custom mode",
+          providerMode: "t3-mode-probe",
+        })
+        .pipe(Effect.flip);
 
-      assert.notInclude(spawnedArgs[0] ?? [], "--resume");
-      assert.include(spawnedArgs[0] ?? [], "t3-mode-probe");
+      assert.equal(error._tag, "ProviderAdapterRequestError");
+      assert.include(error.message, "Bob mode is locked to 'agent'");
+      assert.deepEqual(spawnedArgs, []);
       const [session] = yield* adapter.listSessions();
-      assert.equal((session?.resumeCursor as { mode?: string } | undefined)?.mode, "t3-mode-probe");
+      assert.equal((session?.resumeCursor as { mode?: string } | undefined)?.mode, "agent");
+    }),
+  );
+
+  it.effect("publishes the resolved initial Bob mode as thread metadata", () =>
+    Effect.gen(function* () {
+      const adapter = yield* makeBobAdapter(decodeBobSettings({ enabled: true })).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => Effect.succeed(makeHandle({ stdout: successStream }))),
+        ),
+      );
+      const modeUpdated = yield* Deferred.make<string>();
+      yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        event.type === "thread.metadata.updated" &&
+        typeof event.payload.metadata?.providerMode === "string"
+          ? Deferred.succeed(modeUpdated, event.payload.metadata.providerMode)
+          : Effect.void,
+      ).pipe(Effect.forkScoped);
+      const threadId = ThreadId.make("bob2-initial-mode");
+      yield* adapter.startSession({ threadId, cwd: process.cwd(), runtimeMode: "full-access" });
+      yield* adapter.sendTurn({ threadId, input: "hi" });
+
+      assert.equal(yield* Deferred.await(modeUpdated), "agent");
     }),
   );
 

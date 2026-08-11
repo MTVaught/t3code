@@ -1281,13 +1281,25 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     const modelSelection =
       input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
     const mode = resolveBobChatMode(input.interactionMode, input.providerMode);
-    if (context.resumeTaskId && context.resumeMode !== mode) {
-      context.resumeTaskId = undefined;
-      context.resumeMode = undefined;
-      context.cumulativeUsage = {};
-      updateResumeCursor(context);
+    if (context.resumeMode !== undefined && context.resumeMode !== mode) {
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "turn/start",
+        detail: `Bob mode is locked to '${context.resumeMode}' for this task. Start a new T3 task to use '${mode}'.`,
+      });
     }
     context.resumeMode = mode;
+
+    const modeStamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "thread.metadata.updated",
+      eventId: modeStamp.eventId,
+      provider: PROVIDER,
+      providerInstanceId: boundInstanceId,
+      createdAt: modeStamp.createdAt,
+      threadId: context.session.threadId,
+      payload: { metadata: { providerMode: mode } },
+    });
 
     const turnId = TurnId.make(yield* randomUUIDv4);
     const turnState: BobTurnState = {
