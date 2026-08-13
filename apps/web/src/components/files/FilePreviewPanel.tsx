@@ -12,7 +12,15 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronRight, Code2, Eye, FolderTree, Globe2, LoaderCircle } from "lucide-react";
+import {
+  ChevronRight,
+  Code2,
+  Eye,
+  FolderTree,
+  Globe2,
+  LoaderCircle,
+  RefreshCw,
+} from "lucide-react";
 import * as Schema from "effect/Schema";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -955,6 +963,24 @@ export default function FilePreviewPanel({
               <TooltipPopup>Open file in preview browser</TooltipPopup>
             </Tooltip>
           ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  className="shrink-0"
+                  pressed={false}
+                  disabled={file.isPending}
+                  onPressedChange={file.refresh}
+                  aria-label="Reload file"
+                  variant="ghost"
+                  size="sm"
+                >
+                  <RefreshCw className="size-3.5" />
+                </Toggle>
+              }
+            />
+            <TooltipPopup>Reload file</TooltipPopup>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               render={
