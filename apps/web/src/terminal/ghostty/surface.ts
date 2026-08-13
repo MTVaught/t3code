@@ -333,7 +333,7 @@ export function isTerminalCopyShortcut(
   platform = navigator.platform,
 ) {
   if (event.key.toLowerCase() !== "c") return false;
-  return isMacPlatform(platform) ? event.metaKey : event.ctrlKey && event.shiftKey;
+  return event.metaKey || (!isMacPlatform(platform) && event.ctrlKey && event.shiftKey);
 }
 
 export function isTerminalPasteShortcut(
@@ -341,7 +341,7 @@ export function isTerminalPasteShortcut(
   platform = navigator.platform,
 ) {
   if (event.key.toLowerCase() !== "v") return false;
-  return isMacPlatform(platform) ? event.metaKey : event.ctrlKey && event.shiftKey;
+  return event.metaKey || (!isMacPlatform(platform) && event.ctrlKey && event.shiftKey);
 }
 
 export function isTerminalCompositionCommitInput(event: Pick<InputEvent, "inputType">): boolean {

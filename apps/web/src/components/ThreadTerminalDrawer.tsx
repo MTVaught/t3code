@@ -70,7 +70,6 @@ import { resolveTerminalFontPreference, TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
-const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 
 function maxDrawerHeight(): number {
   if (typeof window === "undefined") return DEFAULT_THREAD_TERMINAL_HEIGHT;
@@ -228,17 +227,6 @@ export function resolveTerminalSelectionActionPosition(options: {
   };
 }
 
-export function terminalSelectionActionDelayForClickCount(clickCount: number): number {
-  return clickCount >= 2 ? MULTI_CLICK_SELECTION_ACTION_DELAY_MS : 0;
-}
-
-export function shouldHandleTerminalSelectionMouseUp(
-  selectionGestureActive: boolean,
-  button: number,
-): boolean {
-  return selectionGestureActive && button === 0;
-}
-
 export function terminalSelectionLineRange(position: {
   start: { y: number };
   end: { y: number };
@@ -321,10 +309,8 @@ export function TerminalViewport({
   });
   const hasHandledExitRef = useRef(false);
   const selectionPointerRef = useRef<{ x: number; y: number } | null>(null);
-  const selectionGestureActiveRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionMenuOpenRef = useRef(false);
-  const selectionActionTimerRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
   const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
   const handleSessionExited = useEffectEvent(() => {
@@ -465,10 +451,6 @@ export function TerminalViewport({
 
       const clearSelectionAction = () => {
         selectionActionRequestIdRef.current += 1;
-        if (selectionActionTimerRef.current !== null) {
-          window.clearTimeout(selectionActionTimerRef.current);
-          selectionActionTimerRef.current = null;
-        }
       };
       setupCleanups.push(clearSelectionAction);
 
@@ -688,32 +670,19 @@ export function TerminalViewport({
         clearSelectionAction();
       }
 
-      const handleMouseUp = (event: MouseEvent) => {
-        const shouldHandle = shouldHandleTerminalSelectionMouseUp(
-          selectionGestureActiveRef.current,
-          event.button,
-        );
-        selectionGestureActiveRef.current = false;
-        if (!shouldHandle) {
-          return;
-        }
+      const handleContextMenu = (event: MouseEvent) => {
+        if (!terminalRef.current?.hasSelection()) return;
+        event.preventDefault();
         selectionPointerRef.current = { x: event.clientX, y: event.clientY };
-        const delay = terminalSelectionActionDelayForClickCount(event.detail);
-        selectionActionTimerRef.current = window.setTimeout(() => {
-          selectionActionTimerRef.current = null;
-          window.requestAnimationFrame(() => {
-            void showSelectionAction();
-          });
-        }, delay);
+        void showSelectionAction();
       };
-      const handlePointerDown = (event: PointerEvent) => {
+      const handlePointerDown = () => {
         clearSelectionAction();
-        selectionGestureActiveRef.current = event.button === 0;
       };
-      window.addEventListener("mouseup", handleMouseUp);
+      mount.addEventListener("contextmenu", handleContextMenu);
       mount.addEventListener("pointerdown", handlePointerDown);
       setupCleanups.push(() => {
-        window.removeEventListener("mouseup", handleMouseUp);
+        mount.removeEventListener("contextmenu", handleContextMenu);
         mount.removeEventListener("pointerdown", handlePointerDown);
       });
 
