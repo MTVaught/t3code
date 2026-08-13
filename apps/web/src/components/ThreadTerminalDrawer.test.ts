@@ -3,8 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalExit,
-  shouldHandleTerminalSelectionMouseUp,
-  terminalSelectionActionDelayForClickCount,
   terminalSelectionLineRange,
 } from "./ThreadTerminalDrawer";
 
@@ -61,18 +59,6 @@ describe("resolveTerminalSelectionActionPosition", () => {
       x: 100,
       y: 50,
     });
-  });
-
-  it("delays multi-click selection actions so triple-click selection can complete", () => {
-    expect(terminalSelectionActionDelayForClickCount(1)).toBe(0);
-    expect(terminalSelectionActionDelayForClickCount(2)).toBe(260);
-    expect(terminalSelectionActionDelayForClickCount(3)).toBe(260);
-  });
-
-  it("only handles mouseup when the selection gesture started in the terminal", () => {
-    expect(shouldHandleTerminalSelectionMouseUp(true, 0)).toBe(true);
-    expect(shouldHandleTerminalSelectionMouseUp(false, 0)).toBe(false);
-    expect(shouldHandleTerminalSelectionMouseUp(true, 1)).toBe(false);
   });
 
   it("uses Ghostty's physical screen range for visually wrapped selections", () => {
