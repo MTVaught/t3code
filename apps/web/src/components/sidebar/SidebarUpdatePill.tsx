@@ -1,20 +1,17 @@
-import { DownloadIcon, RotateCwIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { isElectron } from "../../env";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   getArm64IntelBuildWarningDescription,
-  getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
-  getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldShowDesktopUpdateButton,
-  shouldToastDesktopUpdateActionResult,
 } from "../desktopUpdate.logic";
-import { showDesktopUpdateDownloadedToast } from "../desktopUpdate.toast";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Separator } from "../ui/separator";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -84,66 +81,23 @@ export function SidebarUpdatePill() {
     const bridge = window.desktopBridge;
     if (!bridge || !state) return;
     if (disabled || action === "none") return;
-
-    if (action === "download") {
-      void bridge
-        .downloadUpdate()
-        .then((result) => {
-          if (result.completed) {
-            showDesktopUpdateDownloadedToast(bridge, result.state);
-          }
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not download update",
-              description: actionError,
-            }),
-          );
-        })
-        .catch((error) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not start update download",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-      return;
-    }
-
-    if (action === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(state, navigator.platform),
-      );
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not install update",
-              description: actionError,
-            }),
-          );
-        })
-        .catch((error) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not install update",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-    }
+    const releaseUrl = getDesktopUpdateReleaseUrl(
+      state.availableVersion ?? state.downloadedVersion,
+    );
+    if (!releaseUrl) return;
+    void bridge
+      .openExternal(releaseUrl)
+      .then((opened) => {
+        if (opened) return;
+        toastManager.add(
+          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+        );
+      })
+      .catch(() => {
+        toastManager.add(
+          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+        );
+      });
   }, [action, disabled, state]);
 
   if (!visible && !showArm64Warning) return null;
@@ -175,27 +129,8 @@ export function SidebarUpdatePill() {
                   className="update-main relative flex h-full flex-1 items-center gap-2 px-2 enabled:cursor-pointer"
                   onClick={handleAction}
                 >
-                  {action === "install" ? (
-                    <>
-                      <RotateCwIcon className="size-3.5" />
-                      <span>Restart to update</span>
-                    </>
-                  ) : state?.status === "downloading" ? (
-                    <>
-                      <DownloadIcon className="size-3.5" />
-                      <span>
-                        Downloading
-                        {typeof state.downloadPercent === "number"
-                          ? ` (${Math.floor(state.downloadPercent)}%)`
-                          : "…"}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <DownloadIcon className="size-3.5" />
-                      <span>Update available</span>
-                    </>
-                  )}
+                  <ExternalLinkIcon className="size-3.5" />
+                  <span>Update available</span>
                 </button>
               }
             />
@@ -217,7 +152,7 @@ export function SidebarUpdatePill() {
               )}
             </TooltipPopup>
           </Tooltip>
-          {action === "download" && (
+          {action === "release" && (
             <Tooltip>
               <TooltipTrigger
                 render={

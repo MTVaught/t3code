@@ -40,7 +40,7 @@ import { APP_VERSION, HOSTED_APP_CHANNEL, HOSTED_APP_CHANNEL_LABEL } from "../..
 import {
   canCheckForUpdate,
   getDesktopUpdateButtonTooltip,
-  getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
@@ -257,36 +257,24 @@ function AboutVersionSection() {
 
     const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
 
-    if (action === "download") {
-      void bridge.downloadUpdate().catch((error: unknown) => {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not download update",
-            description: error instanceof Error ? error.message : "Download failed.",
-          }),
-        );
-      });
-      return;
-    }
-
-    if (action === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(
-          updateState ?? { availableVersion: null, downloadedVersion: null },
-          navigator.platform,
-        ),
+    if (action === "release" && updateState) {
+      const releaseUrl = getDesktopUpdateReleaseUrl(
+        updateState.availableVersion ?? updateState.downloadedVersion,
       );
-      if (!confirmed) return;
-      void bridge.installUpdate().catch((error: unknown) => {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "Install failed.",
-          }),
-        );
-      });
+      if (!releaseUrl) return;
+      void bridge
+        .openExternal(releaseUrl)
+        .then((opened) => {
+          if (opened) return;
+          toastManager.add(
+            stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+          );
+        })
+        .catch(() => {
+          toastManager.add(
+            stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+          );
+        });
       return;
     }
 
@@ -323,7 +311,7 @@ function AboutVersionSection() {
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = { release: "View Release" };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
@@ -332,9 +320,7 @@ function AboutVersionSection() {
   const buttonLabel =
     actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
   const description =
-    action === "download" || action === "install"
-      ? "Update available."
-      : "Current version of the application.";
+    action === "release" ? "Update available." : "Current version of the application.";
 
   return (
     <>
@@ -347,7 +333,7 @@ function AboutVersionSection() {
               render={
                 <Button
                   size="xs"
-                  variant={action === "install" ? "default" : "outline"}
+                  variant={action === "release" ? "default" : "outline"}
                   disabled={buttonDisabled}
                   onClick={handleButtonClick}
                 >

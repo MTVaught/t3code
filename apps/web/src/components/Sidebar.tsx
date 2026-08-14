@@ -126,14 +126,11 @@ import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { Kbd } from "./ui/kbd";
 import {
   getArm64IntelBuildWarningDescription,
-  getDesktopUpdateActionError,
-  getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
-  shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
-import { showDesktopUpdateDownloadedToast } from "./desktopUpdate.toast";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import {
@@ -2725,7 +2722,7 @@ function SortableProjectItem({
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
-  desktopUpdateButtonAction: "download" | "install" | "none";
+  desktopUpdateButtonAction: "release" | "none";
   desktopUpdateButtonDisabled: boolean;
   handleDesktopUpdateButtonClick: () => void;
   projectSortOrder: SidebarProjectSortOrder;
@@ -2862,9 +2859,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                   disabled={desktopUpdateButtonDisabled}
                   onClick={handleDesktopUpdateButtonClick}
                 >
-                  {desktopUpdateButtonAction === "download"
-                    ? "Download ARM build"
-                    : "Install ARM build"}
+                  View ARM release
                 </Button>
               </AlertAction>
             ) : null}
@@ -3502,65 +3497,23 @@ export default function Sidebar() {
     if (!bridge || !desktopUpdateState) return;
     if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none") return;
 
-    if (desktopUpdateButtonAction === "download") {
-      void bridge
-        .downloadUpdate()
-        .then((result) => {
-          if (result.completed) {
-            showDesktopUpdateDownloadedToast(bridge, result.state);
-          }
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not download update",
-              description: actionError,
-            }),
-          );
-        })
-        .catch((error) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not start update download",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-      return;
-    }
-
-    if (desktopUpdateButtonAction === "install") {
-      const confirmed = window.confirm(
-        getDesktopUpdateInstallConfirmationMessage(desktopUpdateState, navigator.platform),
-      );
-      if (!confirmed) return;
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not install update",
-              description: actionError,
-            }),
-          );
-        })
-        .catch((error) => {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not install update",
-              description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            }),
-          );
-        });
-    }
+    const releaseUrl = getDesktopUpdateReleaseUrl(
+      desktopUpdateState.availableVersion ?? desktopUpdateState.downloadedVersion,
+    );
+    if (!releaseUrl) return;
+    void bridge
+      .openExternal(releaseUrl)
+      .then((opened) => {
+        if (opened) return;
+        toastManager.add(
+          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+        );
+      })
+      .catch(() => {
+        toastManager.add(
+          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+        );
+      });
   }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
 
   const expandThreadListForProject = useCallback((projectKey: string) => {
