@@ -114,6 +114,15 @@ export function resourceMonitorExecutableName(platform: typeof BuildPlatform.Typ
   return platform === "win" ? "t3-resource-monitor.exe" : "t3-resource-monitor";
 }
 
+export function resolveLinuxNativePrebuildPaths(directory: string) {
+  const root = directory.endsWith("/") ? directory : `${directory}/`;
+  return {
+    nodePty: `${root}pty.node`,
+    resourceMonitor: `${root}t3-resource-monitor`,
+    fff: `${root}libfff_c.so`,
+  } as const;
+}
+
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
   mac: {
     cliFlag: "--mac",
@@ -144,6 +153,7 @@ interface BuildCliInput {
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
+  readonly linuxNativePrebuilds: Option.Option<string>;
   readonly wslPrebuild: Option.Option<string>;
 }
 
@@ -448,6 +458,20 @@ export class WslNodePtyManifestReadError extends Schema.TaggedErrorClass<WslNode
   }
 }
 
+const LinuxNativePrebuildComponent = Schema.Literals(["node-pty", "resource-monitor", "fff"]);
+
+export class LinuxNativePrebuildMissingError extends Schema.TaggedErrorClass<LinuxNativePrebuildMissingError>()(
+  "LinuxNativePrebuildMissingError",
+  {
+    component: LinuxNativePrebuildComponent,
+    prebuildPath: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Linux ${this.component} prebuild not found at ${this.prebuildPath}.`;
+  }
+}
+
 export class LinuxIconResizeError extends Schema.TaggedErrorClass<LinuxIconResizeError>()(
   "LinuxIconResizeError",
   {
@@ -605,6 +629,7 @@ interface ResolvedBuildOptions {
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
+  readonly linuxNativePrebuilds: string | undefined;
   readonly wslPrebuild: string | undefined;
 }
 
@@ -1035,6 +1060,10 @@ const BuildEnvConfig = Config.all({
   verbose: Config.boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
   mockUpdates: Config.boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
+  // Native Linux release binaries are built in a RHEL 8-compatible userspace
+  // and handed to the Ubuntu packaging job. Packaging on a newer distro must
+  // not silently raise the shipped app's glibc floor.
+  linuxNativePrebuilds: Config.string("T3CODE_DESKTOP_LINUX_NATIVE_PREBUILDS").pipe(Config.option),
   // Path to a prebuilt Linux node-pty binary (pty.node) for the target arch,
   // produced by the Linux CI job and handed to the Windows packaging job. Placed
   // into the staged node-pty so the WSL backend ships a ready binary and never
@@ -1133,6 +1162,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const wslPrebuild =
     Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
+  const linuxNativePrebuilds =
+    Option.getOrUndefined(input.linuxNativePrebuilds) ??
+    Option.getOrUndefined(env.linuxNativePrebuilds);
 
   return {
     platform,
@@ -1146,6 +1178,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     verbose,
     mockUpdates,
     mockUpdateServerPort,
+    linuxNativePrebuilds,
     wslPrebuild,
   } satisfies ResolvedBuildOptions;
 });
@@ -1183,6 +1216,7 @@ const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* (input:
   readonly stageResourcesDir: string;
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
+  readonly prebuildPath: string | undefined;
   readonly verbose: boolean;
 }) {
   const fs = yield* FileSystem.FileSystem;
@@ -1192,7 +1226,17 @@ const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* (input:
   const rustTargets = resolveResourceMonitorRustTargets(input.platform, input.arch);
   const builtBinaries: string[] = [];
 
-  for (const rustTarget of rustTargets) {
+  if (input.prebuildPath !== undefined) {
+    if (!(yield* fs.exists(input.prebuildPath))) {
+      return yield* new LinuxNativePrebuildMissingError({
+        component: "resource-monitor",
+        prebuildPath: input.prebuildPath,
+      });
+    }
+    builtBinaries.push(input.prebuildPath);
+  }
+
+  for (const rustTarget of input.prebuildPath === undefined ? rustTargets : []) {
     const spawnCommand = yield* resolveSpawnCommand("cargo", [
       "build",
       "--locked",
@@ -1534,6 +1578,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         readonly provisioningProfilePath: string;
       }
     | undefined,
+  preserveLinuxNativePrebuilds = false,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -1584,6 +1629,12 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "linux") {
+    // node-pty uses Node-API, so the RHEL 8 build can be staged directly for
+    // Electron. Rebuilding it on the Ubuntu packaging host would raise the
+    // glibc floor again.
+    if (preserveLinuxNativePrebuilds) {
+      buildConfig.npmRebuild = false;
+    }
     buildConfig.linux = {
       target: [target],
       executableName: "t3code",
@@ -1716,6 +1767,46 @@ const stageWslNodePtyPrebuild = Effect.fn("stageWslNodePtyPrebuild")(function* (
   );
 });
 
+const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(function* (input: {
+  readonly stageAppDir: string;
+  readonly arch: typeof BuildArch.Type;
+  readonly prebuildDirectory: string;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const prebuilds = resolveLinuxNativePrebuildPaths(input.prebuildDirectory);
+
+  for (const [component, prebuildPath] of [
+    ["node-pty", prebuilds.nodePty],
+    ["fff", prebuilds.fff],
+  ] as const) {
+    if (!(yield* fs.exists(prebuildPath))) {
+      return yield* new LinuxNativePrebuildMissingError({ component, prebuildPath });
+    }
+  }
+
+  const architecture = input.arch === "arm64" ? "arm64" : "x64";
+  const nodePtyLink = path.join(input.stageAppDir, "node_modules", "node-pty");
+  const nodePtyDir = yield* fs.realPath(nodePtyLink).pipe(Effect.orElseSucceed(() => nodePtyLink));
+  const nodePtyBuildDirectory = path.join(nodePtyDir, "build", "Release");
+  yield* fs.makeDirectory(nodePtyBuildDirectory, { recursive: true });
+  yield* fs.copyFile(prebuilds.nodePty, path.join(nodePtyBuildDirectory, "pty.node"));
+
+  const fffPackageLink = path.join(
+    input.stageAppDir,
+    "node_modules",
+    `@ff-labs/fff-bin-linux-${architecture}-gnu`,
+  );
+  const fffPackageDir = yield* fs
+    .realPath(fffPackageLink)
+    .pipe(Effect.orElseSucceed(() => fffPackageLink));
+  yield* fs.copyFile(prebuilds.fff, path.join(fffPackageDir, "libfff_c.so"));
+
+  yield* Effect.log(
+    `[desktop-artifact] Staged RHEL 8-compatible Linux native prebuilds (${architecture}).`,
+  );
+});
+
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   options: ResolvedBuildOptions,
 ) {
@@ -1842,6 +1933,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     stageResourcesDir,
     platform: options.platform,
     arch: options.arch,
+    prebuildPath:
+      options.platform === "linux" && options.linuxNativePrebuilds !== undefined
+        ? resolveLinuxNativePrebuildPaths(options.linuxNativePrebuilds).resourceMonitor
+        : undefined,
     verbose: options.verbose,
   });
 
@@ -1934,6 +2029,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
             provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
           }
         : undefined,
+      options.platform === "linux" && options.linuxNativePrebuilds !== undefined,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -1970,6 +2066,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     { label: "vp install --prod", verbose: options.verbose },
   );
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
+
+  if (options.platform === "linux" && options.linuxNativePrebuilds !== undefined) {
+    yield* stageLinuxNativePrebuilds({
+      stageAppDir,
+      arch: options.arch,
+      prebuildDirectory: options.linuxNativePrebuilds,
+    });
+  }
 
   // WSL is Windows-only, so only the Windows artifact carries the Linux backend
   // binary; other platforms ignore the prebuild input.
@@ -2133,6 +2237,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   mockUpdateServerPort: Flag.integer("mock-update-server-port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
     Flag.withDescription("Mock update server port (env: T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
+    Flag.optional,
+  ),
+  linuxNativePrebuilds: Flag.string("linux-native-prebuilds").pipe(
+    Flag.withDescription(
+      "Directory containing RHEL 8-compatible pty.node, t3-resource-monitor, and libfff_c.so binaries (env: T3CODE_DESKTOP_LINUX_NATIVE_PREBUILDS).",
+    ),
     Flag.optional,
   ),
   wslPrebuild: Flag.string("wsl-prebuild").pipe(

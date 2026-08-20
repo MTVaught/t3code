@@ -41,6 +41,28 @@ Arch Linux:
 yay -S t3code-bin
 ```
 
+### RHEL 8 and compatible distributions
+
+The x86_64 AppImage supports RHEL 8 and compatible distributions such as Rocky Linux 8 and
+AlmaLinux 8. On a minimal installation, install the desktop runtime libraries first:
+
+```bash
+sudo dnf install fuse-libs gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm \
+  libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk xdg-utils
+```
+
+Then make the downloaded AppImage executable and run it:
+
+```bash
+chmod +x T3-Code-*-x86_64.AppImage
+./T3-Code-*-x86_64.AppImage
+```
+
+Use the AppImage on RHEL 8. The direct `npx t3@latest` installation is not supported there because
+some npm-distributed native dependencies require a newer system ABI.
+
+Provider CLIs run as separate programs and must independently support RHEL 8.
+
 ## Providers
 
 T3 Code drives provider CLIs; it does not ship them. Install the CLI for each provider you want

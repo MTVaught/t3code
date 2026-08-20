@@ -16,8 +16,11 @@ This document covers the unified release workflow for stable and nightly desktop
 - Builds four artifacts in parallel for both channels:
   - macOS `arm64` DMG
   - macOS `x64` DMG
-  - Linux `x64` AppImage
+  - Linux `x64` AppImage (native components target the RHEL 8 / glibc 2.28 ABI floor)
   - Windows `x64` NSIS installer
+- Before publishing, extracts the Linux AppImage on Rocky Linux 8, rejects any packaged ELF above
+  GLIBC 2.28, exercises the terminal, resource monitor, and file finder, and verifies that the
+  desktop shell starts its bundled server and creates the main window.
 - Publishes one GitHub Release with all produced files.
   - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
   - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
