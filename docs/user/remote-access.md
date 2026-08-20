@@ -146,6 +146,18 @@ The remote host must have a compatible Node.js runtime. T3 Code uses the server 
 ^22.16 || ^23.11 || >=24.10
 ```
 
+When the remote machine already has a clone of T3 Code, install that clone's server as a
+user-local `t3` command from the repository root:
+
+```bash
+vp i
+vp run install:user
+```
+
+This builds the server and links it at `~/.local/bin/t3`. Ensure `~/.local/bin` is on the
+non-interactive SSH session's `PATH`. The desktop SSH launcher prefers this command over downloading
+the published npm package. Run `vp run install:user` again after switching or updating the clone.
+
 During SSH launch, T3 Code first checks whether `node` is on `PATH`. If it is missing, the launcher
 looks in the usual install directories and tries to activate a version manager if it finds one
 (Volta, asdf, mise, fnm, nodenv, nvm). That covers most setups, but a version manager that only
