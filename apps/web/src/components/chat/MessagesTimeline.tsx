@@ -2070,6 +2070,17 @@ function renderStructuredToolDataBlock(toolData: unknown): string | null {
   return rendered.trim().length > 0 ? rendered : null;
 }
 
+function renderStructuredToolResult(toolData: unknown): string | null {
+  if (toolData === null || typeof toolData !== "object") {
+    return null;
+  }
+  const result = (toolData as Record<string, unknown>).result;
+  if (result === undefined || result === null) {
+    return null;
+  }
+  return `Output\n${formatStructuredToolDataValue(result)}`;
+}
+
 function buildToolCallExpandedBody(
   workEntry: TimelineWorkEntry,
   workspaceRoot: string | undefined,
@@ -2087,6 +2098,11 @@ function buildToolCallExpandedBody(
     const toolDataBlock = renderStructuredToolDataBlock(workEntry.toolData);
     if (toolDataBlock) {
       blocks.push(toolDataBlock);
+    }
+  } else if (workEntry.toolData !== undefined) {
+    const resultBlock = renderStructuredToolResult(workEntry.toolData);
+    if (resultBlock) {
+      blocks.push(resultBlock);
     }
   }
   const raw = workEntryRawCommand(workEntry);
