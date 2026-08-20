@@ -145,14 +145,11 @@ jobs:
 
       - name: Build AppImage
         run: |
-          # Preview builds exercise nightly behavior, including Sidebar V2's
-          # inbox default. The packaging code recognizes this exact suffix.
-          preview_date="$(date -u +%Y%m%d)"
           vp run dist:desktop:artifact \
             --platform linux \
             --target AppImage \
             --arch x64 \
-            --build-version "0.0.0-nightly.${preview_date}.${GITHUB_RUN_NUMBER}" \
+            --build-version "0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}" \
             --linux-native-prebuilds "$GITHUB_WORKSPACE/linux-native" \
             --verbose
 
