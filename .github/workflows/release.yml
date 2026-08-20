@@ -662,7 +662,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Install Electron runtime dependencies
-        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils
+        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils findutils
 
       - name: Download Linux desktop artifact
         uses: actions/download-artifact@v8
