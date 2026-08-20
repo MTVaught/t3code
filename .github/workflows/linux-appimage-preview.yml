@@ -1,0 +1,259 @@
+name: Linux AppImage Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-appimage-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build_native:
+    name: Build RHEL 8 native components
+    if: contains(github.event.pull_request.labels.*.name, 'build:linux-appimage')
+    runs-on: ubuntu-24.04
+    container: rockylinux:8
+    timeout-minutes: 30
+    env:
+      FFF_SOURCE_REF: 7d7910b6ba78ea8406671eaac8cdb5eb9850d9d1
+      FFF_SOURCE_VERSION: 0.9.4
+    steps:
+      - name: Install RHEL 8 build dependencies
+        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout fff source
+        uses: actions/checkout@v6
+        with:
+          repository: dmtrKovalenko/fff
+          ref: ${{ env.FFF_SOURCE_REF }}
+          path: .preview/fff
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build and verify native components
+        shell: bash
+        env:
+          PYTHON: /usr/bin/python3.11
+        run: |
+          set -euo pipefail
+          node_pty_version="$(node -p "require('./apps/server/package.json').dependencies['node-pty'].replace(/^\\^/, '')")"
+          fff_version="$(node -p "require('./apps/server/package.json').dependencies['@ff-labs/fff-node']")"
+          if [[ "$fff_version" != "$FFF_SOURCE_VERSION" ]]; then
+            echo "Update FFF_SOURCE_REF/FFF_SOURCE_VERSION for @ff-labs/fff-node $fff_version." >&2
+            exit 1
+          fi
+
+          mkdir -p .preview/native-runtime linux-native
+          npm install --ignore-scripts --prefix .preview/native-runtime \
+            "node-pty@$node_pty_version" \
+            "@ff-labs/fff-node@$fff_version"
+          node_pty_dir="$PWD/.preview/native-runtime/node_modules/node-pty"
+          (
+            cd "$node_pty_dir"
+            npx --yes node-gyp@12.4.0 configure
+            sed -i 's/-std=gnu++20/-std=gnu++2a/g' build/*.mk
+            make -C build BUILDTYPE=Release
+            node scripts/post-install.js
+          )
+
+          cargo build --locked --release \
+            --manifest-path native/resource-monitor/Cargo.toml \
+            --target x86_64-unknown-linux-gnu
+          cargo build --locked --release \
+            --manifest-path .preview/fff/Cargo.toml \
+            --package fff-c \
+            --target x86_64-unknown-linux-gnu
+
+          cp .preview/native-runtime/node_modules/node-pty/build/Release/pty.node \
+            linux-native/pty.node
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor \
+            linux-native/t3-resource-monitor
+          cp .preview/fff/target/x86_64-unknown-linux-gnu/release/libfff_c.so \
+            linux-native/libfff_c.so
+
+          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so; do
+            required="$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' | sort -Vu | tail -1)"
+            if [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload native components
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhel8-native-pr-${{ github.event.pull_request.number }}
+          path: linux-native/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build_appimage:
+    name: Build Linux AppImage
+    needs: [build_native]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: |
+            args:
+              - --filter=@t3tools/desktop...
+              - --filter=t3...
+              - --filter=@t3tools/scripts...
+
+      - name: Download RHEL 8 native components
+        uses: actions/download-artifact@v7
+        with:
+          name: rhel8-native-pr-${{ github.event.pull_request.number }}
+          path: linux-native
+
+      - name: Install ImageMagick
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
+
+      - name: Build AppImage
+        run: |
+          vp run dist:desktop:artifact \
+            --platform linux \
+            --target AppImage \
+            --arch x64 \
+            --build-version "0.0.0-pr.${{ github.event.pull_request.number }}.${{ github.run_number }}" \
+            --linux-native-prebuilds "$GITHUB_WORKSPACE/linux-native" \
+            --verbose
+
+      - name: Upload candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhel8-appimage-candidate-pr-${{ github.event.pull_request.number }}
+          path: release/*.AppImage
+          if-no-files-found: error
+          retention-days: 1
+
+  verify:
+    name: Verify AppImage on RHEL 8
+    needs: [build_appimage]
+    runs-on: ubuntu-24.04
+    container: rockylinux:8
+    timeout-minutes: 10
+    steps:
+      - name: Install Electron runtime dependencies
+        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils
+
+      - name: Download candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: rhel8-appimage-candidate-pr-${{ github.event.pull_request.number }}
+          path: candidate
+
+      - name: Verify packaged functionality
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(rpm -E '%{rhel}')" = "8"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+          app_image="$(find candidate -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -n "$app_image"
+          chmod +x "$app_image"
+          "$app_image" --appimage-extract >/dev/null
+
+          while IFS= read -r -d '' binary; do
+            if ! readelf --file-header "$binary" >/dev/null 2>&1; then
+              continue
+            fi
+            required="$(
+              readelf --version-info "$binary" 2>/dev/null \
+                | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' \
+                | sort -Vu \
+                | tail -1 \
+                || true
+            )"
+            if [[ -n "$required" ]] && \
+              [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done < <(find squashfs-root -type f -print0)
+
+          printf '%s\n' '{"type":"shutdown","version":2}' \
+            | squashfs-root/resources/resource-monitor/t3-resource-monitor \
+            | grep '"type":"hello"'
+
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code - <<'NODE'
+          const nodePty = require(`${process.cwd()}/squashfs-root/resources/app.asar/node_modules/node-pty`);
+          const terminal = nodePty.spawn("/bin/sh", ["-c", "printf packaged-rhel8-pty-ok"], {
+            name: "xterm",
+            cols: 80,
+            rows: 24,
+          });
+          let output = "";
+          terminal.onData((chunk) => (output += chunk));
+          terminal.onExit(({ exitCode }) => {
+            if (exitCode !== 0 || !output.includes("packaged-rhel8-pty-ok")) process.exit(1);
+          });
+          NODE
+
+          touch rhel8-fff-probe.txt
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code --input-type=module - <<'NODE'
+          import { pathToFileURL } from "node:url";
+          const entry = pathToFileURL(
+            `${process.cwd()}/squashfs-root/resources/app.asar/node_modules/@ff-labs/fff-node/dist/src/index.js`,
+          ).href;
+          const { FileFinder } = await import(entry);
+          const result = FileFinder.create({ basePath: process.cwd(), disableMmapCache: true });
+          if (!result.ok) throw new Error(result.error);
+          const finder = result.value;
+          const ready = await finder.waitForIndexReady(15_000);
+          const search = finder.fileSearch("rhel8-fff-probe.txt", { pageSize: 10 });
+          finder.destroy();
+          if (!ready.ok || !ready.value || !search.ok || search.value.items.length === 0) {
+            throw new Error("packaged fff search failed on RHEL 8");
+          }
+          NODE
+
+      - id: upload
+        name: Publish verified AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhel8-appimage-pr-${{ github.event.pull_request.number }}
+          path: candidate/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Add download link to workflow summary
+        shell: bash
+        run: |
+          echo "### Verified RHEL 8 AppImage" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download the AppImage artifact](${{ steps.upload.outputs.artifact-url }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "The artifact is retained for 14 days and requires GitHub sign-in to download." >> "$GITHUB_STEP_SUMMARY"

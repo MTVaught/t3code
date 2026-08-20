@@ -192,12 +192,155 @@ jobs:
           path: wsl-prebuild/pty.node
           if-no-files-found: error
 
+  build_linux_native:
+    name: Build Linux native components (RHEL 8 ABI)
+    needs: [preflight]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' }}
+    runs-on: ubuntu-24.04
+    container: rockylinux:8
+    timeout-minutes: 30
+    env:
+      # Keep this source revision aligned with @ff-labs/fff-node in
+      # apps/server/package.json. Its npm Linux binary currently requires a
+      # newer glibc than RHEL 8, so releases rebuild the same C ABI here.
+      FFF_SOURCE_REF: 7d7910b6ba78ea8406671eaac8cdb5eb9850d9d1
+      FFF_SOURCE_VERSION: 0.9.4
+    steps:
+      - name: Install RHEL 8 build dependencies
+        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.ref }}
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout fff source
+        uses: actions/checkout@v6
+        with:
+          repository: dmtrKovalenko/fff
+          ref: ${{ env.FFF_SOURCE_REF }}
+          path: .release/fff
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build native components
+        shell: bash
+        env:
+          PYTHON: /usr/bin/python3.11
+        run: |
+          set -euo pipefail
+          node_pty_version="$(node -p "require('./apps/server/package.json').dependencies['node-pty'].replace(/^\\^/, '')")"
+          fff_version="$(node -p "require('./apps/server/package.json').dependencies['@ff-labs/fff-node']")"
+          if [[ "$fff_version" != "$FFF_SOURCE_VERSION" ]]; then
+            echo "Update FFF_SOURCE_REF/FFF_SOURCE_VERSION for @ff-labs/fff-node $fff_version." >&2
+            exit 1
+          fi
+
+          mkdir -p .release/native-runtime linux-native
+          npm install --ignore-scripts --prefix .release/native-runtime \
+            "node-pty@$node_pty_version" \
+            "@ff-labs/fff-node@$fff_version"
+          node_pty_dir="$PWD/.release/native-runtime/node_modules/node-pty"
+          (
+            cd "$node_pty_dir"
+            npx --yes node-gyp@12.4.0 configure
+            # GCC 8 implements C++20 under its provisional gnu++2a spelling.
+            # The language mode is equivalent for node-pty, while retaining
+            # RHEL 8's system libstdc++ ABI floor.
+            sed -i 's/-std=gnu++20/-std=gnu++2a/g' build/*.mk
+            make -C build BUILDTYPE=Release
+            node scripts/post-install.js
+          )
+
+          cargo build --locked --release \
+            --manifest-path native/resource-monitor/Cargo.toml \
+            --target x86_64-unknown-linux-gnu
+          cargo build --locked --release \
+            --manifest-path .release/fff/Cargo.toml \
+            --package fff-c \
+            --target x86_64-unknown-linux-gnu
+
+          cp .release/native-runtime/node_modules/node-pty/build/Release/pty.node \
+            linux-native/pty.node
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor \
+            linux-native/t3-resource-monitor
+          cp .release/fff/target/x86_64-unknown-linux-gnu/release/libfff_c.so \
+            linux-native/libfff_c.so
+          cp linux-native/libfff_c.so \
+            .release/native-runtime/node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so
+
+      - name: Verify native functionality on RHEL 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(rpm -E '%{rhel}')" = "8"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+
+          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so; do
+            required="$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' | sort -Vu | tail -1)"
+            if [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done
+
+          node <<'NODE'
+          const nodePty = require("./.release/native-runtime/node_modules/node-pty");
+          const terminal = nodePty.spawn("/bin/sh", ["-c", "printf rhel8-pty-ok"], {
+            name: "xterm",
+            cols: 80,
+            rows: 24,
+          });
+          let output = "";
+          terminal.onData((chunk) => (output += chunk));
+          terminal.onExit(({ exitCode }) => {
+            if (exitCode !== 0 || !output.includes("rhel8-pty-ok")) process.exit(1);
+          });
+          NODE
+
+          printf '%s\n' '{"type":"shutdown","version":2}' \
+            | linux-native/t3-resource-monitor \
+            | grep '"type":"hello"'
+
+          node --input-type=module <<'NODE'
+          import { FileFinder } from "./.release/native-runtime/node_modules/@ff-labs/fff-node/dist/src/index.js";
+          const result = FileFinder.create({ basePath: process.cwd(), disableMmapCache: true });
+          if (!result.ok) throw new Error(result.error);
+          const finder = result.value;
+          const ready = await finder.waitForIndexReady(15_000);
+          if (!ready.ok || !ready.value) throw new Error("fff index did not become ready");
+          const search = finder.fileSearch("package.json", { pageSize: 10 });
+          finder.destroy();
+          if (!search.ok || !search.value.items.some((item) => item.relativePath === "package.json")) {
+            throw new Error("fff did not find package.json");
+          }
+          NODE
+
+      - name: Upload RHEL 8-compatible native components
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-native-x64
+          path: linux-native/*
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.label }}
-    # build_wsl_node_pty is in `needs` only for ordering/artifact availability. Do NOT
-    # require its success here: `!cancelled()` lets macOS/Linux build if it fails;
-    # the Windows-only artifact download then fails just that platform.
-    needs: [preflight, build_wsl_node_pty]
+    # Native prebuild jobs are in `needs` for ordering/artifact availability. Do not
+    # require their success here: `!cancelled()` lets unaffected platforms build;
+    # the platform-specific artifact download fails only the dependent build.
+    needs: [preflight, build_wsl_node_pty, build_linux_native]
     if: ${{ !cancelled() && needs.preflight.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -271,6 +414,13 @@ jobs:
         with:
           name: wsl-node-pty-x64
           path: wsl-prebuild
+
+      - name: Download RHEL 8-compatible Linux native components
+        if: matrix.platform == 'linux'
+        uses: actions/download-artifact@v7
+        with:
+          name: linux-native-x64
+          path: linux-native
 
       - name: Install Spectre-mitigated MSVC libs
         if: matrix.platform == 'win'
@@ -439,6 +589,9 @@ jobs:
             else
               echo "Windows signing disabled (missing one or more Azure Trusted Signing secrets)."
             fi
+          elif [[ "${{ matrix.platform }}" == "linux" ]]; then
+            args+=(--linux-native-prebuilds "$GITHUB_WORKSPACE/linux-native")
+            echo "Using RHEL 8-compatible Linux native components."
           else
             echo "Signing disabled for ${{ matrix.platform }}."
           fi
@@ -484,7 +637,11 @@ jobs:
           if [[ "${{ matrix.platform }}" == "win" ]]; then
             binary_name="${binary_name}.exe"
           fi
-          source_path="native/resource-monitor/target/${{ matrix.rust_target }}/release/${binary_name}"
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            source_path="linux-native/${binary_name}"
+          else
+            source_path="native/resource-monitor/target/${{ matrix.rust_target }}/release/${binary_name}"
+          fi
           target_dir="resource-monitor-publish/${{ matrix.resource_key }}"
           mkdir -p "$target_dir"
           cp "$source_path" "$target_dir/$binary_name"
@@ -496,10 +653,93 @@ jobs:
           path: release-publish/*
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub Release
+  verify_linux_rhel8:
+    name: Verify Linux artifact on RHEL 8
     needs: [preflight, build]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    container: rockylinux:8
+    timeout-minutes: 10
+    steps:
+      - name: Install Electron runtime dependencies
+        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils
+
+      - name: Download Linux desktop artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-linux-x64
+          path: release-linux
+
+      - name: Extract and verify packaged native functionality
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(rpm -E '%{rhel}')" = "8"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+          app_image="$(find release-linux -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -n "$app_image"
+          chmod +x "$app_image"
+          "$app_image" --appimage-extract >/dev/null
+
+          native_root="squashfs-root/resources/app.asar.unpacked/node_modules"
+          while IFS= read -r -d '' binary; do
+            if ! readelf --file-header "$binary" >/dev/null 2>&1; then
+              continue
+            fi
+            required="$(
+              readelf --version-info "$binary" 2>/dev/null \
+                | grep -oE 'GLIBC_[0-9]+\\.[0-9]+' \
+                | sort -Vu \
+                | tail -1 \
+                || true
+            )"
+            if [[ -n "$required" ]] && \
+              [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done < <(find squashfs-root -type f -print0)
+
+          printf '%s\n' '{"type":"shutdown","version":2}' \
+            | squashfs-root/resources/resource-monitor/t3-resource-monitor \
+            | grep '"type":"hello"'
+
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code - <<'NODE'
+          const nodePty = require(`${process.cwd()}/squashfs-root/resources/app.asar/node_modules/node-pty`);
+          const terminal = nodePty.spawn("/bin/sh", ["-c", "printf packaged-rhel8-pty-ok"], {
+            name: "xterm",
+            cols: 80,
+            rows: 24,
+          });
+          let output = "";
+          terminal.onData((chunk) => (output += chunk));
+          terminal.onExit(({ exitCode }) => {
+            if (exitCode !== 0 || !output.includes("packaged-rhel8-pty-ok")) process.exit(1);
+          });
+          NODE
+
+          touch rhel8-fff-probe.txt
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code --input-type=module - <<'NODE'
+          import { pathToFileURL } from "node:url";
+          const entry = pathToFileURL(
+            `${process.cwd()}/squashfs-root/resources/app.asar/node_modules/@ff-labs/fff-node/dist/src/index.js`,
+          ).href;
+          const { FileFinder } = await import(entry);
+          const result = FileFinder.create({ basePath: process.cwd(), disableMmapCache: true });
+          if (!result.ok) throw new Error(result.error);
+          const finder = result.value;
+          const ready = await finder.waitForIndexReady(15_000);
+          const search = finder.fileSearch("rhel8-fff-probe.txt", { pageSize: 10 });
+          finder.destroy();
+          if (!ready.ok || !ready.value || !search.ok || search.value.items.length === 0) {
+            throw new Error("packaged fff search failed on RHEL 8");
+          }
+          NODE
+
+  release:
+    name: Publish GitHub Release
+    needs: [preflight, build, verify_linux_rhel8]
+    if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' && needs.verify_linux_rhel8.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Fork note: upstream minted a GitHub App token (RELEASE_APP_ID /

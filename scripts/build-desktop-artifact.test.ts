@@ -34,6 +34,7 @@ import {
   resolveDesktopProductName,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
+  resolveLinuxNativePrebuildPaths,
   resolveResourceMonitorRustTargets,
   resourceMonitorExecutableName,
   resolveGitHubPublishConfig,
@@ -335,6 +336,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         false,
         undefined,
         undefined,
+        true,
       );
       const win = yield* createBuildConfig(
         "win",
@@ -348,6 +350,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(mac, "asarUnpack");
       assert.notProperty(linux, "asarUnpack");
+      assert.equal(linux.npmRebuild, false);
       assert.deepStrictEqual(win.asarUnpack, WINDOWS_ASAR_UNPACK);
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
@@ -574,6 +577,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resourceMonitorExecutableName("mac"), "t3-resource-monitor");
     assert.equal(resourceMonitorExecutableName("win"), "t3-resource-monitor.exe");
   });
+
+  it("resolves the RHEL-compatible Linux native prebuild contract", () => {
+    assert.deepStrictEqual(resolveLinuxNativePrebuildPaths("/tmp/linux-native"), {
+      nodePty: "/tmp/linux-native/pty.node",
+      resourceMonitor: "/tmp/linux-native/t3-resource-monitor",
+      fff: "/tmp/linux-native/libfff_c.so",
+    });
+  });
+
   it("promotes target fff binaries to direct staged dependencies", () => {
     assert.deepStrictEqual(resolveFffNativeDependencies("mac", "arm64", "0.9.4"), {
       "@ff-labs/fff-bin-darwin-arm64": "0.9.4",
@@ -680,6 +692,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         verbose: Option.none(),
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
+        linuxNativePrebuilds: Option.none(),
         wslPrebuild: Option.none(),
       }).pipe(
         Effect.provide(
@@ -720,6 +733,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             verbose: Option.none(),
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),
+            linuxNativePrebuilds: Option.none(),
             wslPrebuild: Option.none(),
           }),
         );
@@ -744,6 +758,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         verbose: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
+        linuxNativePrebuilds: Option.none(),
         wslPrebuild: Option.none(),
       }).pipe(
         Effect.provide(
