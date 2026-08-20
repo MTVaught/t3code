@@ -659,10 +659,10 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     container: rockylinux:8
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Install Electron runtime dependencies
-        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils findutils
+        run: dnf install -y gtk3 nss alsa-lib libX11-xcb libdrm mesa-libgbm libxkbcommon libXcomposite libXdamage libXrandr cups-libs at-spi2-atk binutils findutils xdg-utils xorg-x11-server-Xvfb
 
       - name: Download Linux desktop artifact
         uses: actions/download-artifact@v8
@@ -735,6 +735,25 @@ jobs:
             throw new Error("packaged fff search failed on RHEL 8");
           }
           NODE
+
+          set +e
+          timeout --signal=TERM --kill-after=5s 20s \
+            xvfb-run -a squashfs-root/t3code --no-sandbox --disable-gpu \
+            >rhel8-desktop.log 2>&1
+          desktop_status=$?
+          set -e
+          if [[ "$desktop_status" != 0 && "$desktop_status" != 124 ]]; then
+            cat rhel8-desktop.log
+            echo "Desktop exited unexpectedly with status $desktop_status." >&2
+            exit "$desktop_status"
+          fi
+          for marker in "backend ready" "main window created"; do
+            if ! grep -Fq "$marker" rhel8-desktop.log; then
+              cat rhel8-desktop.log
+              echo "Desktop log did not contain: $marker" >&2
+              exit 1
+            fi
+          done
 
   release:
     name: Publish GitHub Release
