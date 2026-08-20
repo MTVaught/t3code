@@ -928,6 +928,37 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.command).toBe("bun run lint");
   });
 
+  it("keeps Bob command names, commands, and output for expandable rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "bob-command-tool",
+        kind: "tool.completed",
+        summary: "Command run",
+        payload: {
+          itemType: "command_execution",
+          title: "execute_command",
+          data: {
+            toolName: "execute_command",
+            command: "vp test run BobAdapter.test.ts",
+            input: { command: "vp test run BobAdapter.test.ts" },
+            result: "1 test passed",
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities);
+    expect(entry).toMatchObject({
+      command: "vp test run BobAdapter.test.ts",
+      toolTitle: "execute_command",
+      toolData: {
+        toolName: "execute_command",
+        input: { command: "vp test run BobAdapter.test.ts" },
+        result: "1 test passed",
+      },
+    });
+  });
+
   it("extracts failed tool lifecycle status from item payloads", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

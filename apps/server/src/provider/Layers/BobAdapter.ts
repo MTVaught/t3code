@@ -208,6 +208,10 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function isBobInlineToolStatus(content: string): boolean {
+  return content.trimStart().startsWith("[using tool ");
+}
+
 /**
  * Classify a bob tool name into a canonical lifecycle item type. Affects only
  * how the work-log row renders.
@@ -277,7 +281,11 @@ function readBobToolCommand(parameters: unknown): string | undefined {
     return undefined;
   }
   const record = parameters as Record<string, unknown>;
-  const command = readString(record.command) ?? readString(record.cmd);
+  const command =
+    readString(record.command) ??
+    readString(record.cmd) ??
+    readString(record.shell_command) ??
+    readString(record.shellCommand);
   const trimmed = command?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
@@ -828,7 +836,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       payload: {
         itemType,
         status: "inProgress",
-        title: titleForItemType(itemType),
+        title: toolUse.toolName,
         detail: summarizeToolRequest(toolUse.toolName, toolUse.parameters),
         data: {
           toolName: toolUse.toolName,
@@ -910,7 +918,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
           toolResult.status === "success" || toolResult.status === undefined
             ? "completed"
             : "failed",
-        title: titleForItemType(tool.itemType),
+        title: tool.toolName,
         ...(detail ? { detail } : {}),
         data: {
           toolName: tool.toolName,
@@ -968,6 +976,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     switch (event.type) {
       case "message": {
         if (event.role !== "assistant") return;
+        // Bob narrates tool calls as assistant messages in addition to emitting
+        // structured tool_use events. The narration can say "undefined" when
+        // Bob omits the name, so never surface it as assistant content.
+        if (isBobInlineToolStatus(event.content)) return;
         if (event.isReasoning) {
           yield* emitReasoningDelta(context, turnState, event.content);
         } else {

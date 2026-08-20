@@ -44,6 +44,7 @@ function streamJson(events: ReadonlyArray<Record<string, unknown>>) {
 const successStream = streamJson([
   { type: "message", role: "user", content: "hi" },
   { type: "message", role: "assistant", content: "Thinking", isReasoning: true },
+  { type: "message", role: "assistant", content: "[using tool undefined: ...]\n" },
   { type: "tool_use", tool_name: "read_file", tool_id: "tool-1", parameters: { path: "a.ts" } },
   { type: "tool_result", tool_id: "tool-1", status: "success", output: "contents" },
   { type: "message", role: "assistant", content: "Done" },
@@ -151,6 +152,13 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
           .map((event) => (event.type === "content.delta" ? event.payload.streamKind : "")),
         ["reasoning_text", "assistant_text"],
       );
+      assert.notInclude(
+        events
+          .filter((event) => event.type === "content.delta")
+          .map((event) => (event.type === "content.delta" ? event.payload.delta : ""))
+          .join(""),
+        "using tool undefined",
+      );
       assert.include(
         events.map((event) => event.type),
         "item.started",
@@ -158,6 +166,15 @@ it.layer(NodeServices.layer)("BobAdapter", (it) => {
       assert.include(
         events.map((event) => event.type),
         "item.completed",
+      );
+      const completedTool = events.find((event) => event.type === "item.completed");
+      assert.equal(
+        completedTool?.type === "item.completed" ? completedTool.payload.title : null,
+        "read_file",
+      );
+      assert.deepInclude(
+        completedTool?.type === "item.completed" ? completedTool.payload.data : {},
+        { toolName: "read_file", input: { path: "a.ts" }, result: "contents" },
       );
       const [session] = yield* adapter.listSessions();
       assert.equal((session?.resumeCursor as { taskId?: string } | undefined)?.taskId, TASK_ID);
