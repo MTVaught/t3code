@@ -104,8 +104,6 @@ export function DiffPanelLoadingState(props: { label: string }) {
         <DiffCodeLineSkeleton contentClassName="w-4/5" />
         <DiffCodeLineSkeleton contentClassName="w-3/5" />
       </div>
-      <DiffFileHeaderSkeleton titleClassName="w-2/5 max-w-52" />
-      <DiffFileHeaderSkeleton titleClassName="w-3/5 max-w-72" />
       <span className="sr-only">{props.label}</span>
     </div>
   );

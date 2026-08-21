@@ -27,6 +27,14 @@ T3 Code works with the platforms your team already uses:
 - Use the **Publish Repository** action to create a new hosted repository (GitHub, GitLab, Bitbucket, or Azure DevOps), add it as your origin remote, and push, in one flow
 - If the local repository has no commits yet, publishing creates the remote and wires it up but does not push. Make a commit, then push normally.
 
+### Inspect Agent Changes Without Context Switching
+
+- Open the diff panel from a changed-files card or with `Cmd/Ctrl + D`
+- Use the arrows beside the current path to move through every changed file
+- Click the path to search and jump to any changed file without keeping a file tree open
+- With focus in the diff, press `J` for the previous file or `K` for the next file
+- Narrow panels start with a unified diff; wider panels start with a side-by-side diff
+
 ### Manage Code Reviews Without Context Switching
 
 **Create pull requests while you work**
