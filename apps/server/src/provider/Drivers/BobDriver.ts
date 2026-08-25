@@ -1,10 +1,8 @@
 /**
  * BobDriver — `ProviderDriver` for the IBM Bob CLI (`bob`) runtime.
  *
- * Bob is a one-shot CLI: each turn spawns `bob run --format stream-json` and
- * streams newline-delimited JSON. Bob manages model routing, so T3 keeps only a
- * hidden compatibility model. Text generation (commit messages, PR content,
- * etc.) uses Bob 2 JSON mode with side-effecting tool groups disabled.
+ * Bob runs as a long-lived ACP subprocess per active T3 thread. Bob manages
+ * model routing, so T3 keeps only a hidden compatibility routing model.
  *
  * @module provider/Drivers/BobDriver
  */
@@ -23,9 +21,9 @@ import * as Schema from "effect/Schema";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { makeBobTextGeneration } from "../../textGeneration/BobTextGeneration.ts";
-import { ServerConfig } from "../../config.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeBobAdapter } from "../Layers/BobAdapter.ts";
 import { buildInitialBobProviderSnapshot, checkBobProviderStatus } from "../Layers/BobProvider.ts";
@@ -98,7 +96,6 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const serverSettings = yield* ServerSettingsService;
-      const serverConfig = yield* ServerConfig;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -119,7 +116,6 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       const adapter = yield* makeBobAdapter(effectiveConfig, {
         environment: processEnv,
         instanceId,
-        attachmentsDir: serverConfig.attachmentsDir,
       });
       const textGeneration = yield* makeBobTextGeneration(effectiveConfig, processEnv);
 

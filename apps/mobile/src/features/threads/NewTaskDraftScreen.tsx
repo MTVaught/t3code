@@ -9,11 +9,6 @@ import { useFontFamily } from "../../lib/useFontFamily";
 
 import { EnvironmentId, type RuntimeMode } from "@t3tools/contracts";
 import {
-  effectiveToolAccess,
-  formatToolAccess,
-  runtimeModeToolAccess,
-} from "@t3tools/client-runtime/provider-access";
-import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -561,18 +556,14 @@ export function NewTaskDraftScreen(props: {
       }),
     [flow.selectedModel?.options, flow.selectedModelOption?.capabilities],
   );
-  const bobRuntimeLabels = flow.selectedModelOption?.providerDriver === "bob";
-  const bobToolAccessCeiling = flow.selectedProviderCapabilities?.toolAccessCeiling;
-
   const optionsMenuActions = useMemo(
     () => [
       ...buildProviderOptionMenuActions(providerOptionDescriptors),
       {
         id: "options-runtime",
         title: "Runtime",
-        subtitle: bobRuntimeLabels
-          ? formatToolAccess(effectiveToolAccess(flow.runtimeMode, bobToolAccessCeiling))
-          : flow.runtimeMode === "approval-required"
+        subtitle:
+          flow.runtimeMode === "approval-required"
             ? "Approve actions"
             : flow.runtimeMode === "auto-accept-edits"
               ? "Auto-accept edits"
@@ -582,21 +573,19 @@ export function NewTaskDraftScreen(props: {
         subactions: [
           {
             id: "options:runtime:approval-required",
-            title: bobRuntimeLabels ? "Supervised · block tools" : "Approve actions",
+            title: "Approve actions",
           },
           {
             id: "options:runtime:auto-accept-edits",
-            title: bobRuntimeLabels ? "Auto-accept edits · edits only" : "Auto-accept edits",
+            title: "Auto-accept edits",
           },
-          { id: "options:runtime:auto", title: bobRuntimeLabels ? "Auto · edits only" : "Auto" },
+          { id: "options:runtime:auto", title: "Auto" },
           { id: "options:runtime:full-access", title: "Full access" },
         ].map((option) => {
           const value = option.id.replace("options:runtime:", "") as RuntimeMode;
-          const access = effectiveToolAccess(value, bobToolAccessCeiling);
-          const limited = bobRuntimeLabels && access !== runtimeModeToolAccess(value);
           return {
             id: option.id,
-            title: `${option.title}${limited ? ` · limited to ${formatToolAccess(access)}` : ""}`,
+            title: option.title,
             state: flow.runtimeMode === value ? ("on" as const) : undefined,
           };
         }),
@@ -621,7 +610,7 @@ export function NewTaskDraftScreen(props: {
         ? [
             {
               id: "options-provider-mode",
-              title: "Bob mode",
+              title: "Provider mode",
               subtitle:
                 flow.providerModes.find((mode) => mode.slug === flow.providerMode)?.name ?? "Agent",
               subactions: flow.providerModes.map((mode) => ({
@@ -636,7 +625,7 @@ export function NewTaskDraftScreen(props: {
         ? [
             {
               id: "options-provider-command",
-              title: "Bob command",
+              title: "Provider command",
               subtitle: "Start a workspace command",
               subactions: flow.selectedProviderSlashCommands.map((command) => ({
                 id: `options:provider-command:${command.name}`,
@@ -648,8 +637,6 @@ export function NewTaskDraftScreen(props: {
         : []),
     ],
     [
-      bobRuntimeLabels,
-      bobToolAccessCeiling,
       flow.interactionMode,
       flow.providerMode,
       flow.providerModes,

@@ -2,8 +2,8 @@
  * BobProvider — snapshot + status probe for the IBM Bob provider.
  *
  * Bob manages model routing internally, so T3 exposes one hidden routing model
- * and never passes it to the CLI. The status probe requires Bob major version
- * 2. Bob authenticates via `BOB_API_KEY` and has no separate auth probe, so
+ * and never passes it to the CLI. The status probe requires Bob 2.0.1 or newer.
+ * Bob authenticates through its ACP authentication method, so
  * auth status is reported as `unknown` until a real invocation runs.
  *
  * @module provider/Layers/BobProvider
@@ -33,7 +33,7 @@ import {
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
 
-const bobPresentation = (settings: BobSettings) =>
+const bobPresentation = (_settings: BobSettings) =>
   ({
     displayName: "Bob",
     badgeLabel: "Early Access",
@@ -42,17 +42,15 @@ const bobPresentation = (settings: BobSettings) =>
     capabilities: {
       modelPicker: false,
       attachments: true,
-      approvals: false,
+      approvals: true,
       structuredInput: false,
       steering: false,
       rollback: false,
       providerModes: true,
-      commands: false,
+      commands: true,
       skills: false,
       subagentProgress: "summary",
-      tokenUsage: true,
-      billingUnits: ["bobcoin"],
-      toolAccessCeiling: settings.toolAccessCeiling,
+      tokenUsage: false,
     },
   }) as const;
 
@@ -60,9 +58,9 @@ export const BOB_ADAPTER_CAPABILITIES = {
   sessionModelSwitch: "unsupported",
   conversationRollback: false,
   midTurnSteering: false,
-  interactiveApprovals: false,
+  interactiveApprovals: true,
   structuredUserInput: false,
-  t3McpInjection: false,
+  t3McpInjection: true,
   attachments: true,
 } as const;
 
@@ -90,9 +88,10 @@ export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
  * Kept for persisted model-selection compatibility. The adapter never passes
  * this slug to Bob.
  */
-export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set(
-  BOB_BUILT_IN_MODELS.map((model) => model.slug),
-);
+export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set([
+  ...BOB_BUILT_IN_MODELS.map((model) => model.slug),
+  "premium",
+]);
 
 export function bobModelsFromSettings(): ReadonlyArray<ServerProviderModel> {
   return BOB_BUILT_IN_MODELS;
@@ -100,8 +99,9 @@ export function bobModelsFromSettings(): ReadonlyArray<ServerProviderModel> {
 
 export function isCompatibleBob2Version(version: string | null): boolean {
   if (version === null) return false;
-  const major = Number.parseInt(version.split(".", 1)[0] ?? "", 10);
-  return major === 2;
+  const [major = 0, minor = 0, patch = 0] = version.split(".").map(Number);
+  if (![major, minor, patch].every(Number.isFinite)) return false;
+  return major > 2 || (major === 2 && (minor > 0 || patch >= 1));
 }
 
 export function buildInitialBobProviderSnapshot(
@@ -255,8 +255,8 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
         auth: { status: "unknown" },
         message:
           version === null
-            ? "Bob CLI returned an unknown version. T3 Code requires Bob 2.x."
-            : `Bob CLI ${version} is incompatible. T3 Code requires Bob 2.x.`,
+            ? "Bob CLI returned an unknown version. T3 Code requires Bob 2.0.1 or newer."
+            : `Bob CLI ${version} is incompatible. T3 Code requires Bob 2.0.1 or newer.`,
       },
     });
   }

@@ -19,17 +19,14 @@ const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeBobSettings = Schema.decodeUnknownSync(BobSettingsConfig);
 
 describe("Bob 2 settings", () => {
-  it("constructs an explicit safe version-2 default", () => {
+  it("constructs the ACP-native default", () => {
     expect(decodeBobSettings({})).toEqual({
-      schemaVersion: 2,
       enabled: false,
       binaryPath: "bob",
-      apiKey: "",
-      toolAccessCeiling: "edits",
     });
   });
 
-  it("preserves explicit version-2 instance fields", () => {
+  it("drops obsolete one-shot fields while preserving launch configuration", () => {
     expect(
       decodeBobSettings({
         schemaVersion: 2,
@@ -41,16 +38,7 @@ describe("Bob 2 settings", () => {
         maxTurns: 4,
         toolAccessCeiling: "full",
       }),
-    ).toEqual({
-      schemaVersion: 2,
-      enabled: true,
-      binaryPath: "bob2",
-      apiKey: "key",
-      teamId: "team",
-      taskCostThresholdBobcoins: 0.5,
-      maxTurns: 4,
-      toolAccessCeiling: "full",
-    });
+    ).toEqual({ enabled: true, binaryPath: "bob2" });
   });
 });
 

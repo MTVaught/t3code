@@ -1477,6 +1477,44 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("persists a resume cursor as soon as an adapter session starts", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService.ProviderService;
+      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const threadId = asThreadId("thread-started-cursor");
+      yield* provider.startSession(threadId, {
+        provider: CODEX_DRIVER,
+        providerInstanceId: codexInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const startedCursor = { schemaVersion: 1, sessionId: "session-started-cursor" };
+      fanout.codex.updateSession(threadId, (session) => ({
+        ...session,
+        resumeCursor: startedCursor,
+      }));
+      const started = yield* Deferred.make<void>();
+      const consumer = yield* Stream.runForEach(provider.streamEvents, (event) =>
+        event.type === "session.started" ? Deferred.succeed(started, undefined) : Effect.void,
+      ).pipe(Effect.forkChild);
+      yield* advanceTestClock(50);
+      fanout.codex.emit({
+        type: "session.started",
+        eventId: asEventId("evt-started-cursor"),
+        provider: CODEX_DRIVER,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        threadId,
+        payload: { resume: {} },
+      });
+      yield* Deferred.await(started);
+
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      assert.deepEqual(binding?.resumeCursor, startedCursor);
+      yield* Fiber.interrupt(consumer);
+    }),
+  );
+
   it.effect("persists a terminal cursor from the exact adapter before publishing completion", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

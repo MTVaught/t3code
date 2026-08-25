@@ -49,7 +49,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { acpPermissionOutcome, mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import { mapAcpToAdapterError, selectAcpPermissionOptionId } from "../acp/AcpAdapterSupport.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -722,15 +722,13 @@ export function makeCursorAdapter(
                       decision: resolved,
                     }),
                   );
-                  return {
-                    outcome:
-                      resolved === "cancel"
-                        ? ({ outcome: "cancelled" } as const)
-                        : {
-                            outcome: "selected" as const,
-                            optionId: acpPermissionOutcome(resolved),
-                          },
-                  };
+                  if (resolved === "cancel") {
+                    return { outcome: { outcome: "cancelled" as const } };
+                  }
+                  const optionId = selectAcpPermissionOptionId(params, resolved);
+                  return optionId
+                    ? { outcome: { outcome: "selected" as const, optionId } }
+                    : { outcome: { outcome: "cancelled" as const } };
                 }),
               ),
             );
@@ -790,6 +788,8 @@ export function makeCursorAdapter(
                     yield* Deferred.succeed(event.acknowledge, undefined);
                     return;
                   case "ModeChanged":
+                    return;
+                  case "AvailableCommandsChanged":
                     return;
                   case "AssistantItemStarted":
                     yield* offerRuntimeEvent(
@@ -863,6 +863,7 @@ export function makeCursorAdapter(
                         turnId: ctx.activeTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
                         text: event.text,
+                        streamKind: event.streamKind,
                         rawPayload: event.rawPayload,
                       }),
                     );

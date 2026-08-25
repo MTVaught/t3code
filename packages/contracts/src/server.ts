@@ -140,9 +140,6 @@ export type ServerProviderContinuation = typeof ServerProviderContinuation.Type;
 export const ServerProviderSubagentProgress = Schema.Literals(["none", "summary", "live"]);
 export type ServerProviderSubagentProgress = typeof ServerProviderSubagentProgress.Type;
 
-export const ServerProviderToolAccessCeiling = Schema.Literals(["read-only", "edits", "full"]);
-export type ServerProviderToolAccessCeiling = typeof ServerProviderToolAccessCeiling.Type;
-
 export const ServerProviderCapabilities = Schema.Struct({
   modelPicker: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   attachments: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
@@ -157,10 +154,6 @@ export const ServerProviderCapabilities = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("live")),
   ),
   tokenUsage: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  billingUnits: Schema.Array(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
-  toolAccessCeiling: Schema.optional(ServerProviderToolAccessCeiling),
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type ServerProviderCapabilities = typeof ServerProviderCapabilities.Type;
 

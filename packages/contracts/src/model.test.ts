@@ -16,7 +16,7 @@ describe("provider model defaults", () => {
     }
   });
 
-  it("uses Bob's canonical premium tier", () => {
+  it("uses Bob's provider-managed model sentinel", () => {
     const bob = ProviderDriverKind.make("bob");
     assert.equal(DEFAULT_MODEL_BY_PROVIDER[bob], DEFAULT_BOB_MODEL);
     assert.equal(DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[bob], DEFAULT_BOB_MODEL);

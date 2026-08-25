@@ -68,12 +68,6 @@ describe("buildThreadFeed", () => {
           summary: "Context window updated",
           createdAt: "2026-04-01T00:00:01.000Z",
         }),
-        makeActivity({
-          id: EventId.make("billing-usage"),
-          kind: "billing-usage.updated",
-          summary: "Billing usage updated",
-          createdAt: "2026-04-01T00:00:02.000Z",
-        }),
       ],
     });
 

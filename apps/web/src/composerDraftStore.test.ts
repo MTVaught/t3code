@@ -1515,7 +1515,7 @@ describe("composerDraftStore setModelSelection", () => {
     ).toEqual(modelSelection(CODEX_DRIVER, "gpt-5.3-codex"));
   });
 
-  it("seeds Bob model options with Bob's default tier", () => {
+  it("seeds Bob model options with Bob's provider-managed sentinel", () => {
     const store = useComposerDraftStore.getState();
 
     store.setProviderModelOptions(threadRef, BOB_DRIVER, toSelections({ mode: "default" }), {

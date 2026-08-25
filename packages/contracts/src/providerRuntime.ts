@@ -154,7 +154,6 @@ const ProviderRuntimeEventType = Schema.Literals([
   "thread.state.changed",
   "thread.metadata.updated",
   "thread.token-usage.updated",
-  "thread.billing-usage.updated",
   "thread.realtime.started",
   "thread.realtime.item-added",
   "thread.realtime.audio.delta",
@@ -332,15 +331,6 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
   usage: ThreadTokenUsageSnapshot,
 });
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
-
-export const ThreadBillingUsageSnapshot = Schema.Struct({
-  unit: TrimmedNonEmptyStringSchema,
-  cumulativeAmount: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  turnAmount: Schema.optional(Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))),
-});
-export type ThreadBillingUsageSnapshot = typeof ThreadBillingUsageSnapshot.Type;
-
-const ThreadBillingUsageUpdatedPayload = Schema.Struct({ usage: ThreadBillingUsageSnapshot });
 
 const ThreadRealtimeStartedPayload = Schema.Struct({
   realtimeSessionId: Schema.optional(TrimmedNonEmptyStringSchema),
@@ -849,12 +839,6 @@ const ProviderRuntimeThreadTokenUsageUpdatedEvent = Schema.Struct({
 export type ProviderRuntimeThreadTokenUsageUpdatedEvent =
   typeof ProviderRuntimeThreadTokenUsageUpdatedEvent.Type;
 
-const ProviderRuntimeThreadBillingUsageUpdatedEvent = Schema.Struct({
-  ...ProviderRuntimeEventBase.fields,
-  type: Schema.Literal("thread.billing-usage.updated"),
-  payload: ThreadBillingUsageUpdatedPayload,
-});
-
 const ProviderRuntimeThreadRealtimeStartedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: ThreadRealtimeStartedType,
@@ -1163,7 +1147,6 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeThreadStateChangedEvent,
   ProviderRuntimeThreadMetadataUpdatedEvent,
   ProviderRuntimeThreadTokenUsageUpdatedEvent,
-  ProviderRuntimeThreadBillingUsageUpdatedEvent,
   ProviderRuntimeThreadRealtimeStartedEvent,
   ProviderRuntimeThreadRealtimeItemAddedEvent,
   ProviderRuntimeThreadRealtimeAudioDeltaEvent,
