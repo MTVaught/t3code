@@ -9,6 +9,10 @@ Bob also requires each workspace to be trusted. Open Bob interactively in a proj
 trust level before starting a T3 thread there. T3 intentionally does not pass Bob's `--trust` or
 `--accept-license` switches on a user's behalf.
 
+If your Bob setup uses an API key, enter `BOB_API_KEY` on the Bob provider card in **Settings**.
+T3 stores the value as a server secret, does not return it to the client after saving, and passes it
+only to processes launched for that Bob provider instance.
+
 Each active T3 thread owns a long-lived `bob acp` process and ACP session. T3 persists Bob's session
 ID and uses ACP session resume after a T3 server restart. If Bob can no longer resume that session,
 use **Start new Bob session** on the error. This preserves the T3 thread and workspace while starting
