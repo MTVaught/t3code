@@ -2213,6 +2213,7 @@ export const websocketRpcRouteLayer = Layer.unwrap(
           ),
         );
         const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup, {
+          disableFatalDefects: true,
           disableTracing: true,
         }).pipe(
           Effect.provide(
