@@ -34,7 +34,6 @@ export const DEFAULT_SERVER_PROVIDER_CAPABILITIES = {
   skills: true,
   subagentProgress: "live",
   tokenUsage: true,
-  billingUnits: [],
 } as const satisfies ServerProviderCapabilities;
 
 export interface CommandResult {

@@ -1,268 +1,52 @@
-import { BobSettings, ProviderInstanceId } from "@t3tools/contracts";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
+import { BobSettings, ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
-import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { expect } from "vite-plus/test";
 
-import * as ServerConfig from "../config.ts";
 import { makeBobTextGeneration } from "./BobTextGeneration.ts";
-import * as TextGeneration from "./TextGeneration.ts";
 
 const decodeBobSettings = Schema.decodeSync(BobSettings);
+const dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
+const mockAgentPath = NodePath.join(dirname, "../../scripts/acp-mock-agent.ts");
 
-const BobTextGenerationTestLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
-  prefix: "t3code-bob-text-generation-test-",
-}).pipe(Layer.provideMerge(NodeServices.layer));
-
-function bobJsonResult(lastMessage: unknown): string {
-  return JSON.stringify({
-    type: "result",
-    status: "success",
-    last_message: JSON.stringify(lastMessage),
-    stats: { task_id: "11111111111111111111111111111111" },
-  });
-}
-
-function makeFakeBobBinary(dir: string) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const binDir = path.join(dir, "bin");
-    const bobPath = path.join(binDir, "bob");
-    yield* fs.makeDirectory(binDir, { recursive: true });
-
-    yield* fs.writeFileString(
-      bobPath,
+it.effect("generates thread titles through a disposable Bob ACP session", () =>
+  Effect.gen(function* () {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "bob-acp-text-"));
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
+    );
+    const wrapper = NodePath.join(directory, "bob");
+    NodeFS.writeFileSync(
+      wrapper,
       [
         "#!/bin/sh",
-        'args="$*"',
-        'if [ -n "$T3_FAKE_BOB_ARGS_MUST_CONTAIN" ]; then',
-        '  printf "%s" "$args" | grep -F -- "$T3_FAKE_BOB_ARGS_MUST_CONTAIN" >/dev/null || {',
-        '    printf "%s\\n" "args missing expected content" >&2',
-        "    exit 2",
-        "  }",
-        "fi",
-        'if [ -n "$T3_FAKE_BOB_STDERR" ]; then',
-        '  printf "%s\\n" "$T3_FAKE_BOB_STDERR" >&2',
-        "fi",
-        'printf "%s" "$T3_FAKE_BOB_OUTPUT"',
-        'exit "${T3_FAKE_BOB_EXIT_CODE:-0}"',
+        `export T3_ACP_PROMPT_RESPONSE_TEXT='{"title":"ACP-native Bob integration"}'`,
+        `exec node "${mockAgentPath}"`,
         "",
       ].join("\n"),
+      "utf8",
     );
-    yield* fs.chmod(bobPath, 0o755);
-    return binDir;
-  });
-}
+    NodeFS.chmodSync(wrapper, 0o755);
 
-function withFakeBobEnv<A, E, R>(
-  input: {
-    output: string;
-    exitCode?: number;
-    stderr?: string;
-    argsMustContain?: string;
-    bobConfig?: Partial<BobSettings>;
-  },
-  effectFn: (textGeneration: TextGeneration.TextGeneration["Service"]) => Effect.Effect<A, E, R>,
-) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-bob-text-" });
-    const binDir = yield* makeFakeBobBinary(tempDir);
-    const previousPath = process.env.PATH;
-    const previousOutput = process.env.T3_FAKE_BOB_OUTPUT;
-    const previousExitCode = process.env.T3_FAKE_BOB_EXIT_CODE;
-    const previousStderr = process.env.T3_FAKE_BOB_STDERR;
-    const previousArgsMustContain = process.env.T3_FAKE_BOB_ARGS_MUST_CONTAIN;
-
-    yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        process.env.PATH = `${binDir}:${previousPath ?? ""}`;
-        process.env.T3_FAKE_BOB_OUTPUT = input.output;
-
-        if (input.exitCode !== undefined) {
-          process.env.T3_FAKE_BOB_EXIT_CODE = String(input.exitCode);
-        } else {
-          delete process.env.T3_FAKE_BOB_EXIT_CODE;
-        }
-
-        if (input.stderr !== undefined) {
-          process.env.T3_FAKE_BOB_STDERR = input.stderr;
-        } else {
-          delete process.env.T3_FAKE_BOB_STDERR;
-        }
-
-        if (input.argsMustContain !== undefined) {
-          process.env.T3_FAKE_BOB_ARGS_MUST_CONTAIN = input.argsMustContain;
-        } else {
-          delete process.env.T3_FAKE_BOB_ARGS_MUST_CONTAIN;
-        }
-      }),
-      () =>
-        Effect.sync(() => {
-          process.env.PATH = previousPath;
-
-          if (previousOutput === undefined) {
-            delete process.env.T3_FAKE_BOB_OUTPUT;
-          } else {
-            process.env.T3_FAKE_BOB_OUTPUT = previousOutput;
-          }
-
-          if (previousExitCode === undefined) {
-            delete process.env.T3_FAKE_BOB_EXIT_CODE;
-          } else {
-            process.env.T3_FAKE_BOB_EXIT_CODE = previousExitCode;
-          }
-
-          if (previousStderr === undefined) {
-            delete process.env.T3_FAKE_BOB_STDERR;
-          } else {
-            process.env.T3_FAKE_BOB_STDERR = previousStderr;
-          }
-
-          if (previousArgsMustContain === undefined) {
-            delete process.env.T3_FAKE_BOB_ARGS_MUST_CONTAIN;
-          } else {
-            process.env.T3_FAKE_BOB_ARGS_MUST_CONTAIN = previousArgsMustContain;
-          }
-        }),
+    const service = yield* makeBobTextGeneration(
+      decodeBobSettings({ enabled: true, binaryPath: wrapper }),
     );
-
-    const config = decodeBobSettings({ enabled: true, ...input.bobConfig });
-    const textGeneration = yield* makeBobTextGeneration(config);
-    return yield* effectFn(textGeneration);
-  }).pipe(Effect.scoped);
-}
-
-it.layer(BobTextGenerationTestLayer)("BobTextGeneration", (it) => {
-  it.effect("generates a commit message from result.last_message", () =>
-    withFakeBobEnv(
-      {
-        output: bobJsonResult({ subject: "Add Bob text generation", body: "" }),
-        argsMustContain: "run --format json",
+    const generated = yield* service.generateThreadTitle({
+      cwd: process.cwd(),
+      message: "Migrate Bob to ACP",
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("bob"),
+        model: "bob-managed",
       },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateCommitMessage({
-            cwd: process.cwd(),
-            branch: "feature/bob",
-            stagedSummary: "M apps/server/src/textGeneration/BobTextGeneration.ts",
-            stagedPatch: "diff --git a/BobTextGeneration.ts b/BobTextGeneration.ts",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("bob"),
-              model: "premium",
-            },
-          });
-
-          expect(generated.subject).toBe("Add Bob text generation");
-          expect(generated.body).toBe("");
-        }),
-    ),
-  );
-
-  it.effect("passes ask mode and side-effect restrictions to Bob", () =>
-    withFakeBobEnv(
-      {
-        output: bobJsonResult({ title: "Investigate reconnect failures" }),
-        argsMustContain: "--mode ask --disable-mcp --disable-subagents --disable-tool-groups",
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateThreadTitle({
-            cwd: process.cwd(),
-            message: "Investigate reconnect failures after restart.",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("bob"),
-              model: "premium",
-            },
-          });
-
-          expect(generated.title).toBe("Investigate reconnect failures");
-        }),
-    ),
-  );
-
-  it.effect("generates a branch name from result.last_message", () =>
-    withFakeBobEnv(
-      {
-        output: bobJsonResult({ branch: "fix-reconnect" }),
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const generated = yield* textGeneration.generateBranchName({
-            cwd: process.cwd(),
-            message: "Fix reconnect failures.",
-            modelSelection: {
-              instanceId: ProviderInstanceId.make("bob"),
-              model: "premium",
-            },
-          });
-
-          expect(generated.branch).toBe("fix-reconnect");
-        }),
-    ),
-  );
-
-  it.effect("surfaces a bob result error", () =>
-    withFakeBobEnv(
-      {
-        output: JSON.stringify({
-          type: "result",
-          status: "error",
-          error: { message: "insufficient coins" },
-        }),
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const result = yield* textGeneration
-            .generateThreadTitle({
-              cwd: process.cwd(),
-              message: "Name this thread.",
-              modelSelection: {
-                instanceId: ProviderInstanceId.make("bob"),
-                model: "premium",
-              },
-            })
-            .pipe(Effect.result);
-
-          expect(Result.isFailure(result)).toBe(true);
-          if (Result.isFailure(result)) {
-            expect(result.failure.detail).toContain("insufficient coins");
-          }
-        }),
-    ),
-  );
-
-  it.effect("fails when bob exits non-zero", () =>
-    withFakeBobEnv(
-      {
-        output: "",
-        stderr: "bob: not authenticated",
-        exitCode: 1,
-      },
-      (textGeneration) =>
-        Effect.gen(function* () {
-          const result = yield* textGeneration
-            .generateThreadTitle({
-              cwd: process.cwd(),
-              message: "Name this thread.",
-              modelSelection: {
-                instanceId: ProviderInstanceId.make("bob"),
-                model: "premium",
-              },
-            })
-            .pipe(Effect.result);
-
-          expect(Result.isFailure(result)).toBe(true);
-          if (Result.isFailure(result)) {
-            expect(result.failure.detail).toContain("not authenticated");
-          }
-        }),
-    ),
-  );
-});
+    });
+    expect(generated.title).toBe("ACP-native Bob integration");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

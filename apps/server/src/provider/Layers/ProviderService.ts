@@ -305,40 +305,20 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             provider: canonicalEvent.provider,
             eventType: canonicalEvent.type,
           });
-          const isBobContinuationReset =
-            canonicalEvent.type === "session.configured" &&
-            canonicalEvent.provider === "bob" &&
-            canonicalEvent.payload.config.continuation === "reset";
-          if (canonicalEvent.type === "turn.completed" || isBobContinuationReset) {
+          if (
+            canonicalEvent.type === "turn.completed" ||
+            canonicalEvent.type === "session.started"
+          ) {
             yield* Effect.gen(function* () {
               const sessions = yield* source.adapter.listSessions();
               const session = sessions.find(
                 (candidate) => candidate.threadId === canonicalEvent.threadId,
               );
               if (session) {
-                if (isBobContinuationReset) {
-                  const providerInstanceId = yield* requireBindingInstanceId(
-                    "ProviderService.processRuntimeEvent",
-                    session,
-                  );
-                  yield* directory.upsert({
-                    threadId: canonicalEvent.threadId,
-                    provider: session.provider,
-                    providerInstanceId,
-                    runtimeMode: session.runtimeMode,
-                    status: toRuntimeStatus(session),
-                    resumeCursor: null,
-                    runtimePayload: toRuntimePayloadFromSession(session, {
-                      lastRuntimeEvent: canonicalEvent.type,
-                      lastRuntimeEventAt: canonicalEvent.createdAt,
-                    }),
-                  });
-                } else {
-                  yield* upsertSessionBinding(session, canonicalEvent.threadId, {
-                    lastRuntimeEvent: canonicalEvent.type,
-                    lastRuntimeEventAt: canonicalEvent.createdAt,
-                  });
-                }
+                yield* upsertSessionBinding(session, canonicalEvent.threadId, {
+                  lastRuntimeEvent: canonicalEvent.type,
+                  lastRuntimeEventAt: canonicalEvent.createdAt,
+                });
               }
             }).pipe(
               Effect.catchCause((cause) =>

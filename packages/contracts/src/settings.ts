@@ -362,15 +362,8 @@ export const ClaudeSettings = makeProviderSettingsSchema(
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
 
-const BobPositiveNumber = Schema.Number.check(Schema.isGreaterThan(0));
-const BobPositiveInteger = Schema.Int.check(Schema.isGreaterThan(0));
-
 export const BobSettings = makeProviderSettingsSchema(
   {
-    schemaVersion: Schema.Literal(2).pipe(
-      Schema.withDecodingDefault(Effect.succeed(2 as const)),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
-    ),
     enabled: Schema.Boolean.pipe(
       // Gated off by default: Bob is an early-access provider and only spins up
       // once the user explicitly enables it in settings.
@@ -384,56 +377,8 @@ export const BobSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "bob", clearWhenEmpty: "omit" },
       }),
     ),
-    apiKey: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("")),
-      Schema.annotateKey({
-        title: "BOB_API_KEY",
-        description: "API key passed to Bob. Leave blank to inherit from the server environment.",
-        providerSettingsForm: { control: "password", clearWhenEmpty: "omit" },
-      }),
-    ),
-    teamId: TrimmedString.pipe(
-      Schema.optionalKey,
-      Schema.annotateKey({
-        title: "Team ID",
-        description: "Optional Bob team used for tasks from this instance.",
-        providerSettingsForm: { clearWhenEmpty: "omit" },
-      }),
-    ),
-    taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber).pipe(
-      Schema.annotateKey({
-        title: "Task cost threshold (Bobcoins)",
-        description:
-          "Optional soft cumulative task threshold passed to Bob. The first inference can exceed it.",
-        providerSettingsForm: { clearWhenEmpty: "omit" },
-      }),
-    ),
-    maxTurns: Schema.optionalKey(BobPositiveInteger).pipe(
-      Schema.annotateKey({
-        title: "Maximum turns",
-        description: "Optional maximum number of Bob inference turns per invocation.",
-        providerSettingsForm: { clearWhenEmpty: "omit" },
-      }),
-    ),
-    toolAccessCeiling: Schema.Literals(["read-only", "edits", "full"]).pipe(
-      Schema.withDecodingDefault(Effect.succeed("edits")),
-      Schema.annotateKey({
-        title: "Tool access ceiling",
-        description:
-          "Maximum tool access Bob may receive. The thread runtime mode can restrict it further.",
-      }),
-    ),
   },
-  {
-    order: [
-      "binaryPath",
-      "apiKey",
-      "teamId",
-      "taskCostThresholdBobcoins",
-      "maxTurns",
-      "toolAccessCeiling",
-    ],
-  },
+  { order: ["binaryPath"] },
 );
 export type BobSettings = typeof BobSettings.Type;
 
@@ -762,14 +707,8 @@ const ClaudeSettingsPatch = Schema.Struct({
 });
 
 const BobSettingsPatch = Schema.Struct({
-  schemaVersion: Schema.optionalKey(Schema.Literal(2)),
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
-  apiKey: Schema.optionalKey(TrimmedString),
-  teamId: Schema.optionalKey(TrimmedString),
-  taskCostThresholdBobcoins: Schema.optionalKey(BobPositiveNumber),
-  maxTurns: Schema.optionalKey(BobPositiveInteger),
-  toolAccessCeiling: Schema.optionalKey(Schema.Literals(["read-only", "edits", "full"])),
 });
 
 const CursorSettingsPatch = Schema.Struct({

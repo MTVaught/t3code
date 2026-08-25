@@ -41,11 +41,6 @@ import { scopedThreadKey } from "../../lib/scopedEntities";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-import {
-  effectiveToolAccess,
-  formatToolAccess,
-  runtimeModeToolAccess,
-} from "@t3tools/client-runtime/provider-access";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
@@ -94,10 +89,6 @@ export const COMPOSER_EXPANDED_CHROME = 174;
 
 function finiteUsageNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function formatBobcoins(value: number): string {
-  return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function formatTokenCount(value: number): string {
@@ -377,10 +368,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
-  const canResetMissingBobContext =
+  const canResetMissingBobSession =
     selectedProviderStatus?.driver === "bob" &&
     typeof props.selectedThread.session?.lastError === "string" &&
-    /(?:no task found|task\s+[^\n]*not found|bob continuation state is invalid)/i.test(
+    /(?:session[ /]resume|resume (?:the )?session|session\s+[^\n]*not found|unknown session|invalid session)/i.test(
       props.selectedThread.session.lastError,
     );
   const projectMetadata = useEnvironmentQuery(
@@ -398,29 +389,21 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     projectMetadata?.slashCommands ?? selectedProviderStatus?.slashCommands ?? [];
   const selectedSkills = projectMetadata?.skills ?? selectedProviderStatus?.skills ?? [];
   const usagePresentation = useMemo(() => {
-    let billing: Record<string, unknown> | undefined;
     let tokens: Record<string, unknown> | undefined;
     for (let index = props.usageActivities.length - 1; index >= 0; index -= 1) {
       const activity = props.usageActivities[index];
       if (!activity || !activity.payload || typeof activity.payload !== "object") continue;
       const payload = activity.payload as Record<string, unknown>;
-      if (!billing && activity.kind === "billing-usage.updated") billing = payload;
       if (!tokens && activity.kind === "context-window.updated") tokens = payload;
     }
-    const bobcoins = finiteUsageNumber(billing?.cumulativeAmount);
-    const turnBobcoins = finiteUsageNumber(billing?.turnAmount);
     const contextTokens = finiteUsageNumber(tokens?.usedTokens);
     const durationMs = finiteUsageNumber(tokens?.durationMs);
     const summary = [
-      bobcoins !== null ? `${formatBobcoins(bobcoins)} Bobcoins` : null,
       contextTokens !== null ? `${formatTokenCount(contextTokens)} context tokens` : null,
     ]
       .filter(Boolean)
       .join(" · ");
     const details = [
-      bobcoins !== null
-        ? { label: "Bobcoins", value: formatUsagePair(bobcoins, turnBobcoins, formatBobcoins) }
-        : null,
       usageDetail("Context", contextTokens, finiteUsageNumber(tokens?.lastUsedTokens)),
       usageDetail(
         "Input",
@@ -726,9 +709,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     () => buildModelMenuActions(providerGroups, currentModelSelection),
     [providerGroups, currentModelSelection],
   );
-  const bobRuntimeLabels = selectedProviderStatus?.driver === "bob";
-  const bobToolAccessCeiling = selectedProviderStatus?.capabilities?.toolAccessCeiling;
-
   // ── Options menu ─────────────────────────────────────────
   const optionsMenuActions = useMemo(
     () => [
@@ -736,9 +716,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       {
         id: "options-runtime",
         title: "Runtime",
-        subtitle: bobRuntimeLabels
-          ? formatToolAccess(effectiveToolAccess(currentRuntimeMode, bobToolAccessCeiling))
-          : currentRuntimeMode === "approval-required"
+        subtitle:
+          currentRuntimeMode === "approval-required"
             ? "Approve actions"
             : currentRuntimeMode === "auto-accept-edits"
               ? "Auto-accept edits"
@@ -748,21 +727,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         subactions: [
           {
             id: "options:runtime:approval-required",
-            title: bobRuntimeLabels ? "Supervised · block tools" : "Approve actions",
+            title: "Approve actions",
           },
           {
             id: "options:runtime:auto-accept-edits",
-            title: bobRuntimeLabels ? "Auto-accept edits · edits only" : "Auto-accept edits",
+            title: "Auto-accept edits",
           },
-          { id: "options:runtime:auto", title: bobRuntimeLabels ? "Auto · edits only" : "Auto" },
+          { id: "options:runtime:auto", title: "Auto" },
           { id: "options:runtime:full-access", title: "Full access" },
         ].map((option) => {
           const value = option.id.replace("options:runtime:", "") as RuntimeMode;
-          const access = effectiveToolAccess(value, bobToolAccessCeiling);
-          const limited = bobRuntimeLabels && access !== runtimeModeToolAccess(value);
           return {
             id: option.id,
-            title: `${option.title}${limited ? ` · limited to ${formatToolAccess(access)}` : ""}`,
+            title: option.title,
             state: currentRuntimeMode === value ? ("on" as const) : undefined,
           };
         }),
@@ -787,7 +764,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ? [
             {
               id: "options-provider-mode",
-              title: "Bob mode",
+              title: "Provider mode",
               subtitle:
                 projectMetadata.modes.find((mode) => mode.slug === props.providerMode)?.name ??
                 "Agent",
@@ -795,7 +772,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 id: `options:provider-mode:${mode.slug}`,
                 title: mode.name,
                 state: (props.providerMode ?? "agent") === mode.slug ? ("on" as const) : undefined,
-                attributes: { disabled: true },
               })),
             },
           ]
@@ -814,14 +790,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             },
           ]
         : []),
-      ...(canResetMissingBobContext
-        ? [{ id: "options-reset-provider-context", title: "Start new Bob context" }]
+      ...(canResetMissingBobSession
+        ? [{ id: "options-reset-provider-context", title: "Start new Bob session" }]
         : []),
     ],
     [
-      bobRuntimeLabels,
-      bobToolAccessCeiling,
-      canResetMissingBobContext,
+      canResetMissingBobSession,
       currentInteractionMode,
       currentRuntimeMode,
       projectMetadata,

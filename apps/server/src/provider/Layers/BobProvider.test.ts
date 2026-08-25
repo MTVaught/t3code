@@ -17,29 +17,28 @@ describe("BobProvider", () => {
   it("publishes one provider-managed routing model", () => {
     assert.deepEqual(bobModelsFromSettings(), BOB_BUILT_IN_MODELS);
     assert.deepInclude(BOB_BUILT_IN_MODELS[0], {
-      slug: "premium",
+      slug: "bob-managed",
       name: "Bob managed",
       isCustom: false,
     });
   });
 
-  it.effect("publishes harness-owned metadata capabilities and the configured tool ceiling", () =>
+  it.effect("publishes ACP-native metadata capabilities", () =>
     Effect.gen(function* () {
-      const settings = decodeBobSettings({
-        enabled: true,
-        toolAccessCeiling: "read-only",
-      });
+      const settings = decodeBobSettings({ enabled: true });
       const snapshot = yield* buildInitialBobProviderSnapshot(settings);
 
-      assert.equal(snapshot.capabilities?.commands, false);
+      assert.equal(snapshot.capabilities?.commands, true);
       assert.equal(snapshot.capabilities?.skills, false);
       assert.equal(snapshot.capabilities?.providerModes, true);
-      assert.equal(snapshot.capabilities?.toolAccessCeiling, "read-only");
+      assert.equal(snapshot.capabilities?.approvals, true);
+      assert.equal(snapshot.capabilities?.tokenUsage, false);
     }),
   );
 
-  it("accepts Bob 2 and rejects Bob 1 or an unknown major", () => {
-    assert.isTrue(isCompatibleBob2Version("2.0.0"));
+  it("requires the ACP-capable Bob 2.0.1 release or newer", () => {
+    assert.isFalse(isCompatibleBob2Version("2.0.0"));
+    assert.isTrue(isCompatibleBob2Version("2.0.1"));
     assert.isTrue(isCompatibleBob2Version("2.4.1"));
     assert.isFalse(isCompatibleBob2Version("1.9.9"));
     assert.isFalse(isCompatibleBob2Version("not-a-version"));

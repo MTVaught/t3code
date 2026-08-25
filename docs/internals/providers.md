@@ -40,11 +40,11 @@ directory to route session and turn operations for a thread, so callers name a t
 Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
 orchestration, contract, or client change is required for the common case.
 
-Bob is a one-shot provider rather than a long-lived stdio server. Each turn runs `bob run --format
-stream-json`; the adapter persists Bob's terminal task ID as an opaque resume cursor. Bob also
-exposes billing in Bobcoins. Mode behavior remains owned by Bob; T3 reads built-in, global, and
-workspace mode display metadata for the composer and persists successful Bob-initiated switches.
-Rules, commands, skills, hooks, trust, and native MCP remain owned by Bob.
+Bob is a long-lived ACP provider. Each active thread owns a `bob acp` child and ACP session; the
+adapter persists the session ID and reconnects with `session/resume`. Bob reports modes, commands,
+permissions, reasoning, plans, tools, and assistant output through ACP. T3 injects its workspace MCP
+endpoint, while Bob continues to own its native rules, hooks, trust, and provider configuration. See
+[Bob ACP integration](./bob-acp-integration.md) for the complete mapping and migration decisions.
 
 ## How provider work is requested
 

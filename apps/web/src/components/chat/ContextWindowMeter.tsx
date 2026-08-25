@@ -1,10 +1,5 @@
 import { cn } from "~/lib/utils";
-import { CoinsIcon } from "lucide-react";
-import {
-  type BillingUsageSnapshot,
-  type ContextWindowSnapshot,
-  formatContextWindowTokens,
-} from "~/lib/contextWindow";
+import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
 function formatPercentage(value: number | null): string | null {
@@ -19,11 +14,10 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot | null;
-  billing?: BillingUsageSnapshot | null;
   providerDisplayName?: string | null;
 }) {
-  const { usage, providerDisplayName, billing } = props;
-  if (!usage && !billing) return null;
+  const { usage, providerDisplayName } = props;
+  if (!usage) return null;
   const hasContextMaximum = usage?.maxTokens !== null && usage?.maxTokens !== undefined;
   const usedPercentage = formatPercentage(usage?.usedPercentage ?? null);
   const normalizedPercentage = Math.max(0, Math.min(100, usage?.usedPercentage ?? 0));
@@ -48,23 +42,19 @@ export function ContextWindowMeter(props: {
             type="button"
             className={cn(
               "inline-flex h-7 cursor-pointer items-center justify-center border border-transparent text-muted-foreground outline-none transition-colors",
-              hasContextMaximum || !usage
-                ? "w-7 rounded-full"
-                : "rounded-md px-1.5 text-xs tabular-nums",
+              hasContextMaximum ? "w-7 rounded-full" : "rounded-md px-1.5 text-xs tabular-nums",
               "hover:bg-accent data-[pressed]:bg-accent",
               "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
             )}
             aria-label={
               usage?.maxTokens !== null && usage?.maxTokens !== undefined && usedPercentage
                 ? `Context window ${usedPercentage} used`
-                : usage
-                  ? `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
-                  : `${billing?.cumulativeAmount ?? 0} Bobcoins used`
+                : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
             }
           >
-            {usage && !hasContextMaximum ? (
+            {!hasContextMaximum ? (
               <span>{formatContextWindowTokens(usage.usedTokens)}</span>
-            ) : usage ? (
+            ) : (
               <span className="relative flex size-5 items-center justify-center">
                 <svg
                   viewBox="0 0 24 24"
@@ -93,8 +83,6 @@ export function ContextWindowMeter(props: {
                   />
                 </svg>
               </span>
-            ) : (
-              <CoinsIcon className="size-4" aria-hidden="true" />
             )}
           </button>
         }
@@ -181,17 +169,6 @@ export function ContextWindowMeter(props: {
           ) : null}
           {usage && usage.durationMs != null ? (
             <UsageRow label="Last duration" value={formatDuration(usage.durationMs)} />
-          ) : null}
-          {billing?.unit === "bobcoin" ? (
-            <div className="flex items-center justify-between gap-3 text-[11px] leading-4">
-              <span className="text-secondary-label">Bobcoins</span>
-              <span className="font-medium tabular-nums text-secondary-label">
-                {billing.cumulativeAmount.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}
-                {billing.turnAmount !== null
-                  ? ` (+${billing.turnAmount.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")})`
-                  : ""}
-              </span>
-            </div>
           ) : null}
           {usage?.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-secondary-label text-[11px] font-medium">

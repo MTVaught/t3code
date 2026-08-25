@@ -1,13 +1,4 @@
-import {
-  ProviderInteractionMode,
-  RuntimeMode,
-  type ServerProviderToolAccessCeiling,
-} from "@t3tools/contracts";
-import {
-  effectiveToolAccess,
-  formatToolAccess,
-  runtimeModeToolAccess,
-} from "@t3tools/client-runtime/provider-access";
+import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -24,11 +15,8 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   providerMode: string | null;
-  providerModeLocked: boolean;
   providerModes: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
   showInteractionModeToggle: boolean;
-  isBob: boolean;
-  toolAccessCeiling?: ServerProviderToolAccessCeiling;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -73,17 +61,15 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         ) : null}
         {props.providerModes.length > 0 ? (
           <>
-            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Bob mode</div>
+            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+              Provider mode
+            </div>
             <MenuRadioGroup
               value={props.providerMode ?? "agent"}
               onValueChange={(value) => props.onProviderModeChange(value)}
             >
               {props.providerModes.map((mode) => (
-                <MenuRadioItem
-                  key={mode.slug}
-                  value={mode.slug}
-                  disabled={props.providerModeLocked}
-                >
+                <MenuRadioItem key={mode.slug} value={mode.slug}>
                   {mode.name}
                 </MenuRadioItem>
               ))}
@@ -106,16 +92,11 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
               ["auto", "Auto"],
               ["full-access", "Full access"],
             ] as const
-          ).map(([mode, label]) => {
-            const access = effectiveToolAccess(mode, props.toolAccessCeiling);
-            const limited = props.isBob && access !== runtimeModeToolAccess(mode);
-            return (
-              <MenuRadioItem key={mode} value={mode}>
-                {label}
-                {limited ? ` · limited to ${formatToolAccess(access)}` : ""}
-              </MenuRadioItem>
-            );
-          })}
+          ).map(([mode, label]) => (
+            <MenuRadioItem key={mode} value={mode}>
+              {label}
+            </MenuRadioItem>
+          ))}
         </MenuRadioGroup>
       </MenuPopup>
     </Menu>

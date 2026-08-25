@@ -80,7 +80,17 @@ export interface AcpPermissionRequest {
   readonly toolCall?: AcpToolCallState;
 }
 
+export interface AcpAvailableCommand {
+  readonly name: string;
+  readonly description?: string;
+  readonly inputHint?: string;
+}
+
 export type AcpParsedSessionEvent =
+  | {
+      readonly _tag: "AvailableCommandsChanged";
+      readonly commands: ReadonlyArray<AcpAvailableCommand>;
+    }
   | {
       readonly _tag: "ModeChanged";
       readonly modeId: string;
@@ -106,6 +116,7 @@ export type AcpParsedSessionEvent =
   | {
       readonly _tag: "ContentDelta";
       readonly itemId?: string;
+      readonly streamKind: "assistant_text" | "reasoning_text";
       readonly text: string;
       readonly rawPayload: unknown;
     };
@@ -568,10 +579,41 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
       if (upd.content.type === "text" && upd.content.text.length > 0) {
         events.push({
           _tag: "ContentDelta",
+          streamKind: "assistant_text",
           text: upd.content.text,
           rawPayload: params,
         });
       }
+      break;
+    }
+    case "agent_thought_chunk": {
+      if (upd.content.type === "text" && upd.content.text.length > 0) {
+        events.push({
+          _tag: "ContentDelta",
+          streamKind: "reasoning_text",
+          text: upd.content.text,
+          rawPayload: params,
+        });
+      }
+      break;
+    }
+    case "available_commands_update": {
+      events.push({
+        _tag: "AvailableCommandsChanged",
+        commands: upd.availableCommands.flatMap((command) => {
+          const name = command.name.trim();
+          if (!name) return [];
+          const description = command.description.trim() || undefined;
+          const inputHint = command.input?.hint.trim() || undefined;
+          return [
+            {
+              name,
+              ...(description ? { description } : {}),
+              ...(inputHint ? { inputHint } : {}),
+            },
+          ];
+        }),
+      });
       break;
     }
     default:

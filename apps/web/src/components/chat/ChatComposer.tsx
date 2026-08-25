@@ -10,7 +10,6 @@ import type {
   RuntimeMode,
   ScopedThreadRef,
   ServerProvider,
-  ServerProviderToolAccessCeiling,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -20,11 +19,6 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import {
-  effectiveToolAccess,
-  formatToolAccess,
-  runtimeModeToolAccess,
-} from "@t3tools/client-runtime/provider-access";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import {
@@ -227,7 +221,6 @@ import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import type { PendingApproval, PendingUserInput } from "../../session-logic";
 import {
   deriveLatestContextWindowSnapshot,
-  deriveLatestBillingUsageSnapshot,
   formatProviderDisplayName,
 } from "../../lib/contextWindow";
 import { formatProviderSkillDisplayName } from "../../providerSkillPresentation";
@@ -264,13 +257,6 @@ const runtimeModeConfig: Record<
 };
 
 const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
-const bobRuntimeModeDescriptions: Partial<Record<RuntimeMode, string>> = {
-  "approval-required":
-    "Block editing, commands, MCP, subagents, browser tools, and mode switching.",
-  "auto-accept-edits":
-    "Allow edits; block commands, MCP, subagents, browser tools, and mode switching.",
-  auto: "Allow edits only because headless Bob cannot pause for routine-action approval.",
-};
 const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-slot="popover-popup"]',
   '[data-slot="menu-popup"]',
@@ -315,27 +301,13 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
   providerMode: string | null;
-  providerModeLocked: boolean;
   providerModes: ReadonlyArray<{ slug: string; name: string; description?: string | undefined }>;
   runtimeMode: RuntimeMode;
-  isBob: boolean;
-  toolAccessCeiling?: ServerProviderToolAccessCeiling;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
   onProviderModeChange: (mode: string | null) => void;
 }) {
-  const selectedEffectiveAccess = effectiveToolAccess(props.runtimeMode, props.toolAccessCeiling);
-  const selectedIsCeilingLimited =
-    props.isBob && selectedEffectiveAccess !== runtimeModeToolAccess(props.runtimeMode);
-  const runtimeModeOption = {
-    ...runtimeModeConfig[props.runtimeMode],
-    label: `${runtimeModeConfig[props.runtimeMode].label}${
-      selectedIsCeilingLimited ? ` · limited to ${formatToolAccess(selectedEffectiveAccess)}` : ""
-    }`,
-    ...(props.isBob && bobRuntimeModeDescriptions[props.runtimeMode]
-      ? { description: bobRuntimeModeDescriptions[props.runtimeMode]! }
-      : {}),
-  };
+  const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
   const interactionModeTooltip =
     props.interactionMode === "plan"
@@ -392,18 +364,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false}>
             {runtimeModeOptions.map((mode) => {
-              const effectiveAccess = effectiveToolAccess(mode, props.toolAccessCeiling);
-              const isCeilingLimited =
-                props.isBob && effectiveAccess !== runtimeModeToolAccess(mode);
-              const option = {
-                ...runtimeModeConfig[mode],
-                label: `${runtimeModeConfig[mode].label}${
-                  isCeilingLimited ? ` · limited to ${formatToolAccess(effectiveAccess)}` : ""
-                }`,
-                ...(props.isBob && bobRuntimeModeDescriptions[mode]
-                  ? { description: bobRuntimeModeDescriptions[mode]! }
-                  : {}),
-              };
+              const option = runtimeModeConfig[mode];
               const OptionIcon = option.icon;
               return (
                 <SelectItem key={mode} value={mode} hideIndicator className="min-w-64 py-2">
@@ -430,10 +391,9 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       {props.providerModes.length > 0 ? (
         <Select
           value={props.providerMode ?? "agent"}
-          disabled={props.providerModeLocked}
           onValueChange={(value) => props.onProviderModeChange(value!)}
         >
-          <ComposerSelectControl aria-label="Bob mode">
+          <ComposerSelectControl aria-label="Provider mode">
             <SelectValue>
               {props.providerModes.find((mode) => mode.slug === (props.providerMode ?? "agent"))
                 ?.name ?? "Mode"}
@@ -460,7 +420,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ReturnType<typeof deriveLatestContextWindowSnapshot>;
-  activeBillingUsage: ReturnType<typeof deriveLatestBillingUsageSnapshot>;
   activeThreadProviderDisplayName: string | null;
   isPreparingWorktree: boolean;
   pendingAction: {
@@ -485,10 +444,9 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
-      {props.activeContextWindow || props.activeBillingUsage ? (
+      {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
-          billing={props.activeBillingUsage}
           providerDisplayName={props.activeThreadProviderDisplayName}
         />
       ) : null}
@@ -574,7 +532,6 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThreadEnvironmentId: EnvironmentId | undefined;
   activeThread: Thread | undefined;
-  isServerThread: boolean;
   isLocalDraftThread: boolean;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -686,7 +643,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
-    isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -1006,10 +962,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThreadActivities ?? []),
-    [activeThreadActivities],
-  );
-  const activeBillingUsage = useMemo(
-    () => deriveLatestBillingUsageSnapshot(activeThreadActivities ?? []),
     [activeThreadActivities],
   );
   const activeThreadProviderDisplayName = useMemo(() => {
@@ -3245,15 +3197,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     interactionMode={interactionMode}
                     runtimeMode={runtimeMode}
                     providerMode={providerMode}
-                    providerModeLocked={isServerThread}
                     providerModes={projectMetadata?.modes ?? []}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                    isBob={selectedProvider === "bob"}
-                    {...(selectedProviderStatus?.capabilities?.toolAccessCeiling
-                      ? {
-                          toolAccessCeiling: selectedProviderStatus.capabilities.toolAccessCeiling,
-                        }
-                      : {})}
                     traitsMenuContent={providerTraitsMenuContent}
                     onToggleInteractionMode={toggleInteractionMode}
                     onRuntimeModeChange={handleRuntimeModeChange}
@@ -3271,16 +3216,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                       interactionMode={interactionMode}
                       providerMode={providerMode}
-                      providerModeLocked={isServerThread}
                       providerModes={projectMetadata?.modes ?? []}
                       runtimeMode={runtimeMode}
-                      isBob={selectedProvider === "bob"}
-                      {...(selectedProviderStatus?.capabilities?.toolAccessCeiling
-                        ? {
-                            toolAccessCeiling:
-                              selectedProviderStatus.capabilities.toolAccessCeiling,
-                          }
-                        : {})}
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
                       onProviderModeChange={onProviderModeChange}
@@ -3300,7 +3237,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <ComposerFooterPrimaryActions
                   compact={isComposerPrimaryActionsCompact}
                   activeContextWindow={activeContextWindow}
-                  activeBillingUsage={activeBillingUsage}
                   activeThreadProviderDisplayName={activeThreadProviderDisplayName}
                   pendingAction={pendingPrimaryAction}
                   isRunning={phase === "running"}

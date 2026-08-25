@@ -61,6 +61,10 @@ export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
   readonly cwd: string;
   readonly resumeSessionId?: string;
+  /** Reconnect without replay when the client already persists conversation history. */
+  readonly continuationMethod?: "load" | "resume";
+  /** Some agents expose modes through the legacy method, others as a config option. */
+  readonly modeMethod?: "set_mode" | "config_option";
   readonly sessionLoadTimeout?: Duration.Input;
   readonly sessionLoadReplayIdleGap?: Duration.Input;
   readonly clientCapabilities?: EffectAcpSchema.InitializeRequest["clientCapabilities"];
@@ -199,6 +203,8 @@ export class AcpSessionRuntime extends Context.Service<
      * @see https://agentclientprotocol.com/protocol/schema#session/cancel
      */
     readonly cancel: Effect.Effect<void, EffectAcpErrors.AcpError>;
+    /** Gracefully closes the active ACP session without deleting its persisted history. */
+    readonly close: Effect.Effect<EffectAcpSchema.CloseSessionResponse, EffectAcpErrors.AcpError>;
     /**
      * Selects the active mode through the negotiated `mode` configuration option.
      * This is a no-op when the requested mode is already active.
@@ -557,79 +563,94 @@ export const make = (
         | EffectAcpSchema.NewSessionResponse
         | EffectAcpSchema.ResumeSessionResponse;
       if (options.resumeSessionId) {
-        const loadPayload = {
-          sessionId: options.resumeSessionId,
-          cwd: options.cwd,
-          mcpServers: options.mcpServers ?? [],
-        } satisfies EffectAcpSchema.LoadSessionRequest;
-        const sessionLoadTimeout = Duration.fromInputUnsafe(
-          options.sessionLoadTimeout ?? defaultSessionLoadTimeout,
-        );
-        const sessionLoadReplayIdleGap = Duration.fromInputUnsafe(
-          options.sessionLoadReplayIdleGap ?? defaultSessionLoadReplayIdleGap,
-        );
-
-        yield* Ref.set(
-          sessionLoadGateRef,
-          Option.some({
-            active: true,
-            lastActivityAtMillis: undefined,
-            idleGap: sessionLoadReplayIdleGap,
-            initializeResult,
-          }),
-        );
-
-        sessionId = options.resumeSessionId;
-        sessionSetupResult = yield* Effect.gen(function* () {
-          yield* logRequest({
-            method: "session/load",
-            payload: loadPayload,
-            status: "started",
-          });
-
-          const idleFiber = yield* waitForSessionLoadReplayIdle({
-            gateRef: sessionLoadGateRef,
-          }).pipe(Effect.forkIn(runtimeScope));
-          const loaded = yield* Effect.raceFirst(
-            acp.agent.loadSession(loadPayload),
-            Fiber.join(idleFiber),
-          ).pipe(
-            Effect.ensuring(Fiber.interrupt(idleFiber).pipe(Effect.ignore)),
-            Effect.timeoutOption(sessionLoadTimeout),
-            Effect.flatMap((result) =>
-              Option.match(result, {
-                onNone: () =>
-                  Effect.fail(
-                    new EffectAcpErrors.AcpTransportError({
-                      operation: "call-rpc",
-                      method: "session/load",
-                      detail: "session/load timed out waiting for RPC response or replay idle gap",
-                      cause: undefined,
-                    }),
-                  ),
-                onSome: Effect.succeed,
-              }),
-            ),
-            Effect.tap((result) =>
-              logRequest({
-                method: "session/load",
-                payload: loadPayload,
-                status: "succeeded",
-                result,
-              }),
-            ),
-            Effect.onError((cause) =>
-              logRequest({
-                method: "session/load",
-                payload: loadPayload,
-                status: "failed",
-                cause,
-              }),
-            ),
+        if (options.continuationMethod === "resume") {
+          const resumePayload = {
+            sessionId: options.resumeSessionId,
+            cwd: options.cwd,
+            mcpServers: options.mcpServers ?? [],
+          } satisfies EffectAcpSchema.ResumeSessionRequest;
+          sessionId = options.resumeSessionId;
+          sessionSetupResult = yield* runLoggedRequest(
+            "session/resume",
+            resumePayload,
+            acp.agent.resumeSession(resumePayload),
+          );
+        } else {
+          const loadPayload = {
+            sessionId: options.resumeSessionId,
+            cwd: options.cwd,
+            mcpServers: options.mcpServers ?? [],
+          } satisfies EffectAcpSchema.LoadSessionRequest;
+          const sessionLoadTimeout = Duration.fromInputUnsafe(
+            options.sessionLoadTimeout ?? defaultSessionLoadTimeout,
+          );
+          const sessionLoadReplayIdleGap = Duration.fromInputUnsafe(
+            options.sessionLoadReplayIdleGap ?? defaultSessionLoadReplayIdleGap,
           );
 
-          return loaded;
-        }).pipe(Effect.ensuring(Ref.set(sessionLoadGateRef, Option.none())));
+          yield* Ref.set(
+            sessionLoadGateRef,
+            Option.some({
+              active: true,
+              lastActivityAtMillis: undefined,
+              idleGap: sessionLoadReplayIdleGap,
+              initializeResult,
+            }),
+          );
+
+          sessionId = options.resumeSessionId;
+          sessionSetupResult = yield* Effect.gen(function* () {
+            yield* logRequest({
+              method: "session/load",
+              payload: loadPayload,
+              status: "started",
+            });
+
+            const idleFiber = yield* waitForSessionLoadReplayIdle({
+              gateRef: sessionLoadGateRef,
+            }).pipe(Effect.forkIn(runtimeScope));
+            const loaded = yield* Effect.raceFirst(
+              acp.agent.loadSession(loadPayload),
+              Fiber.join(idleFiber),
+            ).pipe(
+              Effect.ensuring(Fiber.interrupt(idleFiber).pipe(Effect.ignore)),
+              Effect.timeoutOption(sessionLoadTimeout),
+              Effect.flatMap((result) =>
+                Option.match(result, {
+                  onNone: () =>
+                    Effect.fail(
+                      new EffectAcpErrors.AcpTransportError({
+                        operation: "call-rpc",
+                        method: "session/load",
+                        detail:
+                          "session/load timed out waiting for RPC response or replay idle gap",
+                        cause: undefined,
+                      }),
+                    ),
+                  onSome: Effect.succeed,
+                }),
+              ),
+              Effect.tap((result) =>
+                logRequest({
+                  method: "session/load",
+                  payload: loadPayload,
+                  status: "succeeded",
+                  result,
+                }),
+              ),
+              Effect.onError((cause) =>
+                logRequest({
+                  method: "session/load",
+                  payload: loadPayload,
+                  status: "failed",
+                  cause,
+                }),
+              ),
+            );
+
+            return loaded;
+          }).pipe(Effect.ensuring(Ref.set(sessionLoadGateRef, Option.none())));
+        }
       } else {
         const createPayload = {
           cwd: options.cwd,
@@ -771,16 +792,39 @@ export const make = (
           }),
         ),
       ),
+      close: getStartedState.pipe(
+        Effect.flatMap((started) => {
+          const payload = {
+            sessionId: started.sessionId,
+          } satisfies EffectAcpSchema.CloseSessionRequest;
+          return runLoggedRequest("session/close", payload, acp.agent.closeSession(payload));
+        }),
+      ),
       setMode: (modeId) =>
         Ref.get(modeStateRef).pipe(
           Effect.flatMap((modeState) => {
             if (modeState?.currentModeId === modeId) {
               return Effect.succeed({} satisfies EffectAcpSchema.SetSessionModeResponse);
             }
-            return setConfigOption("mode", modeId).pipe(
-              Effect.tap(() => updateCurrentModeId(modeId)),
-              Effect.as({} satisfies EffectAcpSchema.SetSessionModeResponse),
-            );
+            const setModeEffect =
+              options.modeMethod === "set_mode"
+                ? getStartedState.pipe(
+                    Effect.flatMap((started) => {
+                      const payload = {
+                        sessionId: started.sessionId,
+                        modeId,
+                      } satisfies EffectAcpSchema.SetSessionModeRequest;
+                      return runLoggedRequest(
+                        "session/set_mode",
+                        payload,
+                        acp.agent.setSessionMode(payload),
+                      );
+                    }),
+                  )
+                : setConfigOption("mode", modeId).pipe(
+                    Effect.as({} satisfies EffectAcpSchema.SetSessionModeResponse),
+                  );
+            return setModeEffect.pipe(Effect.tap(() => updateCurrentModeId(modeId)));
           }),
         ),
       setConfigOption,

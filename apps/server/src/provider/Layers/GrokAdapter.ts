@@ -41,7 +41,7 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
+import { mapAcpToAdapterError, selectAcpPermissionOptionId } from "../acp/AcpAdapterSupport.ts";
 import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
 import {
   makeAcpAssistantItemEvent,
@@ -179,26 +179,12 @@ function parseGrokResume(raw: unknown): { sessionId: string } | undefined {
   return { sessionId: raw.sessionId.trim() };
 }
 
-function selectPermissionOptionId(
-  request: EffectAcpSchema.RequestPermissionRequest,
-  decision: Exclude<ProviderApprovalDecision, "cancel">,
-): string | undefined {
-  const kind =
-    decision === "acceptForSession"
-      ? "allow_always"
-      : decision === "accept"
-        ? "allow_once"
-        : "reject_once";
-  const option = request.options.find((entry) => entry.kind === kind);
-  return option?.optionId.trim() || undefined;
-}
-
 function selectAutoApprovedPermissionOption(
   request: EffectAcpSchema.RequestPermissionRequest,
 ): string | undefined {
   return (
-    selectPermissionOptionId(request, "acceptForSession") ??
-    selectPermissionOptionId(request, "accept")
+    selectAcpPermissionOptionId(request, "acceptForSession") ??
+    selectAcpPermissionOptionId(request, "accept")
   );
 }
 
@@ -716,7 +702,9 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                     }),
                   );
                   const selectedOptionId =
-                    resolved === "cancel" ? undefined : selectPermissionOptionId(params, resolved);
+                    resolved === "cancel"
+                      ? undefined
+                      : selectAcpPermissionOptionId(params, resolved);
                   return {
                     outcome: selectedOptionId
                       ? {
@@ -799,6 +787,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 if (event._tag === "ModeChanged") {
                   return;
                 }
+                if (event._tag === "AvailableCommandsChanged") return;
 
                 const notificationTurnId = resolveNotificationTurnId(ctx);
                 if (
@@ -865,6 +854,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                         turnId: notificationTurnId,
                         ...(event.itemId ? { itemId: event.itemId } : {}),
                         text: event.text,
+                        streamKind: event.streamKind,
                         rawPayload: event.rawPayload,
                       }),
                     );

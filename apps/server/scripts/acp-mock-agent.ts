@@ -14,6 +14,8 @@ import type * as AcpSchema from "effect-acp/schema";
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
+const emitThought = process.env.T3_ACP_EMIT_THOUGHT === "1";
+const emitAvailableCommands = process.env.T3_ACP_EMIT_AVAILABLE_COMMANDS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
@@ -302,7 +304,10 @@ const program = Effect.gen(function* () {
         request.clientCapabilities?._meta?.parameterizedModelPicker === true;
       return {
         protocolVersion: 1,
-        agentCapabilities: { loadSession: true },
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: { resume: {}, close: {}, delete: {}, list: {} },
+        },
       };
     }),
   );
@@ -377,6 +382,27 @@ const program = Effect.gen(function* () {
         models: modelState(),
         configOptions: configOptions(),
       };
+    }),
+  );
+
+  yield* agent.handleResumeSession(() =>
+    Effect.succeed({
+      modes: modeState(),
+      models: modelState(),
+      configOptions: configOptions(),
+    }),
+  );
+
+  yield* agent.handleCloseSession(() => Effect.succeed({}));
+
+  yield* agent.handleSetSessionMode((request) =>
+    Effect.gen(function* () {
+      currentModeId = request.modeId;
+      yield* agent.client.sessionUpdate({
+        sessionId: request.sessionId,
+        update: { sessionUpdate: "current_mode_update", currentModeId },
+      });
+      return {};
     }),
   );
 
@@ -844,6 +870,32 @@ const program = Effect.gen(function* () {
           },
         });
         return { stopReason: "end_turn" };
+      }
+
+      if (emitAvailableCommands) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [
+              {
+                name: "review",
+                description: "Review the current changes",
+                input: { hint: "optional focus" },
+              },
+            ],
+          },
+        });
+      }
+
+      if (emitThought) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "thinking from mock" },
+          },
+        });
       }
 
       yield* agent.client.sessionUpdate({

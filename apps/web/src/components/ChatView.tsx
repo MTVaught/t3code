@@ -2552,10 +2552,12 @@ function ChatViewContent(props: ChatViewProps) {
     ? activeProviderStatus
     : null;
   const supportsConversationRollback = activeProviderStatus?.capabilities?.rollback !== false;
-  const canResetMissingBobContext =
+  const canResetMissingBobSession =
     activeProviderStatus?.driver === "bob" &&
     threadError !== null &&
-    /(?:no task found|task\s+[^\n]*not found|bob continuation state is invalid)/i.test(threadError);
+    /(?:session[ /]resume|resume (?:the )?session|session\s+[^\n]*not found|unknown session|invalid session)/i.test(
+      threadError,
+    );
   const hasTimelineTopBanner = Boolean(threadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
@@ -6052,10 +6054,10 @@ function ChatViewContent(props: ChatViewProps) {
         <ThreadErrorBanner
           error={threadError}
           onDismiss={() => setThreadError(activeThread.id, null)}
-          {...(canResetMissingBobContext
+          {...(canResetMissingBobSession
             ? {
                 recoveryAction: {
-                  label: "Start new Bob context",
+                  label: "Start new Bob session",
                   onClick: () => void onResetProviderContext(),
                   pending: isResettingProviderContext,
                 },
@@ -6206,7 +6208,6 @@ function ChatViewContent(props: ChatViewProps) {
                             activeThreadId={activeThreadId}
                             activeThreadEnvironmentId={activeThread?.environmentId}
                             activeThread={activeThread}
-                            isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
                             forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}

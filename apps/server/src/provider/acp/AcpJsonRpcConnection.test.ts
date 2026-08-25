@@ -22,6 +22,34 @@ const mockAgentCommand = "node";
 const mockAgentArgs = [mockAgentPath];
 
 describe("AcpSessionRuntime", () => {
+  it.effect("uses session/resume and the standard session/set_mode method when configured", () => {
+    const requests: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime.AcpSessionRuntime;
+      const started = yield* runtime.start();
+      expect(started.sessionId).toBe("mock-session-1");
+      yield* runtime.setMode("code");
+      expect(requests.some((event) => event.method === "session/resume")).toBe(true);
+      expect(requests.some((event) => event.method === "session/load")).toBe(false);
+      expect(requests.some((event) => event.method === "session/set_mode")).toBe(true);
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          spawn: { command: mockAgentCommand, args: mockAgentArgs },
+          cwd: process.cwd(),
+          resumeSessionId: "mock-session-1",
+          continuationMethod: "resume",
+          modeMethod: "set_mode",
+          clientInfo: { name: "t3-test", version: "0.0.0" },
+          authMethodId: "test",
+          requestLogger: (event) => Effect.sync(() => requests.push(event)),
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
+
   it.effect("merges custom initialize client capabilities into the ACP handshake", () => {
     const requestEvents: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
     return Effect.gen(function* () {
