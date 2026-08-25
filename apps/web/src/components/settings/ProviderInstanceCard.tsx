@@ -156,6 +156,13 @@ function ProviderAuthEmail(props: {
 function ProviderEnvironmentSection(props: {
   readonly environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>;
   readonly onChange: (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => void;
+  readonly fixedSensitiveVariables?:
+    | ReadonlyArray<{
+        readonly name: string;
+        readonly label: string;
+        readonly description: string;
+      }>
+    | undefined;
 }) {
   const [rows, setRows] = useState<ReadonlyArray<EnvironmentDraftRow>>(() =>
     props.environment.map(makeEnvironmentDraftRow),
@@ -202,8 +209,59 @@ function ProviderEnvironmentSection(props: {
     publishRows(nextRows);
   };
 
+  const fixedVariableNames = new Set(
+    props.fixedSensitiveVariables?.map((variable) => variable.name) ?? [],
+  );
+  const editableRows = rows.filter((row) => !fixedVariableNames.has(row.name));
+
+  const updateFixedVariable = (name: string, value: string) => {
+    const existing = rows.find((row) => row.name === name);
+    const nextRows = existing
+      ? value.length > 0
+        ? rows.map((row) =>
+            row.id === existing.id ? { ...row, value, sensitive: true, valueRedacted: false } : row,
+          )
+        : rows.filter((row) => row.id !== existing.id)
+      : value.length > 0
+        ? [
+            ...rows,
+            {
+              id: nextEnvironmentVariableDraftId(),
+              name,
+              value,
+              sensitive: true,
+            },
+          ]
+        : rows;
+    setRows(nextRows);
+    publishRows(nextRows);
+  };
+
   return (
     <div className="grid gap-2">
+      {props.fixedSensitiveVariables?.map((fixedVariable) => {
+        const row = rows.find((candidate) => candidate.name === fixedVariable.name);
+        return (
+          <label key={fixedVariable.name} className="block">
+            <span className="text-xs font-medium text-foreground">{fixedVariable.label}</span>
+            <DraftInput
+              className="mt-1.5"
+              type="password"
+              autoComplete="off"
+              value={row?.valueRedacted ? "" : (row?.value ?? "")}
+              onCommit={(value) => updateFixedVariable(fixedVariable.name, value)}
+              placeholder={
+                row?.valueRedacted ? "Stored secret - enter a new value to replace" : "API key"
+              }
+              spellCheck={false}
+              aria-label={fixedVariable.label}
+            />
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {fixedVariable.description}
+            </span>
+          </label>
+        );
+      })}
       <div className="flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-foreground">Environment variables</span>
         <Button
@@ -227,7 +285,7 @@ function ProviderEnvironmentSection(props: {
           Add
         </Button>
       </div>
-      {rows.length === 0 ? (
+      {editableRows.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Add variables to pass API keys, base URLs, or other per-instance CLI settings.
         </p>
@@ -245,7 +303,7 @@ function ProviderEnvironmentSection(props: {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((variable, index) => (
+              {editableRows.map((variable, index) => (
                 <TableRow
                   key={variable.id}
                   className="border-border/60 odd:bg-muted/20 even:bg-background/20"
@@ -761,6 +819,18 @@ export function ProviderInstanceCard({
               <ProviderEnvironmentSection
                 environment={instance.environment ?? []}
                 onChange={updateEnvironment}
+                fixedSensitiveVariables={
+                  driverKind === "bob"
+                    ? [
+                        {
+                          name: "BOB_API_KEY",
+                          label: "BOB_API_KEY",
+                          description:
+                            "Passed securely to Bob. The value is stored separately and is not returned to the app after saving.",
+                        },
+                      ]
+                    : undefined
+                }
               />
             </div>
 
