@@ -53,7 +53,6 @@ import {
   useComposerDraft,
 } from "../../state/use-composer-drafts";
 import { useBranches } from "../../state/queries";
-import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
 import {
   flattenQueuedThreadMessages,
