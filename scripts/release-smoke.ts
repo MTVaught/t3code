@@ -188,6 +188,19 @@ function assertMissing(path: string, message: string): void {
 const tempRoot = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-release-smoke-"));
 
 try {
+  const releaseWorkflow = NodeFS.readFileSync(
+    NodePath.resolve(repoRoot, ".github/workflows/release.yml"),
+    "utf8",
+  );
+  const previousTagResolutionCount = releaseWorkflow.match(
+    /node scripts\/resolve-previous-release-tag\.ts/g,
+  )?.length;
+  if (previousTagResolutionCount !== 1) {
+    throw new Error(
+      "Release workflow must resolve the previous tag exactly once during preflight.",
+    );
+  }
+
   copyWorkspaceManifestFixture(tempRoot);
 
   NodeChildProcess.execFileSync(
