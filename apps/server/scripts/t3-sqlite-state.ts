@@ -5,6 +5,10 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeOS from "node:os";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+import {
+  DEFAULT_TREHER_HOME_DIRECTORY_NAME,
+  PRODUCTION_STATE_DIRECTORY_NAME,
+} from "@t3tools/shared/statePaths";
 import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -63,7 +67,7 @@ export class SqliteStateSharedHomeMutationError extends Schema.TaggedErrorClass<
   {},
 ) {
   override get message(): string {
-    return "Refusing to mutate the shared ~/.t3 database. Use an isolated --base-dir.";
+    return "Refusing to mutate the shared ~/.t3-treher database. Use an isolated --base-dir.";
   }
 }
 
@@ -182,8 +186,10 @@ export const runSqliteState = Effect.fn("runSqliteState")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const baseDir = path.resolve(input.baseDir);
-  const sharedHome = path.resolve(options.sharedHome ?? path.join(NodeOS.homedir(), ".t3"));
-  const databasePath = path.join(baseDir, "userdata", "state.sqlite");
+  const sharedHome = path.resolve(
+    options.sharedHome ?? path.join(NodeOS.homedir(), DEFAULT_TREHER_HOME_DIRECTORY_NAME),
+  );
+  const databasePath = path.join(baseDir, PRODUCTION_STATE_DIRECTORY_NAME, "state.sqlite");
   const source = yield* resolveSqlSource(input.sql, input.file);
 
   if (!(yield* fs.exists(databasePath))) {
@@ -253,7 +259,7 @@ export const t3SqliteStateCommand = Command.make(
       Argument.withDescription("Run a read-only query or a backed-up fixture mutation."),
     ),
     baseDir: Flag.string("base-dir").pipe(
-      Flag.withDescription("Explicit T3 base directory containing userdata/state.sqlite."),
+      Flag.withDescription("Explicit Treher base directory containing userdata/state.sqlite."),
     ),
     sql: Flag.string("sql").pipe(
       Flag.optional,

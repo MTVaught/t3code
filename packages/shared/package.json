@@ -211,6 +211,10 @@
       "types": "./src/devHome.ts",
       "import": "./src/devHome.ts"
     },
+    "./statePaths": {
+      "types": "./src/statePaths.ts",
+      "import": "./src/statePaths.ts"
+    },
     "./devProxy": {
       "types": "./src/devProxy.ts",
       "import": "./src/devProxy.ts"

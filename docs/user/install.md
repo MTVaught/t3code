@@ -71,6 +71,12 @@ Nightly:
 yay -S t3code-nightly-bin
 ```
 
+## Data location
+
+Treher keeps its database and settings under `~/.t3-treher/userdata` by default. This is separate
+from upstream T3 Code's `~/.t3/userdata`, so installing or running both applications cannot make
+their database migrations collide. Treher does not automatically import the upstream database.
+
 ## Providers
 
 T3 Code drives provider CLIs; it does not ship them. Install the CLI for each provider you want

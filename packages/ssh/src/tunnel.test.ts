@@ -212,6 +212,8 @@ describe("ssh tunnel scripts", () => {
       buildRemoteLaunchScript(),
       'DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"',
     );
+    assert.include(buildRemoteLaunchScript(), 'DEFAULT_SERVER_HOME="$HOME/.t3-treher"');
+    assert.include(buildRemotePairingScript(target), 'DEFAULT_SERVER_HOME="$HOME/.t3-treher"');
     assert.include(buildRemoteLaunchScript(), "resolve_default_runtime_port()");
     assert.include(
       buildRemoteLaunchScript(),
