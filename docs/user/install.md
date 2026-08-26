@@ -75,7 +75,8 @@ yay -S t3code-nightly-bin
 
 Treher keeps its database and settings under `~/.t3-treher/userdata` by default. This is separate
 from upstream T3 Code's `~/.t3/userdata`, so installing or running both applications cannot make
-their database migrations collide. Treher does not automatically import the upstream database.
+their database migrations collide. The desktop app also uses its own Electron profile, including
+cookies and encrypted connection data. Treher does not automatically import upstream data.
 
 ## Providers
 
