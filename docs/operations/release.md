@@ -4,6 +4,31 @@
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
+## Fork release numbering
+
+Fork releases preserve the complete upstream version in the SemVer core and add the fork's release
+sequence as prerelease identifiers:
+
+```text
+v<upstream-version>-treher.<fork-release>.<phase>[.rc.<candidate>]
+```
+
+- `<upstream-version>` is the upstream release tag on which the fork is based, without the leading
+  `v`. Use the actual tagged base, not the latest upstream release at the time the fork ships.
+- `<fork-release>` starts at `1` for each upstream base and increments for subsequent fork releases
+  based on that same upstream version.
+- `<phase>` is `0` for release candidates and `1` for the final release.
+- `<candidate>` starts at `1` and increments for each release-candidate build.
+
+For example, the first release candidate based on upstream `v0.0.32` is
+`v0.0.32-treher.1.0.rc.1`, followed by the final `v0.0.32-treher.1.1`. A second fork release from
+the same upstream base starts at `v0.0.32-treher.2.0.rc.1`. After adopting upstream `v0.0.33`, the
+fork sequence resets, beginning with `v0.0.33-treher.1.0.rc.1`.
+
+Keep the numeric phase even though `rc` already identifies a candidate. It ensures SemVer orders the
+final release after all of its candidates. The `treher` identifier also prevents fork tags from
+colliding with upstream tags.
+
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
