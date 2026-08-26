@@ -70,7 +70,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/fp/head" "$RUNNER_TEMP/fp/base"
           for platform in ios android; do
-            npx expo-updates fingerprint:generate --platform "$platform" > "$RUNNER_TEMP/fp/head/$platform.json"
+            pnpm exec expo-updates fingerprint:generate --platform "$platform" > "$RUNNER_TEMP/fp/head/$platform.json"
           done
 
       - name: Fingerprint base
@@ -82,7 +82,7 @@ jobs:
           pnpm install --filter=@t3tools/mobile...
           cd apps/mobile
           for platform in ios android; do
-            npx expo-updates fingerprint:generate --platform "$platform" > "$RUNNER_TEMP/fp/base/$platform.json"
+            pnpm exec expo-updates fingerprint:generate --platform "$platform" > "$RUNNER_TEMP/fp/base/$platform.json"
           done
 
       - id: compare
