@@ -75,6 +75,7 @@ describe("DesktopEnvironment", () => {
         displayName: "T3 Code (Treher Dev)",
       });
       assert.equal(environment.displayName, "T3 Code (Treher Dev)");
+      assert.equal(environment.userDataDirName, "t3code-treher-dev");
       assert.equal(environment.linuxWmClass, "t3code-dev");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
@@ -102,6 +103,7 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
       assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
       assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assert.equal(environment.userDataDirName, "t3code-treher");
       assert.deepEqual(environment.branding, {
         baseName: "T3 Code (Treher)",
         stageLabel: "Alpha",
