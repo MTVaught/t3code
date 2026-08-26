@@ -2,7 +2,7 @@ import type { DesktopUpdateState } from "@t3tools/contracts";
 
 export type DesktopUpdateButtonAction = "release" | "none";
 
-const DESKTOP_RELEASE_TAG_URL = "https://github.com/pingdotgg/t3code/releases/tag";
+const DESKTOP_RELEASE_TAG_URL = "https://github.com/MTVaught/t3code/releases/tag";
 
 /**
  * The main process fills `downloadedVersion` from the updater's `update-downloaded`
@@ -72,9 +72,6 @@ export function shouldHighlightDesktopUpdateError(state: DesktopUpdateState | nu
 export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {
   if (!state || !state.enabled) return false;
   return (
-    state.status !== "checking" &&
-    state.status !== "downloading" &&
-    state.status !== "downloaded" &&
-    state.status !== "disabled"
+    state.status !== "checking" && state.status !== "downloading" && state.status !== "disabled"
   );
 }

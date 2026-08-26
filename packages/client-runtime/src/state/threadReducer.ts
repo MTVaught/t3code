@@ -173,6 +173,9 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           pinnedAt: event.payload.pinnedAt,
+          ...(event.payload.pinOrderKey !== undefined
+            ? { pinOrderKey: event.payload.pinOrderKey }
+            : {}),
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -183,6 +186,17 @@ export function applyThreadDetailEvent(
         thread: {
           ...thread,
           pinnedAt: null,
+          pinOrderKey: null,
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.pin-reordered":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          pinOrderKey: event.payload.orderKey,
           updatedAt: event.payload.updatedAt,
         },
       };
@@ -203,6 +217,9 @@ export function applyThreadDetailEvent(
           ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
           ...(event.payload.worktreePath !== undefined
             ? { worktreePath: event.payload.worktreePath }
+            : {}),
+          ...(event.payload.linkedPullRequest !== undefined
+            ? { linkedPullRequest: event.payload.linkedPullRequest }
             : {}),
           updatedAt: event.payload.updatedAt,
         },

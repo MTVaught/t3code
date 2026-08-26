@@ -108,13 +108,13 @@ describe("desktop update button state", () => {
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
+      "https://github.com/MTVaught/t3code/releases/tag/v0.0.30",
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
-      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+      "https://github.com/MTVaught/t3code/releases/tag/v0.0.30-nightly.20260728.931",
     );
   });
 
@@ -169,7 +169,7 @@ describe("canCheckForUpdate", () => {
     );
   });
 
-  it("returns false once an update has been downloaded", () => {
+  it("returns true once an update has been downloaded so newer releases can be found", () => {
     expect(
       canCheckForUpdate({
         ...baseState,
@@ -177,7 +177,7 @@ describe("canCheckForUpdate", () => {
         availableVersion: "1.1.0",
         downloadedVersion: "1.1.0",
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("returns true when idle", () => {

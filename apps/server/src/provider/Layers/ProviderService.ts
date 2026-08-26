@@ -19,6 +19,7 @@ import {
   ProviderSendTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderUploadFeedbackInput,
   type ProviderInstanceId,
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
@@ -35,6 +36,8 @@ import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
 import * as Stream from "effect/Stream";
 
+import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import * as ServerConfig from "../../config.ts";
 import {
   increment,
   providerMetricAttributes,
@@ -54,6 +57,7 @@ import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
+import * as ServerSettings from "../../serverSettings.ts";
 const isModelSelection = Schema.is(ModelSelection);
 
 /**
@@ -63,6 +67,15 @@ const isModelSelection = Schema.is(ModelSelection);
  */
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogger?: EventNdjsonLogger;
+  /**
+   * Overrides MCP credential issuance. The real issuer reads a module-global
+   * registry that only a running MCP server installs, which makes the
+   * agent-browser-access gate unobservable from a unit test; this seam lets a
+   * test see whether a credential was requested at all.
+   */
+  readonly issueMcpCredential?: typeof McpSessionRegistry.issueActiveMcpCredential;
+  /** Same seam as `issueMcpCredential`, for observing the deny path's revoke. */
+  readonly revokeMcpCredential?: typeof McpSessionRegistry.revokeActiveMcpThread;
 }
 
 type ProviderServiceMethod<Name extends keyof ProviderService.ProviderService["Service"]> =
@@ -201,6 +214,7 @@ const correlateRuntimeEventWithInstance = (
 const makeProviderService = Effect.fn("makeProviderService")(function* (
   options?: ProviderServiceLiveOptions,
 ) {
+  const serverConfig = yield* ServerConfig.ServerConfig;
   const eventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
   // Options-provided logger wins (test overrides); otherwise we take whatever
   // the `ProviderEventLoggers` tag exposes — `undefined` means "no canonical
@@ -210,8 +224,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const registry = yield* ProviderAdapterRegistry.ProviderAdapterRegistry;
   const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const issueMcpCredential =
+    options?.issueMcpCredential ?? McpSessionRegistry.issueActiveMcpCredential;
+  const revokeMcpCredential =
+    options?.revokeMcpCredential ?? McpSessionRegistry.revokeActiveMcpThread;
   const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
+  /** Attach the `t3-code` MCP server to a session when the adapter supports it
+   * and the user has allowed agent browser access. */
   const prepareMcpSession = (
     adapter: ProviderAdapterShape<ProviderAdapterError>,
     threadId: ThreadId,
@@ -219,20 +240,34 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   ) =>
     adapter.capabilities.t3McpInjection === false
       ? Effect.void
-      : McpSessionRegistry.issueActiveMcpCredential({ threadId, providerInstanceId }).pipe(
-          Effect.tap((credential) =>
-            credential
-              ? Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config))
-              : Effect.void,
-          ),
-        );
+      : Effect.gen(function* () {
+          const enabled = yield* serverSettings.getSettings.pipe(
+            Effect.map((settings) => settings.enableAgentBrowserAccess),
+            Effect.catch((cause) =>
+              Effect.logWarning(
+                "Could not read server settings; withholding agent browser access for this session.",
+                { cause },
+              ).pipe(Effect.as(false)),
+            ),
+          );
+          if (!enabled) {
+            yield* revokeMcpCredential(threadId);
+            yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
+            return undefined;
+          }
+          const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+          if (credential) {
+            yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
+          }
+          return credential;
+        });
   const clearMcpSession = (
     adapter: ProviderAdapterShape<ProviderAdapterError>,
     threadId: ThreadId,
   ) =>
     adapter.capabilities.t3McpInjection === false
       ? Effect.void
-      : McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
+      : revokeMcpCredential(threadId).pipe(
           Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
         );
 
@@ -668,16 +703,44 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       payload: rawInput,
     });
 
-    const input = {
-      ...parsed,
-      attachments: parsed.attachments ?? [],
-    };
-    if (!input.input && input.attachments.length === 0) {
+    const attachments = parsed.attachments ?? [];
+    if (!parsed.input && attachments.length === 0) {
       return yield* toValidationError(
         "ProviderService.sendTurn",
         "Either input text or at least one attachment is required",
       );
     }
+
+    // Adapters inline attachment pixels into the model prompt, but the model's
+    // tools cannot dereference pixels. Appending the on-disk path is what lets
+    // a turn like "include this screenshot in the PR" copy the actual file.
+    // This runs after schema decode, so the appended lines are exempt from the
+    // PROVIDER_SEND_TURN_MAX_INPUT_CHARS check; attachment count is capped, so
+    // the overhead is bounded. Unresolvable ids are skipped here and surface
+    // as adapter errors when the file is read for inlining.
+    const attachmentPathLines = attachments.flatMap((attachment) => {
+      const attachmentPath = resolveAttachmentPath({
+        attachmentsDir: serverConfig.attachmentsDir,
+        attachment,
+      });
+      return attachmentPath === null
+        ? []
+        : [`[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`];
+    });
+    const inputTextWithAttachmentPaths =
+      attachmentPathLines.length === 0
+        ? parsed.input
+        : [parsed.input, attachmentPathLines.join("\n")]
+            .filter((part): part is string => typeof part === "string" && part.length > 0)
+            .join("\n\n");
+
+    const input = {
+      ...parsed,
+      ...(inputTextWithAttachmentPaths !== undefined
+        ? { input: inputTextWithAttachmentPaths }
+        : {}),
+      attachments,
+    };
     yield* Effect.annotateCurrentSpan({
       "provider.operation": "send-turn",
       "provider.thread_id": input.threadId,
@@ -1025,6 +1088,47 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     );
   });
 
+  const uploadFeedback: ProviderServiceMethod<"uploadFeedback"> = Effect.fn("uploadFeedback")(
+    function* (rawInput) {
+      const input = yield* decodeInputOrValidationError({
+        operation: "ProviderService.uploadFeedback",
+        schema: ProviderUploadFeedbackInput,
+        payload: rawInput,
+      });
+      let routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.uploadFeedback",
+        allowRecovery: false,
+      });
+      if (routed.adapter.uploadFeedback === undefined) {
+        return yield* toValidationError(
+          "ProviderService.uploadFeedback",
+          `Provider '${routed.adapter.provider}' does not support feedback uploads.`,
+        );
+      }
+      if (!routed.isActive) {
+        routed = yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.uploadFeedback",
+          allowRecovery: true,
+        });
+      }
+      const uploadFeedback = routed.adapter.uploadFeedback;
+      if (uploadFeedback === undefined) {
+        return yield* toValidationError(
+          "ProviderService.uploadFeedback",
+          `Provider '${routed.adapter.provider}' does not support feedback uploads.`,
+        );
+      }
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "upload-feedback",
+        "provider.kind": routed.adapter.provider,
+        "provider.thread_id": input.threadId,
+      });
+      return yield* uploadFeedback(input);
+    },
+  );
+
   const runStopAll = Effect.fn("runStopAll")(function* () {
     const currentAdapters = yield* getAdapterEntries;
     const activeSessions = yield* Effect.forEach(currentAdapters, ([instanceId, adapter]) =>
@@ -1092,6 +1196,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     getProjectMetadata,
     getInstanceInfo,
     rollbackConversation,
+    uploadFeedback,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
     // independently receive all runtime events.

@@ -160,16 +160,30 @@ export function validateServerUpdateReadyEvent(
  * each nudge is the pacer: a connection that fails instantly re-enters backoff
  * immediately and would otherwise spin a tight retry loop.
  *
+ * A newly restarted server can also reject the first environment credential.
+ * Authentication blocks need the same paced retry during this known restart;
+ * permission and configuration failures remain blocked.
+ *
  * Callers fork this as a child of the update command so it is interrupted as
  * soon as the update settles, whether it succeeds, fails, or times out.
  */
 export function nudgeReconnectDuringUpdateRestart(input: {
-  readonly stateChanges: Stream.Stream<{ readonly phase: string }, unknown>;
+  readonly stateChanges: Stream.Stream<
+    {
+      readonly phase: string;
+      readonly lastFailure?: { readonly reason: string } | null;
+    },
+    unknown
+  >;
   readonly retryNow: Effect.Effect<void>;
   readonly interval?: Duration.Duration;
 }): Effect.Effect<void> {
   return input.stateChanges.pipe(
-    Stream.filter((state) => state.phase === "backoff"),
+    Stream.filter(
+      (state) =>
+        state.phase === "backoff" ||
+        (state.phase === "blocked" && state.lastFailure?.reason === "authentication"),
+    ),
     Stream.runForEach(() =>
       Effect.sleep(input.interval ?? Duration.seconds(1)).pipe(Effect.andThen(input.retryNow)),
     ),
@@ -706,6 +720,13 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:resource-telemetry-history",
       tag: WS_METHODS.serverGetResourceTelemetryHistory,
       staleTimeMs: 5_000,
+    }),
+    // A cold transcript scan is measured in seconds, so keep the result around
+    // long enough that switching windows or re-rendering does not rescan.
+    usageSummary: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:usage-summary",
+      tag: WS_METHODS.serverGetUsageSummary,
+      staleTimeMs: 60_000,
     }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {

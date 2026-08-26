@@ -37,6 +37,8 @@ brew install --cask t3-code
 
 Arch Linux:
 
+Stable:
+
 ```bash
 yay -S t3code-bin
 ```
@@ -63,6 +65,12 @@ some npm-distributed native dependencies require a newer system ABI.
 
 Provider CLIs run as separate programs and must independently support RHEL 8.
 
+Nightly:
+
+```bash
+yay -S t3code-nightly-bin
+```
+
 ## Providers
 
 T3 Code drives provider CLIs; it does not ship them. Install the CLI for each provider you want
@@ -76,6 +84,9 @@ to use, then authenticate it.
 | Grok Build | [Grok Build CLI](https://x.ai/cli)                    | `grok`         | `grok login`          |
 | OpenCode   | [OpenCode](https://opencode.ai)                       | `opencode`     | `opencode auth login` |
 | IBM Bob    | [Bob Shell](https://bob.ibm.com/docs/shell/)          | `bob`          | Bob's sign-in flow    |
+
+Codex and Claude are on by default. Cursor, Grok Build, and OpenCode are off by default; turn
+them on in **Settings** → the provider's card when you want to use them.
 
 Cursor is the one to watch: install Cursor CLI, which provides the `cursor-agent` binary that
 T3 Code looks for, but authenticate with `agent login`, not `cursor-agent login`.
