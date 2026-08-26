@@ -25,15 +25,12 @@ import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStri
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { ComposerSurface } from "./ThreadComposer";
+import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
+import { useThreadSettingsSheetPresentation } from "./use-thread-settings-sheet-presentation";
 
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
-import {
-  applyProviderOptionMenuEvent,
-  buildProviderOptionMenuActions,
-  providerOptionsConfigurationLabel,
-  resolveProviderOptionDescriptors,
-} from "../../lib/providerOptions";
+import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import {
   clearComposerDraftContent,
@@ -43,7 +40,7 @@ import {
   type ComposerDraft,
 } from "../../state/use-composer-drafts";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
-import { buildModelMenuActions, resolveSelectableModelSelection } from "../../lib/modelOptions";
+import { resolveSelectableModelSelection } from "../../lib/modelOptions";
 import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { enqueueThreadOutboxMessage, removeThreadOutboxMessage } from "../../state/thread-outbox";
@@ -103,6 +100,10 @@ export function NewTaskDraftScreen(props: {
   const promptInputRef = useRef<ComposerEditorHandle>(null);
   const loadedBranchesProjectKeyRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
+  const settingsSheetPresentation = useThreadSettingsSheetPresentation({
+    editorRef: promptInputRef,
+    isEditorFocused: isComposerFocused,
+  });
   const [importingShareKey, setImportingShareKey] = useState<string | null>(null);
   const [isCancellingShareImport, setIsCancellingShareImport] = useState(false);
   const [cancelledIncomingShareId, setCancelledIncomingShareId] = useState<string | null>(null);
@@ -521,7 +522,15 @@ export function NewTaskDraftScreen(props: {
 
     let focusFrame: ReturnType<typeof requestAnimationFrame> | null = null;
     const interaction = InteractionManager.runAfterInteractions(() => {
-      focusFrame = requestAnimationFrame(() => promptInputRef.current?.focus());
+      focusFrame = requestAnimationFrame(() => {
+        // The delayed focus can land after the settings sheet opened, which
+        // would pop the keyboard underneath its modal.
+        if (!settingsSheetPresentation.isActiveRef.current) {
+          promptInputRef.current?.focus();
+        } else {
+          settingsSheetPresentation.restoreFocusAfterSave();
+        }
+      });
     });
 
     return () => {
@@ -530,7 +539,11 @@ export function NewTaskDraftScreen(props: {
         cancelAnimationFrame(focusFrame);
       }
     };
-  }, [selectedProject]);
+  }, [
+    selectedProject,
+    settingsSheetPresentation.isActiveRef,
+    settingsSheetPresentation.restoreFocusAfterSave,
+  ]);
 
   const environmentMenuActions = useMemo(
     () =>
@@ -544,10 +557,6 @@ export function NewTaskDraftScreen(props: {
     [flow.environments, flow.selectedEnvironmentId, isIncomingShareTransferPending],
   );
 
-  const modelMenuActions = useMemo(
-    () => buildModelMenuActions(flow.providerGroups, flow.selectedModel),
-    [flow.providerGroups, flow.selectedModel],
-  );
   const providerOptionDescriptors = useMemo(
     () =>
       resolveProviderOptionDescriptors({
@@ -716,10 +725,6 @@ export function NewTaskDraftScreen(props: {
     flow.availableBranches.find((branch) => branch.current)?.name ??
     flow.availableBranches.find((branch) => branch.isDefault)?.name ??
     null;
-  const configurationLabel = useMemo(
-    () => providerOptionsConfigurationLabel(providerOptionDescriptors),
-    [providerOptionDescriptors],
-  );
   const workspaceLabel = useMemo(
     () =>
       formatWorkspaceLabel({
@@ -729,13 +734,6 @@ export function NewTaskDraftScreen(props: {
       }),
     [currentBranchName, flow.selectedBranchName, flow.workspaceMode],
   );
-  function handleModelMenuAction(event: string) {
-    if (isIncomingShareTransferPending || !event.startsWith("model:")) {
-      return;
-    }
-    flow.setSelectedModelKey(event.slice("model:".length));
-  }
-
   function handleEnvironmentMenuAction(event: string) {
     if (isIncomingShareTransferPending || !event.startsWith("environment:")) {
       return;
@@ -982,7 +980,9 @@ export function NewTaskDraftScreen(props: {
   const isDarkMode = colorScheme === "dark";
   // Android expansion follows native editor focus so relayout cannot race
   // the touch gesture that opens the keyboard.
-  const isExpanded = !isAndroid || isComposerFocused;
+  // The settings sheet dismisses the keyboard, so its flag keeps the Android
+  // draft composer expanded through the blur (mirrors ThreadComposer).
+  const isExpanded = !isAndroid || isComposerFocused || settingsSheetPresentation.isActive;
   const canStart =
     Boolean(flow.selectedProject) &&
     Boolean(flow.selectedModel) &&
@@ -1089,6 +1089,21 @@ export function NewTaskDraftScreen(props: {
     </>
   );
 
+  const settingsSheet = (
+    <ThreadSettingsSheet
+      visible={settingsSheetPresentation.isVisible}
+      onClose={settingsSheetPresentation.close}
+      onDismissed={settingsSheetPresentation.onDismissed}
+      providerGroups={flow.providerGroups}
+      selectedModel={flow.selectedModel}
+      onSelectModel={(option) => flow.setSelectedModelKey(option.key, option.selection.options)}
+      optionDescriptors={providerOptionDescriptors}
+      onUpdateOptionSelections={flow.setSelectedModelOptions}
+      runtimeMode={flow.runtimeMode}
+      onUpdateRuntimeMode={flow.setRuntimeMode}
+    />
+  );
+
   const startButton = (
     <ComposerToolbarButton
       accessibilityLabel={
@@ -1178,6 +1193,7 @@ export function NewTaskDraftScreen(props: {
             ) : null}
           </View>
         </KeyboardAvoidingView>
+        {settingsSheet}
       </View>
     );
   }
@@ -1211,6 +1227,7 @@ export function NewTaskDraftScreen(props: {
           </ComposerToolbarRow>
         </View>
       </KeyboardAvoidingView>
+      {settingsSheet}
     </View>
   );
 }

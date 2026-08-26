@@ -1,5 +1,6 @@
 export interface ClerkSignInProps {
   forceRedirectUrl?: string;
+  signUpForceRedirectUrl?: string;
 }
 
 // Clerk's native-app allowlist only authorizes the bare renderer root

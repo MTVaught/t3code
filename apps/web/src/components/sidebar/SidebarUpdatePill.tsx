@@ -77,7 +77,7 @@ export function SidebarUpdatePill() {
   const arm64Description =
     state && showArm64Warning ? getArm64IntelBuildWarningDescription(state) : null;
 
-  const handleAction = useCallback(() => {
+  const handleAction = useCallback(async () => {
     const bridge = window.desktopBridge;
     if (!bridge || !state) return;
     if (disabled || action === "none") return;
@@ -113,7 +113,7 @@ export function SidebarUpdatePill() {
       )}
       {visible && (
         <div
-          className={`group/update relative flex h-7 w-full items-center rounded-lg bg-update-surface text-xs font-medium text-update ${
+          className={`group/update relative flex h-7 w-full items-center rounded-lg bg-update-surface text-xs font-medium text-update-foreground ${
             disabled ? " cursor-not-allowed opacity-60" : ""
           }`}
         >
@@ -159,7 +159,7 @@ export function SidebarUpdatePill() {
                   <button
                     type="button"
                     aria-label="Dismiss update"
-                    className="mr-1 inline-flex size-5 items-center justify-center rounded-md text-update/60 transition-colors hover:text-update"
+                    className="mr-1 inline-flex size-5 items-center justify-center rounded-md text-update-foreground transition-colors"
                     onClick={() => setDismissed(true)}
                   >
                     <XIcon className="size-3.5" />
