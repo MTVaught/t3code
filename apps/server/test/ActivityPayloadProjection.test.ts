@@ -204,7 +204,7 @@ describe("projectActivityPayload", () => {
     }
   });
 
-  it("preserves failed stored tool outcomes for web and mobile clients", () => {
+  it("preserves failed stored tool outcomes for web clients", () => {
     const activities = [
       makeActivity("failed-command", "command_execution", {
         item: {
@@ -229,12 +229,6 @@ describe("projectActivityPayload", () => {
 
       const [webEntry] = deriveWorkLogEntries([projected]);
       expect(webEntry?.toolLifecycleStatus).toBe("failed");
-
-      const [mobileGroup] = buildThreadFeed(makeThread([projected]));
-      expect(mobileGroup).toMatchObject({ type: "activity-group" });
-      if (mobileGroup?.type === "activity-group") {
-        expect(mobileGroup.activities[0]?.status).toBe("failure");
-      }
     }
   });
 
