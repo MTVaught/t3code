@@ -169,14 +169,6 @@ jobs:
       - name: Test
         run: vp run test
 
-      - id: previous_tag
-        name: Resolve previous release tag
-        run: |
-          node scripts/resolve-previous-release-tag.ts \
-            --channel "${{ steps.release_meta.outputs.release_channel }}" \
-            --current-tag "${{ steps.release_meta.outputs.tag }}" \
-            --github-output
-
   # The WSL backend runs under Linux Node and cannot load Electron's Windows
   # node-pty binary. Build the Linux binary separately for the Windows package.
   build_wsl_node_pty:
