@@ -67,7 +67,13 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.appRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
+      assert.equal(environment.appUserModelId, "dev.treher.t3code.dev");
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Dev",
+        displayName: "T3 Code (Treher Dev)",
+      });
+      assert.equal(environment.displayName, "T3 Code (Treher Dev)");
       assert.equal(environment.linuxWmClass, "t3code-dev");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
@@ -95,6 +101,25 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.logDir, "/tmp/t3/userdata/logs");
       assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
       assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Alpha",
+        displayName: "T3 Code (Treher)",
+      });
+    }),
+  );
+
+  it.effect("adds the nightly channel to the fork display name", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appVersion: "0.0.23-nightly.20260825.1",
+      });
+
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Nightly",
+        displayName: "T3 Code (Treher Nightly)",
+      });
     }),
   );
 
@@ -116,12 +141,12 @@ describe("DesktopEnvironment", () => {
       const environment = yield* makeEnvironment(
         {},
         {
-          T3CODE_DESKTOP_APP_USER_MODEL_ID: " com.t3tools.t3code.dev.local ",
+          T3CODE_DESKTOP_APP_USER_MODEL_ID: " dev.treher.t3code.dev.local ",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
         },
       );
 
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev.local");
+      assert.equal(environment.appUserModelId, "dev.treher.t3code.dev.local");
     }),
   );
 
