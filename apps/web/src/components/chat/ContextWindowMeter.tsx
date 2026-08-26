@@ -1,6 +1,9 @@
+import { Button } from "../ui/button";
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { formatContextWindowCompactionMessage } from "./ContextWindowMeter.logic";
+import { Minimize2Icon } from "lucide-react";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -13,14 +16,16 @@ function formatPercentage(value: number | null): string | null {
 }
 
 export function ContextWindowMeter(props: {
-  usage: ContextWindowSnapshot | null;
-  providerDisplayName?: string | null;
+  usage: ContextWindowSnapshot;
+  modelDisplayName?: string | null;
+  onCompact?: (() => void) | undefined;
+  compactDisabled?: boolean | undefined;
+  compactDisabledReason?: string | null | undefined;
 }) {
-  const { usage, providerDisplayName } = props;
-  if (!usage) return null;
-  const hasContextMaximum = usage?.maxTokens !== null && usage?.maxTokens !== undefined;
-  const usedPercentage = formatPercentage(usage?.usedPercentage ?? null);
-  const normalizedPercentage = Math.max(0, Math.min(100, usage?.usedPercentage ?? 0));
+  const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const hasContextMaximum = usage.maxTokens !== null && usage.maxTokens !== undefined;
+  const usedPercentage = formatPercentage(usage.usedPercentage);
+  const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - normalizedPercentage / 100);
@@ -36,7 +41,7 @@ export function ContextWindowMeter(props: {
       <PopoverTrigger
         openOnHover
         delay={150}
-        closeDelay={0}
+        closeDelay={onCompact ? 150 : 0}
         render={
           <button
             type="button"
@@ -172,8 +177,27 @@ export function ContextWindowMeter(props: {
           ) : null}
           {usage?.compactsAutomatically ? (
             <div className="mt-1 text-pretty text-secondary-label text-[11px] font-medium">
-              {providerDisplayName ?? "It"} automatically compacts its context when needed.
+              {formatContextWindowCompactionMessage(modelDisplayName, usage.autoCompactThreshold)}
             </div>
+          ) : null}
+          {onCompact ? (
+            <>
+              <Button
+                size="xs"
+                variant="outline"
+                className="mt-1 w-full justify-center"
+                disabled={compactDisabled}
+                onClick={onCompact}
+              >
+                <Minimize2Icon aria-hidden="true" />
+                Compact context
+              </Button>
+              {compactDisabled && compactDisabledReason ? (
+                <div className="text-pretty text-secondary-label text-[11px]">
+                  {compactDisabledReason}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
       </PopoverPopup>

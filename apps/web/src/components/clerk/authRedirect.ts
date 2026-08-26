@@ -9,5 +9,7 @@ export interface ClerkSignInProps {
 // rejected. On Electron, omit the override and let Clerk use its defaults.
 export function resolveClerkSignInProps(href: string, isElectron: boolean): ClerkSignInProps {
   if (isElectron) return {};
-  return { forceRedirectUrl: href };
+  // The sign-in modal can switch to sign-up, which follows its own redirect
+  // target; without one Clerk falls back to the URL the modal was opened from.
+  return { forceRedirectUrl: href, signUpForceRedirectUrl: href };
 }
