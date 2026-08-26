@@ -782,13 +782,15 @@ export const make = (
       cancel: getStartedState.pipe(
         Effect.flatMap((started) =>
           Effect.gen(function* () {
+            const payload = { sessionId: started.sessionId };
+            // Deliver cancellation before releasing the local prompt. If the
+            // prompt fiber is interrupted first, callers can observe a stopped
+            // turn while the agent is still working and streaming updates.
+            yield* runLoggedRequest("session/cancel", payload, acp.agent.cancel(payload));
             const activePromptFiber = yield* Ref.get(activePromptFiberRef);
             if (Option.isSome(activePromptFiber)) {
               yield* Fiber.interrupt(activePromptFiber.value).pipe(Effect.ignore);
             }
-            yield* acp.agent
-              .cancel({ sessionId: started.sessionId })
-              .pipe(Effect.ignore, Effect.forkIn(runtimeScope));
           }),
         ),
       ),

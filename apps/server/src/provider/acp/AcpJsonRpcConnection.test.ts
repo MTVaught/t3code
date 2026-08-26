@@ -256,8 +256,9 @@ describe("AcpSessionRuntime", () => {
     ),
   );
 
-  it.effect("releases a fully silent prompt when session/cancel is requested", () =>
-    Effect.gen(function* () {
+  it.effect("releases a fully silent prompt when session/cancel is requested", () => {
+    const requests: Array<AcpSessionRuntime.AcpSessionRequestLogEvent> = [];
+    return Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime.AcpSessionRuntime;
       yield* runtime.start();
 
@@ -269,6 +270,11 @@ describe("AcpSessionRuntime", () => {
 
       yield* TestClock.adjust("500 millis");
       yield* runtime.cancel;
+
+      expect(requests.filter((event) => event.method === "session/cancel")).toEqual([
+        expect.objectContaining({ status: "started" }),
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
 
       const firstPromptResult = yield* Fiber.join(promptFiber);
       expect(firstPromptResult).toMatchObject({ stopReason: "cancelled" });
@@ -290,12 +296,13 @@ describe("AcpSessionRuntime", () => {
           cwd: process.cwd(),
           clientInfo: { name: "t3-test", version: "0.0.0" },
           authMethodId: "test",
+          requestLogger: (event) => Effect.sync(() => requests.push(event)),
         }),
       ),
       Effect.scoped,
       Effect.provide(NodeServices.layer),
-    ),
-  );
+    );
+  });
 
   it.effect("segments assistant text around ACP tool calls", () =>
     Effect.gen(function* () {
