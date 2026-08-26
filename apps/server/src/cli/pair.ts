@@ -5,7 +5,7 @@
  * Discovery reads the `server-runtime.json` a live server persists next to its
  * database, then confirms the process is actually answering by fetching its
  * public environment descriptor. Inside a linked git worktree the worktree's
- * own `.t3` is checked first (matching dev-runner precedence); otherwise the
+ * own `.t3-treher` is checked first (matching dev-runner precedence); otherwise the
  * shared T3 home. `--tailscale` publishes the server over Tailscale Serve
  * HTTPS and pairs through the tailnet URL instead.
  */
@@ -15,6 +15,7 @@ import {
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { PRODUCTION_STATE_DIRECTORY_NAME } from "@t3tools/shared/statePaths";
 import {
   buildTailscaleHttpsBaseUrl,
   DEFAULT_TAILSCALE_SERVE_PORT,
@@ -62,10 +63,10 @@ const PAIR_PROBE_TIMEOUT = Duration.millis(2_500);
 const TAILSCALE_PROBE_ATTEMPTS = 5;
 const TAILSCALE_PROBE_RETRY_DELAY = Duration.seconds(1);
 
-export type PairStateVariant = "userdata" | "dev";
+export type PairStateVariant = typeof PRODUCTION_STATE_DIRECTORY_NAME | "dev";
 
 // deriveServerPaths only checks devUrl for undefined-ness when picking the
-// dev-vs-userdata state directory; the value itself is not used.
+// dev-vs-production state directory; the value itself is not used.
 const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 
 export class NoRunningServerError extends Schema.TaggedErrorClass<NoRunningServerError>()(
@@ -254,7 +255,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
   if (explicitBaseDir !== undefined && explicitBaseDir.trim().length > 0) {
     bases.push(yield* resolveBaseDir(explicitBaseDir));
   } else {
-    // Same precedence as dev-runner: inside a linked worktree its own `.t3`
+    // Same precedence as dev-runner: inside a linked worktree its own `.t3-treher`
     // outranks the shared home, so `t3 pair` in a worktree pairs with the dev
     // server under test rather than the daily-driver install.
     const worktreeHome = yield* resolveWorktreeT3Home(process.cwd());
@@ -267,7 +268,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
 
   const checkedStatePaths: Array<string> = [];
   for (const baseDir of new Set(bases)) {
-    for (const variant of ["userdata", "dev"] as const) {
+    for (const variant of [PRODUCTION_STATE_DIRECTORY_NAME, "dev"] as const) {
       const derivedPaths = yield* ServerConfig.deriveServerPaths(
         baseDir,
         variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
@@ -303,7 +304,7 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
 /**
  * Server config pointed at the discovered server's state directory, so the
  * minted token lands in the database the running server reads from. Built by
- * hand rather than through `resolveServerConfig` to keep the dev-vs-userdata
+ * hand rather than through `resolveServerConfig` to keep the dev-vs-production
  * choice pinned to where the runtime state was actually found, independent of
  * ambient environment variables.
  */

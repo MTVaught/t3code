@@ -1,3 +1,7 @@
+import {
+  DEFAULT_TREHER_HOME_DIRECTORY_NAME,
+  PRODUCTION_STATE_DIRECTORY_NAME,
+} from "@t3tools/shared/statePaths";
 import * as Option from "effect/Option";
 
 export type JoinPath = (first: string, ...segments: string[]) => string;
@@ -16,7 +20,7 @@ export function resolveDesktopBaseDir(input: {
   readonly t3Home: Option.Option<string>;
 }): string {
   return Option.getOrElse(normalizeConfiguredBaseDir(input.t3Home), () =>
-    input.joinPath(input.homeDirectory, ".t3"),
+    input.joinPath(input.homeDirectory, DEFAULT_TREHER_HOME_DIRECTORY_NAME),
   );
 }
 
@@ -28,5 +32,5 @@ export function resolveDesktopStateDir(input: {
 }): string {
   const useDevSubdir =
     input.isDevelopment && Option.isNone(normalizeConfiguredBaseDir(input.t3Home));
-  return input.joinPath(input.baseDir, useDevSubdir ? "dev" : "userdata");
+  return input.joinPath(input.baseDir, useDevSubdir ? "dev" : PRODUCTION_STATE_DIRECTORY_NAME);
 }
