@@ -9,7 +9,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import * as IpcChannels from "./ipc/channels.ts";
 
-exposeClerkBridge({ passkeys: true });
+exposeClerkBridge();
 
 function unwrapEnsureSshEnvironmentResult(result: unknown) {
   if (

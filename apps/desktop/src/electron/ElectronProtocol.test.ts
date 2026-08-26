@@ -44,11 +44,11 @@ describe("ElectronProtocol", () => {
 
           const response = yield* Effect.promise(() =>
             handler!(
-              new Request("t3code-dev://app/api/health?verbose=1", {
+              new Request("treher-t3code-dev://app/api/health?verbose=1", {
                 headers: {
                   accept: "application/json",
-                  origin: "t3code-dev://app",
-                  referer: "t3code-dev://app/",
+                  origin: "treher-t3code-dev://app",
+                  referer: "treher-t3code-dev://app/",
                   "sec-fetch-site": "same-origin",
                 },
               }),
@@ -104,7 +104,7 @@ describe("ElectronProtocol", () => {
             backendOrigin: new URL("http://127.0.0.1:3773/"),
             clerkFrontendApiHostname: undefined,
           });
-          return yield* Effect.promise(() => handler!(new Request("t3code://other/")));
+          return yield* Effect.promise(() => handler!(new Request("treher-t3code://other/")));
         }),
       );
 
@@ -132,7 +132,7 @@ describe("ElectronProtocol", () => {
             backendOrigin: new URL("http://127.0.0.1:3773/"),
             clerkFrontendApiHostname: undefined,
           });
-          return yield* Effect.promise(() => handler!(new Request("t3code-dev://app/")));
+          return yield* Effect.promise(() => handler!(new Request("treher-t3code-dev://app/")));
         }),
       );
 
