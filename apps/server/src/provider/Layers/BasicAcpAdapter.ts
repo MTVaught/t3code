@@ -16,10 +16,12 @@ import {
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
@@ -69,6 +71,7 @@ interface SessionContext {
   activeTurnId: TurnId | undefined;
   lastPlanFingerprint: string | undefined;
   promptInFlight: boolean;
+  suppressTurnEvents: boolean;
   stopped: boolean;
 }
 
@@ -77,6 +80,7 @@ export interface BasicAcpAdapterOptions {
   readonly instanceId: ProviderInstanceId;
   readonly displayName: string;
   readonly builtInModes: ReadonlyArray<ServerProviderMode>;
+  readonly interruptGracePeriod?: Duration.Input;
   readonly makeRuntime: (input: {
     readonly threadId: ThreadId;
     readonly cwd: string;
@@ -159,13 +163,18 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
 
   const stopInternal = Effect.fn("BasicAcpAdapter.stopInternal")(function* (
     context: SessionContext,
+    graceful = true,
   ) {
     if (context.stopped) return;
     context.stopped = true;
     for (const pending of context.pendingApprovals.values()) {
       yield* Deferred.succeed(pending.decision, "cancel").pipe(Effect.ignore);
     }
-    yield* context.acp.close.pipe(Effect.ignore);
+    if (graceful) {
+      yield* context.acp.close.pipe(Effect.ignore);
+    } else {
+      yield* context.acp.terminate;
+    }
     if (context.notificationFiber) yield* Fiber.interrupt(context.notificationFiber);
     yield* Scope.close(context.scope, Exit.void).pipe(Effect.ignore);
     sessions.delete(context.threadId);
@@ -342,6 +351,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           activeTurnId: undefined,
           lastPlanFingerprint: undefined,
           promptInFlight: false,
+          suppressTurnEvents: false,
           stopped: false,
         };
         context.notificationFiber = yield* Stream.runDrain(
@@ -380,6 +390,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                 }
                 case "AssistantItemStarted":
                 case "AssistantItemCompleted":
+                  if (context.suppressTurnEvents) return;
                   yield* publish(
                     makeAcpAssistantItemEvent({
                       stamp: yield* stamp(),
@@ -393,6 +404,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   );
                   return;
                 case "PlanUpdated": {
+                  if (context.suppressTurnEvents) return;
                   const fingerprint = event.payload.plan
                     .map((entry) => `${entry.status}:${entry.step}`)
                     .join("\n");
@@ -413,6 +425,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   return;
                 }
                 case "ToolCallUpdated":
+                  if (context.suppressTurnEvents) return;
                   yield* publish(
                     makeAcpToolCallEvent({
                       stamp: yield* stamp(),
@@ -425,6 +438,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   );
                   return;
                 case "ContentDelta":
+                  if (context.suppressTurnEvents) return;
                   yield* publish(
                     makeAcpContentDeltaEvent({
                       stamp: yield* stamp(),
@@ -535,6 +549,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
       const turnId = TurnId.make(yield* randomId);
       context.activeTurnId = turnId;
       context.promptInFlight = true;
+      context.suppressTurnEvents = false;
       context.lastPlanFingerprint = undefined;
       context.session = {
         ...context.session,
@@ -551,13 +566,15 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         payload: { model: context.session.model ?? "provider-managed" },
       });
       return yield* Effect.gen(function* () {
-        const result = yield* context.acp
-          .prompt({ prompt })
-          .pipe(
-            Effect.mapError((error) =>
-              mapAcpToAdapterError(options.provider, input.threadId, "session/prompt", error),
-            ),
-          );
+        const result = context.suppressTurnEvents
+          ? ({ stopReason: "cancelled" } as const)
+          : yield* context.acp
+              .prompt({ prompt })
+              .pipe(
+                Effect.mapError((error) =>
+                  mapAcpToAdapterError(options.provider, input.threadId, "session/prompt", error),
+                ),
+              );
         context.turns.push({ id: turnId, items: [{ prompt, result }] });
         context.session = {
           ...context.session,
@@ -628,10 +645,27 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     interruptTurn: (threadId) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
+        context.suppressTurnEvents = true;
         for (const pending of context.pendingApprovals.values()) {
           yield* Deferred.succeed(pending.decision, "cancel").pipe(Effect.ignore);
         }
-        yield* context.acp.cancel.pipe(Effect.ignore);
+        const cancellationResult = yield* Deferred.make<
+          EffectAcpSchema.PromptResponse | undefined,
+          EffectAcpErrors.AcpError
+        >();
+        yield* Deferred.complete(cancellationResult, context.acp.cancelAndAwaitPrompt).pipe(
+          Effect.forkIn(context.scope),
+        );
+        const settled = yield* Deferred.await(cancellationResult).pipe(
+          Effect.timeoutOption(options.interruptGracePeriod ?? "8 seconds"),
+          Effect.match({
+            onFailure: () => false,
+            onSuccess: Option.isSome,
+          }),
+        );
+        if (settled) return;
+
+        yield* stopInternal(context, false);
       }),
     respondToRequest: (threadId, requestId, decision) =>
       Effect.gen(function* () {

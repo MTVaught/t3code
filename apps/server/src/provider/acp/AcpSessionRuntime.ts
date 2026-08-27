@@ -210,6 +210,13 @@ export class AcpSessionRuntime extends Context.Service<
      * @see https://agentclientprotocol.com/protocol/schema#session/cancel
      */
     readonly cancel: Effect.Effect<void, EffectAcpErrors.AcpError>;
+    /** Sends cancellation and waits for the active prompt response, if any. */
+    readonly cancelAndAwaitPrompt: Effect.Effect<
+      EffectAcpSchema.PromptResponse | undefined,
+      EffectAcpErrors.AcpError
+    >;
+    /** Terminates the ACP subprocess when cooperative cancellation is wedged. */
+    readonly terminate: Effect.Effect<void>;
     /** Gracefully closes the active ACP session without deleting its persisted history. */
     readonly close: Effect.Effect<EffectAcpSchema.CloseSessionResponse, EffectAcpErrors.AcpError>;
     /**
@@ -801,6 +808,20 @@ export const make = (
           }),
         ),
       ),
+      cancelAndAwaitPrompt: getStartedState.pipe(
+        Effect.flatMap((started) =>
+          Effect.gen(function* () {
+            const activePromptFiber = yield* Ref.get(activePromptFiberRef);
+            const payload = { sessionId: started.sessionId };
+            yield* runLoggedRequest("session/cancel", payload, acp.agent.cancel(payload));
+            if (Option.isNone(activePromptFiber)) return undefined;
+            return yield* Fiber.join(activePromptFiber.value);
+          }),
+        ),
+      ),
+      terminate: child
+        .kill({ killSignal: "SIGTERM", forceKillAfter: "1 second" })
+        .pipe(Effect.ignore),
       close: getStartedState.pipe(
         Effect.flatMap((started) => {
           const payload = {
