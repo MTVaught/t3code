@@ -112,6 +112,8 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
+- The upstream T3 Code repository is read-only. Never push branches, open or update pull requests, post comments, edit issues, or perform any other write against upstream.
+- All GitHub writes, including branch pushes and pull requests, must target the developer's fork (`MTVaught/t3code`). Before pushing or creating a PR, verify the target repository owner explicitly; do not rely on CLI defaults or an `upstream` remote.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
