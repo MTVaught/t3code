@@ -31,6 +31,7 @@ import {
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
+  resolveDesktopPackageIdentity,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
   resolveLinuxNativePrebuildPaths,
@@ -157,6 +158,17 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       resolveDesktopProductName("0.0.17-nightly.20260413.42"),
       "T3 Code (Treher Nightly)",
     );
+  });
+
+  it("embeds the Treher product name in the staged Electron manifest", () => {
+    assert.deepStrictEqual(resolveDesktopPackageIdentity("0.0.17"), {
+      name: "t3code",
+      productName: "T3 Code (Treher)",
+    });
+    assert.deepStrictEqual(resolveDesktopPackageIdentity("0.0.17-nightly.20260413.42"), {
+      name: "t3code",
+      productName: "T3 Code (Treher Nightly)",
+    });
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
