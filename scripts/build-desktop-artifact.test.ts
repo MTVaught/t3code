@@ -214,6 +214,18 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
+      const forkConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_DESKTOP_UPDATE_REPOSITORY: "MTVaught/t3code",
+                GITHUB_REPOSITORY: "pingdotgg/t3code",
+              },
+            }),
+          ),
+        ),
+      );
 
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
@@ -227,6 +239,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         repo: "t3code",
         releaseType: "prerelease",
         channel: "nightly",
+      });
+      assert.deepStrictEqual(forkConfig, {
+        provider: "github",
+        owner: "MTVaught",
+        repo: "t3code",
+        releaseType: "release",
       });
     }),
   );
