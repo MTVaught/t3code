@@ -6,7 +6,6 @@ import {
   type ServerProviderMode,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
-import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -30,7 +29,6 @@ export const BOB_BUILT_IN_MODES: ReadonlyArray<ServerProviderMode> = [
 export interface BobAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
   readonly instanceId?: ProviderInstanceId;
-  readonly interruptGracePeriod?: Duration.Input;
 }
 
 export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
@@ -46,9 +44,6 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     instanceId,
     displayName: "Bob",
     builtInModes: BOB_BUILT_IN_MODES,
-    ...(options?.interruptGracePeriod
-      ? { interruptGracePeriod: options.interruptGracePeriod }
-      : {}),
     makeRuntime: ({ threadId, cwd, resumeSessionId, mcpServers, scope }) =>
       makeBobAcpRuntime({
         bobSettings: settings,

@@ -14,7 +14,6 @@ import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../../config.ts";
@@ -169,7 +168,7 @@ describe("Bob ACP adapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
-  it.effect("waits for Bob to acknowledge cancellation before accepting another turn", () =>
+  it.effect("treats cancellation as a hard Bob session boundary", () =>
     Effect.gen(function* () {
       const wrapper = yield* Effect.promise(() =>
         makeBobWrapper({
@@ -203,33 +202,29 @@ describe("Bob ACP adapter", () => {
       yield* adapter.interruptTurn(threadId);
       yield* Fiber.join(firstTurn);
 
-      const secondTurn = yield* adapter.sendTurn({ threadId, input: "continue" });
-      expect(secondTurn.threadId).toBe(threadId);
-      expect((yield* adapter.listSessions())[0]?.status).toBe("ready");
-      yield* adapter.stopSession(threadId);
+      expect(yield* adapter.listSessions()).toEqual([]);
       yield* Fiber.interrupt(eventsFiber);
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
-  it.effect("terminates Bob when it does not acknowledge cancellation", () =>
+  it.effect("kills Bob child processes that ignore graceful termination", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
         NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bob-acp-hard-stop-")),
       );
-      const exitLogPath = NodePath.join(directory, "exits.log");
+      const childPidPath = NodePath.join(directory, "child.pid");
       const wrapper = yield* Effect.promise(() =>
         makeBobWrapper({
           environment: {
             T3_ACP_HANG_PROMPT_FOREVER: "1",
             T3_ACP_IGNORE_CANCEL: "1",
             T3_ACP_EMIT_BEFORE_HANG: "1",
+            T3_ACP_CHILD_PID_PATH: childPidPath,
           },
-          exitLogPath,
         }),
       );
       const adapter = yield* makeBobAdapter(
         decodeBobSettings({ enabled: true, binaryPath: wrapper }),
-        { interruptGracePeriod: "100 millis" },
       );
       const threadId = ThreadId.make("bob-acp-hard-stop");
       const promptRunning = yield* Deferred.make<void>();
@@ -249,17 +244,14 @@ describe("Bob ACP adapter", () => {
         .sendTurn({ threadId, input: "never settle" })
         .pipe(Effect.forkChild({ startImmediately: true }));
       yield* Deferred.await(promptRunning);
-      const interrupt = yield* adapter
-        .interruptTurn(threadId)
-        .pipe(Effect.forkChild({ startImmediately: true }));
-      yield* TestClock.adjust("100 millis");
-      yield* Fiber.join(interrupt);
+      const childPid = Number(yield* Effect.promise(() => NodeFSP.readFile(childPidPath, "utf8")));
+      expect(() => process.kill(childPid, 0)).not.toThrow();
+
+      yield* adapter.interruptTurn(threadId);
       yield* Fiber.await(turn);
 
       expect(yield* adapter.listSessions()).toEqual([]);
-      expect(yield* Effect.promise(() => NodeFSP.readFile(exitLogPath, "utf8"))).toContain(
-        "SIGTERM",
-      );
+      expect(() => process.kill(childPid, 0)).toThrow();
       yield* Fiber.interrupt(eventsFiber);
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
