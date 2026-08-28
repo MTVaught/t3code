@@ -1,10 +1,9 @@
 name: Release
 
 on:
-  schedule:
-    - cron: "0 4 * * *"
-      timezone: America/Chicago
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
       - "!v*-nightly.*"
@@ -23,8 +22,9 @@ on:
         required: false
         type: string
 
-# Nightly releases run at 4:00 AM Central time. Stable releases are triggered
-# by a `v*.*.*` tag push or a manual "Run workflow" (workflow_dispatch).
+# Every push to `main` publishes a nightly release. Stable releases are
+# triggered by a `v*.*.*` tag push or a manual "Run workflow"
+# (workflow_dispatch).
 
 permissions:
   contents: read
@@ -74,10 +74,10 @@ jobs:
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          # Scheduled and manually dispatched nightly releases derive a version
-          # from the date + run number + SHA. Stable releases still come from a
-          # v*.*.* tag push or a workflow_dispatch with a version.
-          if [[ "${GITHUB_EVENT_NAME}" == "schedule" \
+          # Main-branch pushes and manually dispatched nightly releases derive
+          # a version from the date + run number + SHA. Stable releases still
+          # come from a v*.*.* tag push or a workflow_dispatch with a version.
+          if [[ ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) \
              || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
