@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
+import * as NodeChildProcess from "node:child_process";
 
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
@@ -14,6 +15,7 @@ import type * as AcpSchema from "effect-acp/schema";
 
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
+const childPidPath = process.env.T3_ACP_CHILD_PID_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitThought = process.env.T3_ACP_EMIT_THOUGHT === "1";
 const emitAvailableCommands = process.env.T3_ACP_EMIT_AVAILABLE_COMMANDS === "1";
@@ -553,6 +555,14 @@ const program = Effect.gen(function* () {
       }
 
       if (hangPromptForever || (hangFirstPromptForever && promptCount === 1)) {
+        if (childPidPath) {
+          const child = NodeChildProcess.spawn(
+            process.execPath,
+            ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'],
+            { stdio: "ignore" },
+          );
+          NodeFS.writeFileSync(childPidPath, String(child.pid), "utf8");
+        }
         if (emitBeforeHang) {
           yield* agent.client.sessionUpdate({
             sessionId: requestedSessionId,
