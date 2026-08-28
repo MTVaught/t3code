@@ -29,7 +29,7 @@ describe("BobProvider", () => {
       const snapshot = yield* buildInitialBobProviderSnapshot(settings);
 
       assert.equal(snapshot.capabilities?.commands, true);
-      assert.equal(snapshot.capabilities?.skills, false);
+      assert.equal(snapshot.capabilities?.skills, true);
       assert.equal(snapshot.capabilities?.providerModes, true);
       assert.equal(snapshot.capabilities?.approvals, true);
       assert.equal(snapshot.capabilities?.tokenUsage, false);

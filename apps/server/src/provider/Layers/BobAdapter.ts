@@ -15,6 +15,7 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
+import { discoverBobSkills } from "../Drivers/BobSkills.ts";
 import { makeBasicAcpAdapter } from "./BasicAcpAdapter.ts";
 import type { BobAdapterShape } from "../Services/BobAdapter.ts";
 
@@ -37,6 +38,8 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 ) {
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const instanceId = options?.instanceId ?? ProviderInstanceId.make("bob");
 
   const adapter = yield* makeBasicAcpAdapter({
@@ -73,5 +76,15 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     Effect.provideService(Crypto.Crypto, crypto),
   );
 
-  return adapter satisfies BobAdapterShape;
+  return {
+    ...adapter,
+    getProjectMetadata: (cwd) =>
+      Effect.all({
+        metadata: adapter.getProjectMetadata!(cwd),
+        skills: discoverBobSkills(cwd, options?.environment).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+        ),
+      }).pipe(Effect.map(({ metadata, skills }) => ({ ...metadata, skills }))),
+  } satisfies BobAdapterShape;
 });

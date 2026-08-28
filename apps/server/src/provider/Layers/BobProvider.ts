@@ -48,7 +48,7 @@ const bobPresentation = (_settings: BobSettings) =>
       rollback: false,
       providerModes: true,
       commands: true,
-      skills: false,
+      skills: true,
       subagentProgress: "summary",
       tokenUsage: false,
     },
