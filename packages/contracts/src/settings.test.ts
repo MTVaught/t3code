@@ -24,7 +24,7 @@ const decodeBobSettings = Schema.decodeUnknownSync(BobSettingsConfig);
 describe("Bob 2 settings", () => {
   it("constructs the ACP-native default", () => {
     expect(decodeBobSettings({})).toEqual({
-      enabled: false,
+      enabled: true,
       binaryPath: "bob",
     });
   });
@@ -190,11 +190,10 @@ describe("ClientSettings sidebar", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
-  it("defaults text generation to Luna at low reasoning effort", () => {
+  it("defaults text generation to Bob", () => {
     expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-5.6-luna",
-      options: [{ id: "reasoningEffort", value: "low" }],
+      instanceId: ProviderInstanceId.make("bob"),
+      model: "bob-managed",
     });
   });
 

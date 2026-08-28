@@ -1,8 +1,8 @@
 # IBM Bob
 
 T3 Code supports Bob Shell 2.0.1 and newer through Bob's Agent Client Protocol (ACP) server. Install
-Bob on the machine running the T3 server, run `bob` once to complete Bob's license and sign-in flow,
-then enable **Bob** in T3 Code Settings. T3 invokes `bob` from the server process's `PATH` by
+Bob on the machine running the T3 server, then run `bob` once to complete Bob's license and sign-in
+flow. Bob is the default provider for text generation. T3 invokes `bob` from the server process's `PATH` by
 default; a provider instance can instead specify an explicit binary path.
 
 Bob also requires each workspace to be trusted. Open Bob interactively in a project and choose its
