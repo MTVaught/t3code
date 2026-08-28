@@ -1,9 +1,10 @@
 name: Release
 
 on:
+  schedule:
+    - cron: "0 4 * * *"
+      timezone: America/Chicago
   push:
-    branches:
-      - main
     tags:
       - "v*.*.*"
       - "!v*-nightly.*"
@@ -22,11 +23,8 @@ on:
         required: false
         type: string
 
-# Fork note: the upstream nightly `schedule:` trigger and its `check_changes`
-# job were removed so a fork does not build (and publish) every few hours and
-# burn Actions minutes. Trigger releases via a `v*.*.*` tag push or a manual
-# "Run workflow" (workflow_dispatch). Re-add the schedule block if you want
-# automated nightlies.
+# Nightly releases run at 4:00 AM Central time. Stable releases are triggered
+# by a `v*.*.*` tag push or a manual "Run workflow" (workflow_dispatch).
 
 permissions:
   contents: read
@@ -76,13 +74,11 @@ jobs:
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          # A push to a branch (for example main) has no human-picked semver,
-          # so publish it through the nightly/prerelease channel, which derives
-          # a version from the date + run number + SHA. Stable releases still
-          # come from a v*.*.* tag push or a workflow_dispatch with a version.
+          # Scheduled and manually dispatched nightly releases derive a version
+          # from the date + run number + SHA. Stable releases still come from a
+          # v*.*.* tag push or a workflow_dispatch with a version.
           if [[ "${GITHUB_EVENT_NAME}" == "schedule" \
-             || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) \
-             || ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) ]]; then
+             || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
             nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
