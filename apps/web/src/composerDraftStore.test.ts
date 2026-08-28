@@ -1756,7 +1756,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
   });
 });
 
-describe("composerDraftStore runtime and interaction settings", () => {
+describe("composerDraftStore thread settings", () => {
   const threadId = ThreadId.make("thread-settings");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
@@ -1778,6 +1778,20 @@ describe("composerDraftStore runtime and interaction settings", () => {
     store.setInteractionMode(threadRef, "plan");
 
     expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.interactionMode).toBe("plan");
+  });
+
+  it("keeps provider mode selections per thread after composer content is cleared", () => {
+    const store = useComposerDraftStore.getState();
+    const otherThreadId = ThreadId.make("thread-settings-other");
+    const otherThreadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, otherThreadId);
+
+    store.setProviderMode(threadRef, "agent");
+    store.setProviderMode(otherThreadRef, "plan");
+    store.setPrompt(threadRef, "send me");
+    store.clearComposerContent(threadRef);
+
+    expect(draftFor(threadId, TEST_ENVIRONMENT_ID)?.providerMode).toBe("agent");
+    expect(draftFor(otherThreadId, TEST_ENVIRONMENT_ID)?.providerMode).toBe("plan");
   });
 
   it("removes empty settings-only drafts when overrides are cleared", () => {

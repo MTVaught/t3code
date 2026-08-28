@@ -1381,6 +1381,9 @@ function ChatViewContent(props: ChatViewProps) {
   const composerInteractionMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.interactionMode ?? null,
   );
+  const composerProviderMode = useComposerDraftStore(
+    (store) => store.getComposerDraft(composerDraftTarget)?.providerMode,
+  );
   const composerActiveProvider = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.activeProvider ?? null,
   );
@@ -1404,6 +1407,7 @@ function ChatViewContent(props: ChatViewProps) {
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
+  const setComposerDraftProviderMode = useComposerDraftStore((store) => store.setProviderMode);
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
@@ -1645,11 +1649,9 @@ function ChatViewContent(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
-  const [providerModeOverride, setProviderModeOverride] = useState<string | null | undefined>();
-  useEffect(() => setProviderModeOverride(undefined), [activeThreadId]);
   const providerMode =
-    providerModeOverride !== undefined
-      ? providerModeOverride
+    composerProviderMode !== undefined
+      ? composerProviderMode
       : (activeThread?.providerMode ?? null);
   const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
@@ -3466,6 +3468,41 @@ function ChatViewContent(props: ChatViewProps) {
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
+  const handleProviderModeChange = useCallback(
+    (mode: string | null) => {
+      if (mode === providerMode) return;
+      setComposerDraftProviderMode(composerDraftTarget, mode);
+      scheduleComposerFocus();
+      if (!isServerThread || !activeThread) return;
+      void updateThreadMetadata({
+        environmentId,
+        input: { threadId: activeThread.id, providerMode: mode },
+      }).then((result) => {
+        if (result._tag !== "Failure") return;
+        setComposerDraftProviderMode(composerDraftTarget, undefined);
+        if (!isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not save provider mode",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        }
+      });
+    },
+    [
+      activeThread,
+      composerDraftTarget,
+      environmentId,
+      isServerThread,
+      providerMode,
+      scheduleComposerFocus,
+      setComposerDraftProviderMode,
+      updateThreadMetadata,
+    ],
+  );
   const createBrowserSurface = useCallback(() => {
     if (!activeThreadRef) return;
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
@@ -7130,7 +7167,7 @@ function ChatViewContent(props: ChatViewProps) {
                             runtimeMode={runtimeMode}
                             interactionMode={interactionMode}
                             providerMode={providerMode}
-                            onProviderModeChange={setProviderModeOverride}
+                            onProviderModeChange={handleProviderModeChange}
                             lockedProvider={lockedProvider}
                             providerStatuses={providerStatuses as ServerProvider[]}
                             activeProjectDefaultModelSelection={
