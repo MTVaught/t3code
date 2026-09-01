@@ -10,6 +10,7 @@ import {
   type RuntimeMode,
   type ServerProviderMode,
   type ServerProviderProjectMetadata,
+  type ServerProviderSlashCommand,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -88,12 +89,14 @@ export interface BasicAcpAdapterOptions {
   }) => Effect.Effect<AcpSessionRuntime.AcpSessionRuntime["Service"], ProviderAdapterError>;
   /**
    * Split turn text into prompts the agent must receive one at a time before
-   * the message itself. Bob rejects skill loads that share a prompt with the
-   * user's request, so its adapter peels each `$skill` into a prelude prompt.
+   * the message itself. Bob loads one `/skill` per prompt, so its adapter peels
+   * each `$skill` into a prelude prompt. `slashCommands` is the catalog the
+   * running session last advertised.
    */
   readonly splitPromptPreludes?: (input: {
     readonly cwd: string;
     readonly text: string;
+    readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   }) => Effect.Effect<{ readonly preludes: ReadonlyArray<string>; readonly text: string }>;
 }
 
@@ -510,6 +513,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         ? yield* options.splitPromptPreludes({
             cwd: context.cwd,
             text: input.input?.trim() ?? "",
+            slashCommands: metadataByCwd.get(context.cwd)?.slashCommands ?? [],
           })
         : { preludes: [], text: input.input?.trim() ?? "" };
       const preludes = split.preludes.map(

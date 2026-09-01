@@ -25,8 +25,13 @@ Bob reports for the current workspace replace that initial list. Modes can be ch
 and Bob-originated mode changes are saved on the thread.
 
 Bob can also advertise workspace slash commands while a session is running. T3 adds those commands
-to the composer on web, desktop, and mobile. Literal `$skill-name` prompts continue to work as
-provider-native input; Bob does not currently expose skill discovery separately over ACP.
+to the composer on web, desktop, and mobile.
+
+Skills from `~/.bob/skills` and `.bob/skills` appear in the `$` picker. Bob loads one skill per
+prompt, so T3 sends each `$skill` in a message as its own `/skill` command and attaches the rest of
+the message to the last one. This works for skills marked `disable-model-invocation`. Skills marked
+`user-invocable: false` are not offered, and once Bob reports its command list for the current mode,
+only skills in that list are offered.
 
 Bob owns its native rules, hooks, trust settings, and provider configuration. T3 also injects its
 workspace MCP endpoint through ACP, so Bob can use T3-provided tools alongside Bob's own MCP
