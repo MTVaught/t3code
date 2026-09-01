@@ -16,6 +16,7 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
+import { discoverBobModes, mergeBobModes } from "../Drivers/BobModes.ts";
 import {
   discoverBobSkills,
   selectInvocableBobSkills,
@@ -55,12 +56,21 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
     );
+  const modesFor = (cwd: string) =>
+    discoverBobModes(cwd, options?.environment).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
 
   const adapter = yield* makeBasicAcpAdapter({
     provider: PROVIDER,
     instanceId,
     displayName: "Bob",
     builtInModes: BOB_BUILT_IN_MODES,
+    // Until a session advertises its modes over ACP, read Bob's custom_modes.yaml
+    // files so custom modes are selectable on a brand-new thread.
+    discoverModes: (cwd) =>
+      Effect.map(modesFor(cwd), (modes) => mergeBobModes(BOB_BUILT_IN_MODES, modes)),
     splitPromptPreludes: ({ cwd, text, slashCommands }) =>
       Effect.map(skillsFor(cwd), (skills) =>
         splitBobSkillPreludes(text, selectInvocableBobSkills(skills, slashCommands)),

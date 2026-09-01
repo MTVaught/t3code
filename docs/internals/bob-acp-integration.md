@@ -37,9 +37,10 @@ new child and asks Bob to resume the persisted ACP session.
 | `available_commands_update`      | project slash-command metadata                    |
 | ACP image prompt content         | direct image attachment delivery                  |
 
-Bob reports available modes during new or resumed session setup. T3 begins with Agent, Ask, and Plan
-so a new-thread composer has useful choices before a child exists, then uses Bob's authoritative list
-for the active workspace. Project metadata queries refresh while mounted, allowing web, desktop, and
+Bob reports available modes during new or resumed session setup. Before a child exists, T3 advertises
+Agent, Ask, and Plan plus the custom modes it reads from `~/.bob/settings/custom_modes.yaml` and the
+workspace's `.bob/custom_modes.yaml` / `.bob/*/custom_modes.yaml` (`Drivers/BobModes.ts`), then
+switches to Bob's authoritative list for the active workspace once a session reports it. Project metadata queries refresh while mounted, allowing web, desktop, and
 mobile composers to pick up command and mode changes without a server restart.
 
 ## Deliberately unsupported capabilities

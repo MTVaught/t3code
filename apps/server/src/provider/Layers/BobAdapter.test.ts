@@ -331,3 +331,30 @@ describe("Bob ACP adapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 });
+
+describe("Bob project metadata before a session", () => {
+  it.effect("advertises custom modes from custom_modes.yaml alongside built-ins", () =>
+    Effect.gen(function* () {
+      const wrapper = yield* Effect.promise(() => makeBobWrapper());
+      const temp = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bob-modes-")),
+      );
+      const home = NodePath.join(temp, "home");
+      const workspace = NodePath.join(temp, "workspace");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(NodePath.join(workspace, ".bob"), { recursive: true });
+        await NodeFSP.writeFile(
+          NodePath.join(workspace, ".bob", "custom_modes.yaml"),
+          "customModes:\n  - slug: probe\n    name: Probe\n",
+        );
+      });
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+        { environment: { HOME: home } },
+      );
+      const metadata = yield* adapter.getProjectMetadata!(workspace);
+      expect(metadata.modes.map((mode) => mode.slug)).toEqual(["agent", "ask", "plan", "probe"]);
+      expect(metadata.modes.at(-1)).toEqual({ slug: "probe", name: "Probe", scope: "workspace" });
+    }).pipe(Effect.provide(testServices)),
+  );
+});
