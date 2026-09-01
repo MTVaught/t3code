@@ -16,7 +16,7 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
-import { discoverBobSkills } from "../Drivers/BobSkills.ts";
+import { discoverBobSkills, splitBobSkillPreludes } from "../Drivers/BobSkills.ts";
 import { makeBasicAcpAdapter } from "./BasicAcpAdapter.ts";
 import type { BobAdapterShape } from "../Services/BobAdapter.ts";
 import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
@@ -46,12 +46,19 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   const path = yield* Path.Path;
   const instanceId = options?.instanceId ?? ProviderInstanceId.make("bob");
   const makeAcpNativeLoggers = yield* makeAcpNativeLoggerFactory();
+  const skillsFor = (cwd: string) =>
+    discoverBobSkills(cwd, options?.environment).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
 
   const adapter = yield* makeBasicAcpAdapter({
     provider: PROVIDER,
     instanceId,
     displayName: "Bob",
     builtInModes: BOB_BUILT_IN_MODES,
+    splitPromptPreludes: ({ cwd, text }) =>
+      Effect.map(skillsFor(cwd), (skills) => splitBobSkillPreludes(text, skills)),
     makeRuntime: ({ threadId, cwd, resumeSessionId, mcpServers, scope }) =>
       makeBobAcpRuntime({
         bobSettings: settings,
@@ -91,10 +98,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     getProjectMetadata: (cwd) =>
       Effect.all({
         metadata: adapter.getProjectMetadata!(cwd),
-        skills: discoverBobSkills(cwd, options?.environment).pipe(
-          Effect.provideService(FileSystem.FileSystem, fileSystem),
-          Effect.provideService(Path.Path, path),
-        ),
+        skills: skillsFor(cwd),
       }).pipe(Effect.map(({ metadata, skills }) => ({ ...metadata, skills }))),
   } satisfies BobAdapterShape;
 });

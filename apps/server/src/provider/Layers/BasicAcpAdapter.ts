@@ -59,6 +59,7 @@ interface PendingApproval {
 
 interface SessionContext {
   readonly threadId: ThreadId;
+  readonly cwd: string;
   session: ProviderSession;
   readonly scope: Scope.Closeable;
   readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
@@ -85,6 +86,15 @@ export interface BasicAcpAdapterOptions {
     readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
     readonly scope: Scope.Closeable;
   }) => Effect.Effect<AcpSessionRuntime.AcpSessionRuntime["Service"], ProviderAdapterError>;
+  /**
+   * Split turn text into prompts the agent must receive one at a time before
+   * the message itself. Bob rejects skill loads that share a prompt with the
+   * user's request, so its adapter peels each `$skill` into a prelude prompt.
+   */
+  readonly splitPromptPreludes?: (input: {
+    readonly cwd: string;
+    readonly text: string;
+  }) => Effect.Effect<{ readonly preludes: ReadonlyArray<string>; readonly text: string }>;
 }
 
 function parseResumeCursor(value: unknown): { sessionId: string } | undefined {
@@ -338,6 +348,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         };
         context = {
           threadId: input.threadId,
+          cwd,
           session,
           scope: sessionScope,
           acp,
@@ -495,8 +506,17 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           detail: `${options.displayName} does not support steering a running turn.`,
         });
       }
+      const split = options.splitPromptPreludes
+        ? yield* options.splitPromptPreludes({
+            cwd: context.cwd,
+            text: input.input?.trim() ?? "",
+          })
+        : { preludes: [], text: input.input?.trim() ?? "" };
+      const preludes = split.preludes.map(
+        (text): ReadonlyArray<EffectAcpSchema.ContentBlock> => [{ type: "text", text }],
+      );
       const prompt: Array<EffectAcpSchema.ContentBlock> = [];
-      if (input.input?.trim()) prompt.push({ type: "text", text: input.input.trim() });
+      if (split.text.trim()) prompt.push({ type: "text", text: split.text.trim() });
       for (const attachment of input.attachments ?? []) {
         const attachmentPath = resolveAttachmentPath({
           attachmentsDir: serverConfig.attachmentsDir,
@@ -526,7 +546,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           mimeType: attachment.mimeType,
         });
       }
-      if (prompt.length === 0) {
+      if (prompt.length === 0 && preludes.length === 0) {
         return yield* new ProviderAdapterValidationError({
           provider: options.provider,
           operation: "sendTurn",
@@ -567,16 +587,25 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         payload: { model: context.session.model ?? "provider-managed" },
       });
       return yield* Effect.gen(function* () {
-        const result = context.suppressTurnEvents
-          ? ({ stopReason: "cancelled" } as const)
-          : yield* context.acp
-              .prompt({ prompt })
-              .pipe(
-                Effect.mapError((error) =>
-                  mapAcpToAdapterError(options.provider, input.threadId, "session/prompt", error),
-                ),
-              );
-        context.turns.push({ id: turnId, items: [{ prompt, result }] });
+        // Preludes run before the message; a cancelled prelude ends the turn
+        // without sending the rest.
+        const prompts = prompt.length > 0 ? [...preludes, prompt] : preludes;
+        const items: Array<unknown> = [];
+        let result: EffectAcpSchema.PromptResponse = { stopReason: "cancelled" };
+        for (const current of prompts) {
+          result = context.suppressTurnEvents
+            ? { stopReason: "cancelled" }
+            : yield* context.acp
+                .prompt({ prompt: current })
+                .pipe(
+                  Effect.mapError((error) =>
+                    mapAcpToAdapterError(options.provider, input.threadId, "session/prompt", error),
+                  ),
+                );
+          items.push({ prompt: current, result });
+          if (result.stopReason === "cancelled") break;
+        }
+        context.turns.push({ id: turnId, items });
         context.session = {
           ...context.session,
           status: "ready",

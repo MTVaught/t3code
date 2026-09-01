@@ -143,6 +143,53 @@ describe("Bob ACP adapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
+  it.effect("sends each skill as its own prompt before the message", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bob-acp-skills-")),
+      );
+      const home = NodePath.join(directory, "home");
+      for (const name of ["deploy", "review"]) {
+        const skillDirectory = NodePath.join(home, ".bob", "skills", name);
+        yield* Effect.promise(() => NodeFSP.mkdir(skillDirectory, { recursive: true }));
+        yield* Effect.promise(() =>
+          NodeFSP.writeFile(NodePath.join(skillDirectory, "SKILL.md"), `---\nname: ${name}\n---\n`),
+        );
+      }
+      const requestLogPath = NodePath.join(directory, "requests.ndjson");
+      const wrapper = yield* Effect.promise(() => makeBobWrapper({ requestLogPath }));
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+        { environment: { ...process.env, HOME: home } },
+      );
+      const threadId = ThreadId.make("bob-acp-skills");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId, input: "$deploy $review ship the $HOME fix" });
+      const thread = yield* adapter.readThread(threadId);
+      expect(thread.turns).toHaveLength(1);
+      yield* adapter.stopSession(threadId);
+
+      const promptTexts = (yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            decodeJsonUnknown(line) as {
+              method?: string;
+              params?: { prompt?: Array<{ text?: string }> };
+            },
+        )
+        .filter((entry) => entry.method === "session/prompt")
+        .map((entry) => entry.params?.prompt?.map((block) => block.text));
+      expect(promptTexts).toEqual([["$deploy"], ["$review"], ["ship the $HOME fix"]]);
+    }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
+
   it.effect("returns a failed prompt session to ready state", () =>
     Effect.gen(function* () {
       const wrapper = yield* Effect.promise(() =>
