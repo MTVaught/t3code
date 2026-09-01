@@ -1583,10 +1583,7 @@ const makeWsRpcLayer = (
                   reason: "Thread does not exist.",
                 });
               }
-              yield* providerRegistry.resetContext!(
-                thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
-                input.threadId,
-              );
+              yield* providerService.resetContext(input.threadId);
             }).pipe(
               Effect.mapError((error) =>
                 isServerProviderContextResetError(error)

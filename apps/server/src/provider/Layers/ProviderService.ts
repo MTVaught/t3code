@@ -1129,6 +1129,59 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
+  const resetContext: ProviderServiceMethod<"resetContext"> = Effect.fn("resetContext")(
+    function* (threadId) {
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      if (!binding) {
+        return yield* toValidationError(
+          "ProviderService.resetContext",
+          `Cannot reset thread '${threadId}' because no persisted provider binding exists.`,
+        );
+      }
+      const instanceId = yield* requireBindingInstanceId("ProviderService.resetContext", binding);
+      const adapter = yield* registry.getByInstance(instanceId);
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "reset-context",
+        "provider.kind": binding.provider,
+        "provider.instance_id": instanceId,
+        "provider.thread_id": threadId,
+      });
+      const persistedCwd = readPersistedCwd(binding.runtimePayload);
+      const persistedModelSelection = readPersistedModelSelection(binding.runtimePayload);
+
+      // The stale child may already be gone; a stop failure must not block the reset.
+      if (yield* adapter.hasSession(threadId)) {
+        yield* adapter.stopSession(threadId).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider.session.reset-stop-failed", {
+              threadId,
+              provider: adapter.provider,
+              cause,
+            }),
+          ),
+        );
+      }
+      yield* clearMcpSession(adapter, threadId);
+      yield* directory.upsert({
+        threadId,
+        provider: binding.provider,
+        providerInstanceId: instanceId,
+        status: "stopped",
+        resumeCursor: null,
+        runtimePayload: { activeTurnId: null },
+      });
+
+      return yield* startSession(threadId, {
+        threadId,
+        provider: binding.provider,
+        providerInstanceId: instanceId,
+        ...(persistedCwd ? { cwd: persistedCwd } : {}),
+        ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
+        runtimeMode: binding.runtimeMode ?? "full-access",
+      });
+    },
+  );
+
   const runStopAll = Effect.fn("runStopAll")(function* () {
     const currentAdapters = yield* getAdapterEntries;
     const activeSessions = yield* Effect.forEach(currentAdapters, ([instanceId, adapter]) =>
@@ -1191,6 +1244,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     respondToRequest,
     respondToUserInput,
     stopSession,
+    resetContext,
     listSessions,
     getCapabilities,
     getProjectMetadata,

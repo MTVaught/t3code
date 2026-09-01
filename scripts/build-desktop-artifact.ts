@@ -1833,6 +1833,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
+    const path = yield* Path.Path;
+    const repoRoot = yield* RepoRoot;
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
@@ -1843,6 +1845,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
           schemes: ["treher-t3code", "treher-t3code-dev"],
         },
       ],
+      ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
     };
   }
 

@@ -60,7 +60,6 @@ export interface ProviderAdapterShape<TError> {
   readonly getProjectMetadata?: (
     cwd: string,
   ) => Effect.Effect<ServerProviderProjectMetadata, TError>;
-  readonly resetContext?: (threadId: ThreadId) => Effect.Effect<ProviderSession, TError>;
 
   /**
    * Start a provider-backed session.

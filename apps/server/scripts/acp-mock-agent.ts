@@ -43,6 +43,7 @@ const emitStaleXAiPromptCompleteBeforeSecondHang =
 const emitOverlappingXAiPromptCompleteOutOfOrder =
   process.env.T3_ACP_EMIT_OVERLAPPING_XAI_PROMPT_COMPLETE_OUT_OF_ORDER === "1";
 const failPrompt = process.env.T3_ACP_FAIL_PROMPT === "1";
+const failSetMode = process.env.T3_ACP_FAIL_SET_MODE === "1";
 const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
 const promptResponseText = process.env.T3_ACP_PROMPT_RESPONSE_TEXT;
@@ -403,6 +404,12 @@ const program = Effect.gen(function* () {
 
   yield* agent.handleSetSessionMode((request) =>
     Effect.gen(function* () {
+      if (failSetMode) {
+        return yield* AcpError.AcpRequestError.invalidParams(
+          `Unknown mock mode id: ${request.modeId}`,
+          { method: "session/set_mode", params: request },
+        );
+      }
       currentModeId = request.modeId;
       yield* agent.client.sessionUpdate({
         sessionId: request.sessionId,

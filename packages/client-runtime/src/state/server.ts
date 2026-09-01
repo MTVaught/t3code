@@ -748,8 +748,10 @@ export function createServerEnvironmentAtoms<R, E>(
     providerProjectMetadata: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:provider-project-metadata",
       tag: WS_METHODS.serverGetProviderProjectMetadata,
-      staleTimeMs: 2_000,
-      refreshIntervalMs: 5_000,
+      // Modes and commands change rarely (agent restarts, workspace edits);
+      // a slow refresh keeps composers current without a hot timer.
+      staleTimeMs: 10_000,
+      refreshIntervalMs: 30_000,
     }),
     resetProviderContext: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:reset-provider-context",

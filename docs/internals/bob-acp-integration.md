@@ -52,3 +52,12 @@ capability decisions, not emulated fallbacks. Bob controls model routing, so T3 
 The status probe requires Bob 2.0.1 or newer. Persisted legacy `premium` model selections remain
 accepted for migration, but new threads use `bob-managed`. Obsolete one-shot Bob settings are
 discarded when settings are decoded; only enablement and the optional binary path remain.
+
+## Persistence
+
+The `provider_mode` column on `projection_threads` is a fork-owned schema change and is deliberately
+not a numbered migration. The Effect migrator skips every id at or below the highest recorded id, so a
+fork-numbered migration collides with upstream's next migration of the same id, and a higher id would
+block upstream migrations forever. `apps/server/src/persistence/ForkSchemaPatches.ts` applies the
+column idempotently after each migration pass and deletes rows an earlier fork build recorded under a
+numbered id, so upstream's migration with that id still runs on the next sync.
