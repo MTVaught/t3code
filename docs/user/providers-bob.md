@@ -20,8 +20,9 @@ fresh provider context.
 
 ## Modes, commands, and skills
 
-Bob reports its available modes over ACP. Agent, Ask, and Plan are available immediately; any modes
-Bob reports for the current workspace replace that initial list. Modes can be changed between turns,
+Agent, Ask, and Plan are available immediately, along with any custom modes from your global
+`~/.bob/settings/custom_modes.yaml` and the workspace's `.bob/custom_modes.yaml`. Once a session
+starts, the modes Bob reports over ACP for the current workspace replace that initial list. Modes can be changed between turns,
 and Bob-originated mode changes are saved on the thread.
 
 Bob can also advertise workspace slash commands while a session is running. T3 adds those commands

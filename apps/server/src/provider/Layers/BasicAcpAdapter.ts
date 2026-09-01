@@ -80,6 +80,11 @@ export interface BasicAcpAdapterOptions {
   readonly instanceId: ProviderInstanceId;
   readonly displayName: string;
   readonly builtInModes: ReadonlyArray<ServerProviderMode>;
+  /**
+   * Modes to advertise for a cwd before any session has reported its own
+   * over ACP. Defaults to `builtInModes`.
+   */
+  readonly discoverModes?: (cwd: string) => Effect.Effect<ReadonlyArray<ServerProviderMode>>;
   readonly makeRuntime: (input: {
     readonly threadId: ThreadId;
     readonly cwd: string;
@@ -658,15 +663,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
       t3McpInjection: true,
       attachments: true,
     },
-    getProjectMetadata: (cwd) =>
-      Effect.succeed(
-        metadataByCwd.get(path.resolve(cwd)) ?? {
+    getProjectMetadata: (cwd) => {
+      const cached = metadataByCwd.get(path.resolve(cwd));
+      if (cached) return Effect.succeed(cached);
+      return Effect.map(
+        options.discoverModes?.(cwd) ?? Effect.succeed(options.builtInModes),
+        (modes) => ({
           workspaceTrusted: true,
-          modes: [...options.builtInModes],
+          modes: [...modes],
           slashCommands: [],
           skills: [],
-        },
-      ),
+        }),
+      );
+    },
     startSession,
     sendTurn,
     interruptTurn: (threadId) =>
