@@ -3,17 +3,21 @@ import { useCallback, useEffect, useState } from "react";
 import { isElectron } from "../../env";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { cn } from "../../lib/utils";
+import { ensureLocalApi } from "../../localApi";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import {
   canCheckForUpdate,
   getArm64IntelBuildWarningDescription,
+  getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
-  getDesktopUpdateReleaseUrl,
+  getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
+  shouldToastDesktopUpdateActionResult,
 } from "../desktopUpdate.logic";
+import { showDesktopUpdateDownloadedToast } from "../desktopUpdate.toast";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Separator } from "../ui/separator";
 import { SidebarMenuItem } from "../ui/sidebar";
@@ -36,11 +40,13 @@ function resolveSidebarUpdatePresentation({
   const showUpdateDetails = action !== "none" || isDownloading;
   const iconStatus = showCheckIcon
     ? "checking"
-    : isDownloading
-      ? "downloading"
-      : action === "release"
-        ? "available"
-        : "idle";
+    : action === "install"
+      ? "downloaded"
+      : isDownloading
+        ? "downloading"
+        : action === "download"
+          ? "available"
+          : "idle";
 
   return {
     iconStatus,
@@ -75,7 +81,7 @@ function SidebarUpdateReleaseNotesTooltip({
         {state.status === "available" ? (
           <div>
             <div className="whitespace-nowrap text-sm leading-5 font-medium">
-              Update available on GitHub
+              Update ready to download
             </div>
             {state.availableVersion ? (
               <div className="mt-0.5 text-xs leading-4 text-update-foreground">
@@ -182,22 +188,82 @@ function SidebarUpdateControl() {
 
     setIsActionPending(true);
 
-    if (action === "release") {
-      const releaseUrl = getDesktopUpdateReleaseUrl(
-        state.availableVersion ?? state.downloadedVersion,
-      );
+    if (action === "download") {
+      void bridge
+        .downloadUpdate()
+        .then((result) => {
+          if (result.completed) {
+            showDesktopUpdateDownloadedToast(bridge, result.state);
+          }
+          if (!shouldToastDesktopUpdateActionResult(result)) return;
+          const actionError = getDesktopUpdateActionError(result);
+          if (!actionError) return;
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not download update",
+              description: actionError,
+            }),
+          );
+        })
+        .catch((error) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not start update download",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        })
+        .finally(() => setIsActionPending(false));
+      return;
+    }
+
+    if (action === "install") {
+      let confirmed = false;
       try {
-        if (releaseUrl && (await bridge.openExternal(releaseUrl))) return;
-        toastManager.add(
-          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
+        confirmed = await ensureLocalApi().dialogs.confirm(
+          getDesktopUpdateInstallConfirmationMessage(state),
         );
-      } catch {
-        toastManager.add(
-          stackedThreadToast({ type: "error", title: "Unable to open release page" }),
-        );
-      } finally {
+      } catch (error) {
         setIsActionPending(false);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not confirm update",
+            description: error instanceof Error ? error.message : "Update confirmation failed.",
+          }),
+        );
+        return;
       }
+      if (!confirmed) {
+        setIsActionPending(false);
+        return;
+      }
+      void bridge
+        .installUpdate()
+        .then((result) => {
+          if (!shouldToastDesktopUpdateActionResult(result)) return;
+          const actionError = getDesktopUpdateActionError(result);
+          if (!actionError) return;
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not install update",
+              description: actionError,
+            }),
+          );
+        })
+        .catch((error) => {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not install update",
+              description: error instanceof Error ? error.message : "An unexpected error occurred.",
+            }),
+          );
+        })
+        .finally(() => setIsActionPending(false));
       return;
     }
 

@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vite-plus/test";
-import type { DesktopUpdateState } from "@t3tools/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
 
 import {
   canCheckForUpdate,
   getArm64IntelBuildWarningDescription,
+  getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
+  getDesktopUpdateInstallConfirmationMessage,
   getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldShowDesktopUpdateButton,
+  shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 
 const baseState: DesktopUpdateState = {
@@ -31,17 +34,17 @@ const baseState: DesktopUpdateState = {
 };
 
 describe("desktop update button state", () => {
-  it("shows a release action when an update is available", () => {
+  it("shows a download action when an update is available", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "available",
       availableVersion: "1.1.0",
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("release");
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
   });
 
-  it("links to the release after a legacy download error", () => {
+  it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "error",
@@ -51,11 +54,11 @@ describe("desktop update button state", () => {
       canRetry: true,
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("release");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("available on GitHub");
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
   });
 
-  it("links to the release after a legacy install error", () => {
+  it("keeps install action available after an install error", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "error",
@@ -66,18 +69,44 @@ describe("desktop update button state", () => {
       canRetry: true,
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("release");
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("available on GitHub");
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to retry");
   });
 
-  it("links to the release when a downloaded version already exists", () => {
+  it("keeps install action available after a background updater error", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "error",
+      downloadedVersion: "1.1.0",
+      availableVersion: "1.1.0",
+      message: "background updater error",
+      errorContext: null,
+      canRetry: true,
+    };
+    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("install");
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("Click to restart and install");
+  });
+
+  it("prefers a newly available release over a stale downloaded version", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "available",
-      availableVersion: "1.1.0",
+      availableVersion: "1.2.0",
       downloadedVersion: "1.1.0",
     };
-    expect(resolveDesktopUpdateButtonAction(state)).toBe("release");
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
+  });
+
+  it("hides the install action while checking for a newer release", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "checking",
+      availableVersion: "1.1.0",
+      downloadedVersion: "1.1.0",
+      downloadPercent: 100,
+    };
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
   });
 
   it("hides the button for non-actionable check errors", () => {
@@ -92,7 +121,7 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
   });
 
-  it("keeps the release link enabled for a legacy download in progress", () => {
+  it("disables the button while downloading", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "downloading",
@@ -100,27 +129,101 @@ describe("desktop update button state", () => {
       downloadPercent: 42.5,
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
-    expect(isDesktopUpdateButtonDisabled(state)).toBe(false);
-    expect(getDesktopUpdateButtonTooltip(state)).toContain("available on GitHub");
+    expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
+    expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
+  });
+});
+
+describe("getDesktopUpdateActionError", () => {
+  it("returns user-visible message for accepted failed attempts", () => {
+    const result: DesktopUpdateActionResult = {
+      accepted: true,
+      completed: false,
+      state: {
+        ...baseState,
+        status: "available",
+        availableVersion: "1.1.0",
+        message: "checksum mismatch",
+        errorContext: "download",
+        canRetry: true,
+      },
+    };
+    expect(getDesktopUpdateActionError(result)).toBe("checksum mismatch");
+  });
+
+  it("ignores messages for non-accepted attempts", () => {
+    const result: DesktopUpdateActionResult = {
+      accepted: false,
+      completed: false,
+      state: {
+        ...baseState,
+        status: "error",
+        message: "background failure",
+        errorContext: "check",
+        canRetry: false,
+      },
+    };
+    expect(getDesktopUpdateActionError(result)).toBeNull();
+  });
+
+  it("ignores messages for successful attempts", () => {
+    const result: DesktopUpdateActionResult = {
+      accepted: true,
+      completed: true,
+      state: {
+        ...baseState,
+        status: "downloaded",
+        downloadedVersion: "1.1.0",
+        availableVersion: "1.1.0",
+        message: null,
+        errorContext: null,
+        canRetry: true,
+      },
+    };
+    expect(getDesktopUpdateActionError(result)).toBeNull();
   });
 });
 
 describe("desktop update UI helpers", () => {
   it("builds the stable release URL for a downloaded version", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30")).toBe(
-      "https://github.com/MTVaught/t3code/releases/tag/v0.0.30",
+      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30",
     );
   });
 
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
-      "https://github.com/MTVaught/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+      "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30-nightly.20260728.931",
     );
   });
 
   it("omits the release URL when the updater does not report a version", () => {
     expect(getDesktopUpdateReleaseUrl(null)).toBeNull();
     expect(getDesktopUpdateReleaseUrl("  ")).toBeNull();
+  });
+
+  it("toasts only for actionable updater errors", () => {
+    expect(
+      shouldToastDesktopUpdateActionResult({
+        accepted: true,
+        completed: false,
+        state: { ...baseState, message: "checksum mismatch" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldToastDesktopUpdateActionResult({
+        accepted: true,
+        completed: false,
+        state: { ...baseState, message: null },
+      }),
+    ).toBe(false);
+    expect(
+      shouldToastDesktopUpdateActionResult({
+        accepted: true,
+        completed: true,
+        state: { ...baseState, message: "checksum mismatch" },
+      }),
+    ).toBe(false);
   });
 
   it("shows an Apple Silicon warning for Intel builds under Rosetta", () => {
@@ -136,7 +239,7 @@ describe("desktop update UI helpers", () => {
     expect(getArm64IntelBuildWarningDescription(state)).toContain("Intel build");
   });
 
-  it("points Apple Silicon users to the native build on GitHub", () => {
+  it("changes the warning copy when a native build update is ready to download", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       hostArch: "arm64",
@@ -146,7 +249,36 @@ describe("desktop update UI helpers", () => {
       availableVersion: "1.1.0",
     };
 
-    expect(getArm64IntelBuildWarningDescription(state)).toContain("GitHub Releases");
+    expect(getArm64IntelBuildWarningDescription(state)).toContain("Download the available update");
+  });
+
+  it("includes the downloaded version in the install confirmation copy", () => {
+    expect(
+      getDesktopUpdateInstallConfirmationMessage({
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.1",
+      }),
+    ).toContain("Install update 1.1.1 and restart T3 Code?");
+  });
+
+  it("falls back to generic install confirmation copy when no version is available", () => {
+    expect(
+      getDesktopUpdateInstallConfirmationMessage({
+        availableVersion: null,
+        downloadedVersion: null,
+      }),
+    ).toContain("Install update and restart T3 Code?");
+  });
+
+  it("keeps the same install confirmation copy across desktop platforms", () => {
+    expect(
+      getDesktopUpdateInstallConfirmationMessage({
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+      }),
+    ).toBe(
+      "Install update 1.1.0 and restart T3 Code?\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.",
+    );
   });
 });
 
