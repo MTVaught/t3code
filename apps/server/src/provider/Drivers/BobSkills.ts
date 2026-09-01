@@ -49,6 +49,23 @@ const readSkill = Effect.fn("readBobSkill")(function* (
   } satisfies ServerProviderSkill;
 });
 
+interface CachedSkills {
+  readonly fingerprint: string;
+  readonly skills: ReadonlyArray<ServerProviderSkill>;
+}
+
+// Composers poll project metadata while mounted; only re-parse SKILL.md files
+// when a skills directory or one of its SKILL.md files changes.
+const skillsCacheByRoots = new Map<string, CachedSkills>();
+
+const fileMtime = (target: string) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const info = yield* fileSystem.stat(target).pipe(Effect.orElseSucceed(() => undefined));
+    const mtime = info?.mtime;
+    return mtime && mtime._tag === "Some" ? String(mtime.value.getTime()) : "missing";
+  });
+
 /** Bob loads user skills from `~/.bob/skills` and project skills from `.bob/skills`. */
 export const discoverBobSkills = Effect.fn("discoverBobSkills")(function* (
   cwd: string,
@@ -62,12 +79,30 @@ export const discoverBobSkills = Effect.fn("discoverBobSkills")(function* (
     { directory: path.join(cwd, ".bob", "skills"), scope: "project" as const },
   ];
 
+  const listings = yield* Effect.forEach(roots, (root) =>
+    Effect.gen(function* () {
+      const entries = yield* fileSystem
+        .readDirectory(root.directory)
+        .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+      const sorted = [...entries].sort();
+      const mtimes = yield* Effect.forEach(sorted, (entry) =>
+        fileMtime(path.join(root.directory, entry, "SKILL.md")),
+      );
+      return { root, entries: sorted, mtimes };
+    }),
+  );
+  const cacheKey = roots.map((root) => root.directory).join("|");
+  const fingerprint = listings
+    .flatMap((listing) =>
+      listing.entries.map((entry, index) => `${entry}@${listing.mtimes[index]}`),
+    )
+    .join("|");
+  const cached = skillsCacheByRoots.get(cacheKey);
+  if (cached && cached.fingerprint === fingerprint) return cached.skills;
+
   const skillsByName = new Map<string, ServerProviderSkill>();
-  for (const root of roots) {
-    const entries = yield* fileSystem
-      .readDirectory(root.directory)
-      .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
-    for (const entry of [...entries].sort()) {
+  for (const { root, entries } of listings) {
+    for (const entry of entries) {
       const skill = yield* readSkill(
         path.join(root.directory, entry, "SKILL.md"),
         entry,
@@ -76,5 +111,9 @@ export const discoverBobSkills = Effect.fn("discoverBobSkills")(function* (
       if (skill) skillsByName.set(skill.name, skill);
     }
   }
-  return [...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name));
+  const skills = [...skillsByName.values()].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+  skillsCacheByRoots.set(cacheKey, { fingerprint, skills });
+  return skills;
 });

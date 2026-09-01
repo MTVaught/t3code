@@ -390,12 +390,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  // Any Bob session error is recoverable by discarding the saved ACP session;
+  // the error text is provider-owned and not stable enough to pattern-match.
   const canResetMissingBobSession =
     selectedProviderStatus?.driver === "bob" &&
-    typeof props.selectedThread.session?.lastError === "string" &&
-    /(?:session[ /]resume|resume (?:the )?session|session\s+[^\n]*not found|unknown session|invalid session)/i.test(
-      props.selectedThread.session.lastError,
-    );
+    typeof props.selectedThread.session?.lastError === "string";
   const projectMetadata = useEnvironmentQuery(
     props.projectCwd && selectedProviderStatus?.capabilities?.providerModes === true
       ? serverEnvironment.providerProjectMetadata({

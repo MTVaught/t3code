@@ -1701,6 +1701,72 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("resetContext discards the persisted resume cursor and starts fresh", () =>
+    Effect.gen(function* () {
+      const tempDir = NodeFS.mkdtempSync(
+        NodePath.join(NodeOS.tmpdir(), "t3-provider-service-reset-"),
+      );
+      const dbPath = NodePath.join(tempDir, "orchestration.sqlite");
+      const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+      const runtimeRepositoryLayer = ProviderSessionRuntime.layer.pipe(
+        Layer.provide(persistenceLayer),
+      );
+      const claude = makeFakeCodexAdapter(CLAUDE_AGENT_DRIVER);
+      const registry = makeAdapterRegistryMock({
+        [ProviderDriverKind.make("claudeAgent")]: claude.adapter,
+      });
+      const directoryLayer = ProviderSessionDirectoryLive.pipe(
+        Layer.provide(runtimeRepositoryLayer),
+      );
+      const providerLayer = makeProviderServiceLive().pipe(
+        Layer.provide(Layer.succeed(ProviderAdapterRegistry.ProviderAdapterRegistry, registry)),
+        Layer.provide(directoryLayer),
+        Layer.provide(defaultServerSettingsLayer),
+        Layer.provide(serverConfigTestLayer),
+        Layer.provide(
+          Layer.succeed(
+            ProviderEventLoggers.ProviderEventLoggers,
+            ProviderEventLoggers.NoOpProviderEventLoggers,
+          ),
+        ),
+      );
+      const threadId = asThreadId("thread-claude-reset");
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService.ProviderService;
+        const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+        const initial = yield* provider.startSession(threadId, {
+          provider: ProviderDriverKind.make("claudeAgent"),
+          providerInstanceId: claudeAgentInstanceId,
+          threadId,
+          cwd: "/tmp/project-claude-reset",
+          runtimeMode: "approval-required",
+        });
+        assert.notEqual(initial.resumeCursor, undefined);
+        // Simulate the child dying so the reset must work without a live session.
+        yield* claude.adapter.stopSession(threadId);
+        claude.startSession.mockClear();
+
+        const reset = yield* provider.resetContext(threadId);
+
+        assert.equal(claude.startSession.mock.calls.length, 1);
+        const startPayload = claude.startSession.mock.calls[0]?.[0] as {
+          cwd?: string;
+          resumeCursor?: unknown;
+          runtimeMode?: string;
+        };
+        assert.equal(startPayload.cwd, "/tmp/project-claude-reset");
+        assert.equal(startPayload.resumeCursor, undefined);
+        assert.equal(startPayload.runtimeMode, "approval-required");
+        assert.equal(reset.threadId, threadId);
+        const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        assert.deepEqual(binding?.resumeCursor, reset.resumeCursor);
+      }).pipe(Effect.provide(providerLayer));
+
+      NodeFS.rmSync(tempDir, { recursive: true, force: true });
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("persists a resume cursor as soon as an adapter session starts", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService.ProviderService;

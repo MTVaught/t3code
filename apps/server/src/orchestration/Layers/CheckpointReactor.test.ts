@@ -114,6 +114,7 @@ function createProviderServiceHarness(
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),
+    resetContext: () => unsupported(),
     listSessions,
     getCapabilities: () =>
       Effect.succeed({ sessionModelSwitch: "in-session", conversationRollback }),

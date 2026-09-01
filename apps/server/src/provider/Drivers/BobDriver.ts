@@ -27,6 +27,7 @@ import { makeBobTextGeneration } from "../../textGeneration/BobTextGeneration.ts
 import { ProviderDriverError } from "../Errors.ts";
 import { makeBobAdapter } from "../Layers/BobAdapter.ts";
 import { buildInitialBobProviderSnapshot, checkBobProviderStatus } from "../Layers/BobProvider.ts";
+import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -63,6 +64,7 @@ export type BobDriverEnv =
   | Crypto.Crypto
   | FileSystem.FileSystem
   | Path.Path
+  | ProviderEventLoggers
   | ServerConfig
   | ServerSettingsService;
 
@@ -96,6 +98,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const serverSettings = yield* ServerSettingsService;
+      const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -115,6 +118,7 @@ export const BobDriver: ProviderDriver<BobSettings, BobDriverEnv> = {
 
       const adapter = yield* makeBobAdapter(effectiveConfig, {
         environment: processEnv,
+        ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         instanceId,
       });
       const textGeneration = yield* makeBobTextGeneration(effectiveConfig, processEnv);

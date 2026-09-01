@@ -1091,6 +1091,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(config, "asarUnpack");
       assert.notProperty(mac, "entitlements");
       assert.notProperty(mac, "provisioningProfile");
+      assert.match(String(mac.sign), /\/scripts\/sign-macos\.ts$/);
       assert.deepStrictEqual(mac.protocols, [
         {
           name: "T3 Code (Treher)",

@@ -533,15 +533,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           issue: "Turn requires non-empty text or attachments.",
         });
       }
+      // A stale persisted mode must not block the turn; the agent keeps its
+      // current mode and reports it through `current_mode_update`.
       const requestedMode = input.providerMode?.trim();
       if (requestedMode) {
-        yield* context.acp
-          .setMode(requestedMode)
-          .pipe(
-            Effect.mapError((error) =>
-              mapAcpToAdapterError(options.provider, input.threadId, "session/set_mode", error),
-            ),
-          );
+        yield* context.acp.setMode(requestedMode).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning(`${options.displayName} rejected the requested provider mode.`, {
+              threadId: input.threadId,
+              providerMode: requestedMode,
+              cause,
+            }),
+          ),
+        );
       }
       const turnId = TurnId.make(yield* randomId);
       context.activeTurnId = turnId;
@@ -630,13 +634,6 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           skills: [],
         },
       ),
-    resetContext: (threadId) =>
-      Effect.gen(function* () {
-        const context = yield* requireSession(threadId);
-        const startInput = { ...context.startInput, resumeCursor: undefined };
-        yield* stopSession(threadId);
-        return yield* startSession(startInput);
-      }),
     startSession,
     sendTurn,
     interruptTurn: (threadId) =>

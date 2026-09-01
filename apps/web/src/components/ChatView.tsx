@@ -2861,12 +2861,10 @@ function ChatViewContent(props: ChatViewProps) {
     ? activeProviderStatus
     : null;
   const supportsConversationRollback = activeProviderStatus?.capabilities?.rollback !== false;
+  // Any Bob session error is recoverable by discarding the saved ACP session;
+  // the error text is provider-owned and not stable enough to pattern-match.
   const canResetMissingBobSession =
-    activeProviderStatus?.driver === "bob" &&
-    visibleThreadError !== null &&
-    /(?:session[ /]resume|resume (?:the )?session|session\s+[^\n]*not found|unknown session|invalid session)/i.test(
-      visibleThreadError,
-    );
+    activeProviderStatus?.driver === "bob" && visibleThreadError !== null;
   const hasTimelineTopBanner = Boolean(visibleThreadError) || visibleProviderStatus !== null;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;

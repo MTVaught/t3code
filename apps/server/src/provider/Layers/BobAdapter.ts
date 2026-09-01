@@ -14,10 +14,12 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
+import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
 import { discoverBobSkills } from "../Drivers/BobSkills.ts";
 import { makeBasicAcpAdapter } from "./BasicAcpAdapter.ts";
 import type { BobAdapterShape } from "../Services/BobAdapter.ts";
+import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = ProviderDriverKind.make("bob");
 
@@ -30,6 +32,8 @@ export const BOB_BUILT_IN_MODES: ReadonlyArray<ServerProviderMode> = [
 export interface BobAdapterLiveOptions {
   readonly environment?: NodeJS.ProcessEnv;
   readonly instanceId?: ProviderInstanceId;
+  /** Native ACP request/protocol log, shared with the other providers. */
+  readonly nativeEventLogger?: EventNdjsonLogger;
 }
 
 export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
@@ -41,6 +45,7 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const instanceId = options?.instanceId ?? ProviderInstanceId.make("bob");
+  const makeAcpNativeLoggers = yield* makeAcpNativeLoggerFactory();
 
   const adapter = yield* makeBasicAcpAdapter({
     provider: PROVIDER,
@@ -56,6 +61,11 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
         ...(resumeSessionId ? { resumeSessionId } : {}),
         ...(mcpServers ? { mcpServers } : {}),
         clientInfo: { name: "t3-code", version: "0.0.0" },
+        ...makeAcpNativeLoggers({
+          nativeEventLogger: options?.nativeEventLogger,
+          provider: PROVIDER,
+          threadId,
+        }),
       }).pipe(
         Effect.provideService(Crypto.Crypto, crypto),
         Effect.provideService(Scope.Scope, scope),

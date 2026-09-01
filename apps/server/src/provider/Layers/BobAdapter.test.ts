@@ -168,6 +168,33 @@ describe("Bob ACP adapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
+  it.effect("keeps sending the turn when Bob rejects the requested mode", () =>
+    Effect.gen(function* () {
+      const wrapper = yield* Effect.promise(() =>
+        makeBobWrapper({ environment: { T3_ACP_FAIL_SET_MODE: "1" } }),
+      );
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+      );
+      const threadId = ThreadId.make("bob-acp-stale-mode");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+
+      const result = yield* adapter.sendTurn({
+        threadId,
+        input: "hello",
+        providerMode: "retired-mode",
+      });
+
+      expect(result.threadId).toBe(threadId);
+      yield* adapter.stopSession(threadId);
+    }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
+
   it.effect("treats cancellation as a hard Bob session boundary", () =>
     Effect.gen(function* () {
       const wrapper = yield* Effect.promise(() =>

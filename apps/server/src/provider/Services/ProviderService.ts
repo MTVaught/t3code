@@ -96,6 +96,15 @@ export interface ProviderServiceShape {
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ProviderAdapterCapabilities, ProviderServiceError>;
 
+  /**
+   * Discard the persisted provider continuation for a thread and start a
+   * fresh provider session in the same workspace. Used when the provider can
+   * no longer resume its saved session.
+   */
+  readonly resetContext: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProviderSession, ProviderServiceError>;
+
   readonly getProjectMetadata?: (
     instanceId: ProviderInstanceId,
     cwd: string,
