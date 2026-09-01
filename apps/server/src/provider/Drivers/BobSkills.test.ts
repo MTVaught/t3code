@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import { discoverBobSkills } from "./BobSkills.ts";
+import { discoverBobSkills, splitBobSkillPreludes } from "./BobSkills.ts";
 
 const writeSkill = Effect.fn(function* (root: string, directory: string, description: string) {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -41,4 +41,17 @@ it.layer(NodeServices.layer)("discoverBobSkills", (it) => {
       );
     }),
   );
+});
+
+it("splitBobSkillPreludes peels known skills into their own prompts", () => {
+  const skills = [{ name: "deploy" }, { name: "review" }];
+  assert.deepEqual(splitBobSkillPreludes("$deploy $review ship it $deploy", skills), {
+    preludes: ["$deploy", "$review"],
+    text: "ship it",
+  });
+  assert.deepEqual(splitBobSkillPreludes("costs $HOME dollars", skills), {
+    preludes: [],
+    text: "costs $HOME dollars",
+  });
+  assert.deepEqual(splitBobSkillPreludes("$review", skills), { preludes: ["$review"], text: "" });
 });

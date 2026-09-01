@@ -117,3 +117,24 @@ export const discoverBobSkills = Effect.fn("discoverBobSkills")(function* (
   skillsCacheByRoots.set(cacheKey, { fingerprint, skills });
   return skills;
 });
+
+const SKILL_TOKEN_PATTERN = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
+
+/**
+ * Bob rejects a skill load that shares a prompt with other text, so every
+ * `$skill` that names a discovered skill becomes its own prelude prompt and is
+ * dropped from the message. Unknown `$tokens` (env vars, prices) stay put.
+ */
+export function splitBobSkillPreludes(
+  text: string,
+  skills: ReadonlyArray<Pick<ServerProviderSkill, "name">>,
+): { readonly preludes: ReadonlyArray<string>; readonly text: string } {
+  const known = new Set(skills.map((skill) => skill.name));
+  const preludes: Array<string> = [];
+  const remaining = text.replace(SKILL_TOKEN_PATTERN, (match, prefix: string, name: string) => {
+    if (!known.has(name)) return match;
+    if (!preludes.includes(`$${name}`)) preludes.push(`$${name}`);
+    return prefix;
+  });
+  return { preludes, text: remaining.replace(/[ \t]{2,}/g, " ").trim() };
+}
