@@ -170,8 +170,9 @@ describe("Bob ACP adapter", () => {
         runtimeMode: "full-access",
       });
       yield* adapter.sendTurn({ threadId, input: "$deploy $review ship the $HOME fix" });
+      yield* adapter.sendTurn({ threadId, input: "just $deploy" });
       const thread = yield* adapter.readThread(threadId);
-      expect(thread.turns).toHaveLength(1);
+      expect(thread.turns).toHaveLength(2);
       yield* adapter.stopSession(threadId);
 
       const promptTexts = (yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")))
@@ -186,7 +187,7 @@ describe("Bob ACP adapter", () => {
         )
         .filter((entry) => entry.method === "session/prompt")
         .map((entry) => entry.params?.prompt?.map((block) => block.text));
-      expect(promptTexts).toEqual([["$deploy"], ["$review"], ["ship the $HOME fix"]]);
+      expect(promptTexts).toEqual([["/deploy"], ["/review ship the $HOME fix"], ["/deploy just"]]);
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 

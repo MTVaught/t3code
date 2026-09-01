@@ -1,7 +1,7 @@
 /** Filesystem discovery of IBM Bob skills for the composer skill picker. */
 import * as NodeOS from "node:os";
 
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProviderSkill, ServerProviderSlashCommand } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -36,6 +36,14 @@ const readSkill = Effect.fn("readBobSkill")(function* (
   const metadata = parseFrontmatter(contents);
   if (!metadata) return undefined;
 
+  // Bob nests invocation flags under `metadata:` and falls back to top level.
+  // Skills a user may not invoke never enter Bob's ACP command catalog, so
+  // offering them would only produce a prompt Bob passes through verbatim.
+  const nested =
+    typeof metadata.metadata === "object" && metadata.metadata !== null
+      ? (metadata.metadata as Record<string, unknown>)
+      : {};
+  if ((nested["user-invocable"] ?? metadata["user-invocable"]) === false) return undefined;
   const configuredName = typeof metadata.name === "string" ? metadata.name.trim() : "";
   const name = configuredName || fallbackName.trim();
   if (!name) return undefined;
@@ -121,20 +129,42 @@ export const discoverBobSkills = Effect.fn("discoverBobSkills")(function* (
 const SKILL_TOKEN_PATTERN = /(^|\s)\$([a-zA-Z][a-zA-Z0-9:_-]*)(?=\s|$)/g;
 
 /**
- * Bob rejects a skill load that shares a prompt with other text, so every
- * `$skill` that names a discovered skill becomes its own prelude prompt and is
- * dropped from the message. Unknown `$tokens` (env vars, prices) stay put.
+ * Bob's ACP catalog (`available_commands_update`) is the authority on which
+ * skills the current mode may invoke. While a session is reporting one, keep
+ * only discovered skills it lists; before that, the filesystem scan stands.
+ */
+export function selectInvocableBobSkills(
+  discovered: ReadonlyArray<ServerProviderSkill>,
+  slashCommands: ReadonlyArray<Pick<ServerProviderSlashCommand, "name">>,
+): ReadonlyArray<ServerProviderSkill> {
+  if (slashCommands.length === 0) return discovered;
+  const catalog = new Set(slashCommands.map((command) => command.name));
+  return discovered.filter((skill) => catalog.has(skill.name));
+}
+
+/**
+ * Over ACP, Bob loads a skill only when the prompt is `/name [argument]`; a
+ * `$name` inside text reaches the model verbatim, which fails for skills with
+ * `disable-model-invocation`. Every `$skill` naming a known skill becomes its
+ * own `/name` prompt, and the message rides along as the last one's argument.
+ * Unknown `$tokens` (env vars, prices) stay put.
  */
 export function splitBobSkillPreludes(
   text: string,
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name">>,
 ): { readonly preludes: ReadonlyArray<string>; readonly text: string } {
   const known = new Set(skills.map((skill) => skill.name));
-  const preludes: Array<string> = [];
-  const remaining = text.replace(SKILL_TOKEN_PATTERN, (match, prefix: string, name: string) => {
-    if (!known.has(name)) return match;
-    if (!preludes.includes(`$${name}`)) preludes.push(`$${name}`);
-    return prefix;
-  });
-  return { preludes, text: remaining.replace(/[ \t]{2,}/g, " ").trim() };
+  const names: Array<string> = [];
+  const remaining = text
+    .replace(SKILL_TOKEN_PATTERN, (match, prefix: string, name: string) => {
+      if (!known.has(name)) return match;
+      if (!names.includes(name)) names.push(name);
+      return prefix;
+    })
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  if (names.length === 0) return { preludes: [], text: remaining };
+  const commands = names.map((name) => `/${name}`);
+  const last = commands.pop()!;
+  return { preludes: commands, text: remaining ? `${last} ${remaining}` : last };
 }

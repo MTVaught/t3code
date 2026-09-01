@@ -16,7 +16,11 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
-import { discoverBobSkills, splitBobSkillPreludes } from "../Drivers/BobSkills.ts";
+import {
+  discoverBobSkills,
+  selectInvocableBobSkills,
+  splitBobSkillPreludes,
+} from "../Drivers/BobSkills.ts";
 import { makeBasicAcpAdapter } from "./BasicAcpAdapter.ts";
 import type { BobAdapterShape } from "../Services/BobAdapter.ts";
 import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
@@ -57,8 +61,10 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     instanceId,
     displayName: "Bob",
     builtInModes: BOB_BUILT_IN_MODES,
-    splitPromptPreludes: ({ cwd, text }) =>
-      Effect.map(skillsFor(cwd), (skills) => splitBobSkillPreludes(text, skills)),
+    splitPromptPreludes: ({ cwd, text, slashCommands }) =>
+      Effect.map(skillsFor(cwd), (skills) =>
+        splitBobSkillPreludes(text, selectInvocableBobSkills(skills, slashCommands)),
+      ),
     makeRuntime: ({ threadId, cwd, resumeSessionId, mcpServers, scope }) =>
       makeBobAcpRuntime({
         bobSettings: settings,
@@ -99,6 +105,11 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
       Effect.all({
         metadata: adapter.getProjectMetadata!(cwd),
         skills: skillsFor(cwd),
-      }).pipe(Effect.map(({ metadata, skills }) => ({ ...metadata, skills }))),
+      }).pipe(
+        Effect.map(({ metadata, skills }) => ({
+          ...metadata,
+          skills: selectInvocableBobSkills(skills, metadata.slashCommands),
+        })),
+      ),
   } satisfies BobAdapterShape;
 });
