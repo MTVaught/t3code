@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   CheckIcon,
   ChevronRightIcon,
+  CodeXmlIcon,
   CopyIcon,
   GlobeIcon,
   InfoIcon,
@@ -80,6 +81,7 @@ import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
+import { MarkdownMermaidDiagram } from "./MarkdownMermaidDiagram";
 import { useTheme } from "../hooks/useTheme";
 import { getClientSettings } from "../hooks/useSettings";
 import {
@@ -717,12 +719,14 @@ function MarkdownCodeBlock({
   language,
   fenceTitle,
   theme,
+  headerActions,
   children,
 }: {
   code: string;
   language: string;
   fenceTitle: string | null;
   theme: "light" | "dark";
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
@@ -784,6 +788,7 @@ function MarkdownCodeBlock({
           />
         </span>
         <span className="flex items-center gap-0.5" role="toolbar" aria-label="Code block actions">
+          {headerActions}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -823,6 +828,60 @@ function MarkdownCodeBlock({
       </div>
       {children}
     </div>
+  );
+}
+
+/**
+ * A ```mermaid fence inside the standard code block chrome: the diagram when
+ * the source renders, the highlighted source otherwise, and a header toggle to
+ * flip between the two.
+ */
+function MarkdownMermaidCodeBlock({
+  code,
+  fenceTitle,
+  theme,
+  codeView,
+}: {
+  code: string;
+  fenceTitle: string | null;
+  theme: "light" | "dark";
+  codeView: ReactNode;
+}) {
+  const [showSource, setShowSource] = useState(false);
+  const toggleLabel = showSource ? "Show diagram" : "Show mermaid source";
+  return (
+    <MarkdownCodeBlock
+      code={code}
+      language="mermaid"
+      fenceTitle={fenceTitle}
+      theme={theme}
+      headerActions={
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="chat-markdown-chrome-action"
+                aria-pressed={showSource}
+                onClick={() => setShowSource((value) => !value)}
+                aria-label={toggleLabel}
+              />
+            }
+          >
+            <CodeXmlIcon className="size-3" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">{toggleLabel}</TooltipPopup>
+        </Tooltip>
+      }
+    >
+      {showSource ? (
+        codeView
+      ) : (
+        <MarkdownMermaidDiagram code={code} theme={theme} fallback={codeView} />
+      )}
+    </MarkdownCodeBlock>
   );
 }
 
@@ -2186,6 +2245,28 @@ function ChatMarkdown({
 
         const language = extractFenceLanguage(codeBlock.className);
         const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+        const codeView = (
+          <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
+            <Suspense fallback={<pre {...props}>{children}</pre>}>
+              <SuspenseShikiCodeBlock
+                className={codeBlock.className}
+                code={codeBlock.code}
+                themeName={diffThemeName}
+                isStreaming={isStreaming}
+              />
+            </Suspense>
+          </RenderErrorBoundary>
+        );
+        if (language === "mermaid") {
+          return (
+            <MarkdownMermaidCodeBlock
+              code={codeBlock.code}
+              fenceTitle={fenceTitle}
+              theme={resolvedTheme}
+              codeView={codeView}
+            />
+          );
+        }
         return (
           <MarkdownCodeBlock
             code={codeBlock.code}
@@ -2193,16 +2274,7 @@ function ChatMarkdown({
             fenceTitle={fenceTitle}
             theme={resolvedTheme}
           >
-            <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
-                <SuspenseShikiCodeBlock
-                  className={codeBlock.className}
-                  code={codeBlock.code}
-                  themeName={diffThemeName}
-                  isStreaming={isStreaming}
-                />
-              </Suspense>
-            </RenderErrorBoundary>
+            {codeView}
           </MarkdownCodeBlock>
         );
       },
