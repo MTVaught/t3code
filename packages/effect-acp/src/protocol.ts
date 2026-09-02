@@ -71,6 +71,16 @@ interface AcpPendingRequest {
   readonly method: string;
 }
 
+// Diagnostics only: never the raw payload or cause, which can carry secrets.
+const decodeFailureLogPayload = (error: AcpError.AcpProtocolParseError) => ({
+  operation: error.operation,
+  ...(error.method === undefined ? {} : { method: error.method }),
+  ...(error.requestId === undefined ? {} : { requestId: error.requestId }),
+  ...(error.issueCount === undefined ? {} : { issueCount: error.issueCount }),
+  ...(error.issueKinds === undefined ? {} : { issueKinds: error.issueKinds }),
+  ...(error.maximumPathDepth === undefined ? {} : { maximumPathDepth: error.maximumPathDepth }),
+});
+
 const decodeSessionUpdate = Schema.decodeUnknownEffect(AcpSchema.SessionNotification);
 const decodeElicitationComplete = Schema.decodeUnknownEffect(
   AcpSchema.ElicitationCompleteNotification,
@@ -261,6 +271,24 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     );
   };
 
+  // A malformed notification must not tear down the transport: pending
+  // requests and later notifications on the session stay live. Log the
+  // bounded diagnostics and drop the message.
+  const logNotificationDecodeFailure = (error: AcpError.AcpProtocolParseError) =>
+    Effect.logWarning(error).pipe(
+      Effect.annotateLogs({
+        method: error.method,
+        operation: error.operation,
+      }),
+      Effect.andThen(
+        logProtocol({
+          direction: "incoming",
+          stage: "decode_failed",
+          payload: decodeFailureLogPayload(error),
+        }),
+      ),
+    );
+
   const handleRequestEncoded = (message: RpcMessage.RequestEncoded) => {
     if (message.id === "") {
       if (message.tag === CLIENT_METHODS.session_update) {
@@ -273,14 +301,17 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
                 params,
               }) satisfies AcpIncomingNotification,
           ),
-          Effect.mapError((cause) =>
-            AcpError.AcpProtocolParseError.fromSchemaError(
-              "decode-notification-payload",
-              CLIENT_METHODS.session_update,
-              cause,
-            ),
-          ),
-          Effect.flatMap(dispatchNotification),
+          Effect.matchEffect({
+            onFailure: (cause) =>
+              logNotificationDecodeFailure(
+                AcpError.AcpProtocolParseError.fromSchemaError(
+                  "decode-notification-payload",
+                  CLIENT_METHODS.session_update,
+                  cause,
+                ),
+              ),
+            onSuccess: dispatchNotification,
+          }),
         );
       }
       if (message.tag === CLIENT_METHODS.session_elicitation_complete) {
@@ -293,14 +324,17 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
                 params,
               }) satisfies AcpIncomingNotification,
           ),
-          Effect.mapError((cause) =>
-            AcpError.AcpProtocolParseError.fromSchemaError(
-              "decode-notification-payload",
-              CLIENT_METHODS.session_elicitation_complete,
-              cause,
-            ),
-          ),
-          Effect.flatMap(dispatchNotification),
+          Effect.matchEffect({
+            onFailure: (cause) =>
+              logNotificationDecodeFailure(
+                AcpError.AcpProtocolParseError.fromSchemaError(
+                  "decode-notification-payload",
+                  CLIENT_METHODS.session_elicitation_complete,
+                  cause,
+                ),
+              ),
+            onSuccess: dispatchNotification,
+          }),
         );
       }
       return dispatchNotification({
@@ -339,8 +373,9 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     return Queue.offer(serverQueue, message).pipe(Effect.asVoid);
   };
 
-  const handleExitEncoded = (message: RpcMessage.ResponseExitEncoded) =>
-    Ref.get(extPending).pipe(
+  const handleExitEncoded = (encoded: RpcMessage.ResponseExitEncoded) => {
+    const message = normalizeJsonRpcErrorExit(encoded);
+    return Ref.get(extPending).pipe(
       Effect.flatMap((pending) => {
         const pendingRequest = pending.get(String(message.requestId));
         if (!pendingRequest) {
@@ -370,6 +405,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
         );
       }),
     );
+  };
 
   const routeDecodedMessage = (
     message: RpcMessage.FromClientEncoded | RpcMessage.FromServerEncoded,
@@ -437,16 +473,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
           logProtocol({
             direction: "incoming",
             stage: "decode_failed",
-            payload: {
-              operation: error.operation,
-              ...(error.method === undefined ? {} : { method: error.method }),
-              ...(error.requestId === undefined ? {} : { requestId: error.requestId }),
-              ...(error.issueCount === undefined ? {} : { issueCount: error.issueCount }),
-              ...(error.issueKinds === undefined ? {} : { issueKinds: error.issueKinds }),
-              ...(error.maximumPathDepth === undefined
-                ? {}
-                : { maximumPathDepth: error.maximumPathDepth }),
-            },
+            payload: decodeFailureLogPayload(error),
           }),
         ),
         Effect.flatMap((messages) =>
@@ -561,6 +588,37 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     notify: sendNotification,
   } satisfies AcpPatchedProtocol;
 });
+
+/**
+ * The ndJsonRpc codec turns a plain JSON-RPC error response (one without
+ * Effect's `_tag: "Cause"`/`"Defect"` envelope) into a `Die` reason. ACP
+ * agents speak plain JSON-RPC, so route those errors through the typed `Fail`
+ * channel where they decode as the declared ACP `Error` schema instead of
+ * surfacing as an unhandled defect.
+ */
+function normalizeJsonRpcErrorExit(
+  message: RpcMessage.ResponseExitEncoded,
+): RpcMessage.ResponseExitEncoded {
+  if (message.exit._tag !== "Failure") {
+    return message;
+  }
+  if (
+    !message.exit.cause.some((reason) => reason._tag === "Die" && isProtocolError(reason.defect))
+  ) {
+    return message;
+  }
+  return {
+    ...message,
+    exit: {
+      _tag: "Failure",
+      cause: message.exit.cause.map((reason) =>
+        reason._tag === "Die" && isProtocolError(reason.defect)
+          ? ({ _tag: "Fail", error: reason.defect } as const)
+          : reason,
+      ),
+    },
+  };
+}
 
 function isProtocolError(
   value: unknown,

@@ -43,6 +43,17 @@ workspace's `.bob/custom_modes.yaml` / `.bob/*/custom_modes.yaml` (`Drivers/BobM
 switches to Bob's authoritative list for the active workspace once a session reports it. Project metadata queries refresh while mounted, allowing web, desktop, and
 mobile composers to pick up command and mode changes without a server restart.
 
+## Error handling
+
+ACP agents speak plain JSON-RPC, so `packages/effect-acp` normalizes error responses at the
+transport (`protocol.ts`): a bare JSON-RPC error object (Effect's ndJsonRpc codec would otherwise
+surface it as an unhandled defect) is routed through the typed error channel and reaches callers as
+an `AcpRequestError` with the agent's code and message. A notification that fails schema decoding is
+logged (bounded diagnostics only, never the payload) and dropped; it does not terminate the
+transport or the session. When a turn still fails with a defect, the orchestration reactor records
+only the defect's message in the session's user-visible `last_error` and keeps the full cause in the
+server log.
+
 ## Deliberately unsupported capabilities
 
 T3 advertises no Bob steering, rollback, structured user input, model switching, token usage, or

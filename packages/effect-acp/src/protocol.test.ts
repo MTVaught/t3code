@@ -135,15 +135,24 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       }),
   );
 
-  it.effect("keeps invalid core notification values only in the schema cause", () =>
+  it.effect("drops undecodable core notifications without terminating the transport", () =>
     Effect.gen(function* () {
       const secret = "acp-core-notification-secret-sentinel";
       const { stdio, input } = yield* makeInMemoryStdio();
-      const termination = yield* Deferred.make<AcpError.AcpError>();
+      const events: Array<AcpProtocol.AcpProtocolLogEvent> = [];
+      const terminated = yield* Ref.make(false);
+      const delivered = yield* Deferred.make<AcpProtocol.AcpIncomingNotification>();
       yield* AcpProtocol.makeAcpPatchedProtocol({
         stdio,
         serverRequestMethods: new Set(),
-        onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
+        logIncoming: true,
+        logger: (event) =>
+          Effect.sync(() => {
+            events.push(event);
+          }),
+        onNotification: (notification) =>
+          Deferred.succeed(delivered, notification).pipe(Effect.asVoid),
+        onTermination: () => Ref.set(terminated, true),
       });
 
       yield* Queue.offer(
@@ -162,19 +171,84 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
           })}\n`,
         ),
       );
+      yield* Queue.offer(
+        input,
+        yield* encodeJsonl(SessionUpdateNotification, {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "session-1",
+            update: {
+              sessionUpdate: "plan",
+              entries: [
+                {
+                  content: "Inspect repository",
+                  priority: "high",
+                  status: "in_progress",
+                },
+              ],
+            },
+          },
+        }),
+      );
 
-      const error = yield* Deferred.await(termination);
-      assert.instanceOf(error, AcpError.AcpProtocolParseError);
-      const parseError = error as AcpError.AcpProtocolParseError;
-      const { cause, ...directDiagnostics } = parseError;
-      assert.equal(parseError.operation, "decode-notification-payload");
-      assert.equal(parseError.method, "session/update");
-      assert.isAbove(parseError.issueCount ?? 0, 0);
-      assert.include(parseError.issueKinds ?? [], "Pointer");
-      assert.isAbove(parseError.maximumPathDepth ?? 0, 0);
-      assert.isTrue(Schema.isSchemaError(cause));
-      assert.notInclude(parseError.message, secret);
-      assert.notInclude(encodeUnknownJsonString(directDiagnostics), secret);
+      // A later valid notification still arrives; the transport stays live.
+      const notification = yield* Deferred.await(delivered);
+      assert.equal(notification._tag, "SessionUpdate");
+      assert.isFalse(yield* Ref.get(terminated));
+
+      const event = events.find(({ stage }) => stage === "decode_failed");
+      assert.isDefined(event);
+      assert.deepInclude(event?.payload, {
+        operation: "decode-notification-payload",
+        method: "session/update",
+      });
+      assert.notInclude(encodeUnknownJsonString(event), secret);
+    }),
+  );
+
+  it.effect("surfaces plain JSON-RPC error responses through the typed error channel", () =>
+    Effect.gen(function* () {
+      const { stdio, input, output } = yield* makeInMemoryStdio();
+      const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+        stdio,
+        serverRequestMethods: new Set(),
+      });
+
+      const response = yield* transport
+        .request("x/private", { hello: "world" })
+        .pipe(Effect.forkScoped);
+      yield* Queue.take(output);
+      // A bare JSON-RPC error object, the shape every non-Effect ACP agent
+      // sends. Without normalization this decodes as a Die defect.
+      yield* Queue.offer(
+        input,
+        encoder.encode(
+          `${encodeUnknownJsonString({
+            jsonrpc: "2.0",
+            id: 1,
+            error: {
+              code: -32603,
+              message: "Internal error",
+            },
+          })}\n`,
+        ),
+      );
+
+      const error = yield* Fiber.join(response).pipe(
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => assert.fail("Expected extension request to fail"),
+        }),
+      );
+      assert.instanceOf(error, AcpError.AcpRequestError);
+      assert.deepInclude(error, {
+        code: -32603,
+        errorMessage: "Internal error",
+        method: "x/private",
+        requestId: 1,
+        operation: "receive-response",
+      });
     }),
   );
 
