@@ -368,6 +368,9 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  // This detail lands in the user-visible session `last_error`. Defect stack
+  // traces stay in the server log (the reactors log the full cause on
+  // recovery); the session row gets only the defect's message.
   const formatFailureDetail = (cause: Cause.Cause<unknown>): string => {
     const failReason = cause.reasons.find(Cause.isFailReason);
     const providerError = isProviderAdapterRequestError(failReason?.error)
@@ -375,6 +378,15 @@ const make = Effect.gen(function* () {
       : undefined;
     if (providerError) {
       return providerError.detail;
+    }
+    if (!failReason) {
+      const dieReason = cause.reasons.find(Cause.isDieReason);
+      if (dieReason) {
+        const defect = dieReason.defect;
+        return defect instanceof Error
+          ? `${defect.name}: ${defect.message}`
+          : `Unexpected provider failure: ${String(defect)}`;
+      }
     }
     return Cause.pretty(cause);
   };
@@ -1171,11 +1183,17 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }
       const detail = formatFailureDetail(cause);
-      return setThreadSessionErrorOnTurnStartFailure({
+      return Effect.logWarning("provider turn start failed", {
         threadId: event.payload.threadId,
-        detail,
-        createdAt: event.payload.createdAt,
+        cause: Cause.pretty(cause),
       }).pipe(
+        Effect.andThen(
+          setThreadSessionErrorOnTurnStartFailure({
+            threadId: event.payload.threadId,
+            detail,
+            createdAt: event.payload.createdAt,
+          }),
+        ),
         Effect.flatMap(() =>
           appendProviderFailureActivity({
             threadId: event.payload.threadId,
