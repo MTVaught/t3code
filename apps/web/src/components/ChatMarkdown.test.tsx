@@ -104,6 +104,28 @@ describe("ChatMarkdown file option chips", () => {
   });
 });
 
+describe("ChatMarkdown mermaid fences", () => {
+  it("renders the mermaid chrome with a source toggle and the code fallback", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={"```mermaid\ngraph TD;\n  A-->B;\n```"} />,
+    );
+
+    expect(html).toContain('data-language="mermaid"');
+    expect(html).toContain('aria-label="Show mermaid source"');
+    // The highlighted source stays visible until a diagram render succeeds.
+    expect(html).toContain("A--&gt;B;");
+  });
+
+  it("keeps plain code block chrome for other languages", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd="/tmp/project" text={"```ts\nconst a = 1;\n```"} />,
+    );
+
+    expect(html).toContain('data-language="ts"');
+    expect(html).not.toContain("Show mermaid source");
+  });
+});
+
 describe("shouldUseMarkdownFileBrowserPrimaryAction", () => {
   it("uses the browser when it is the only available primary action", () => {
     expect(
