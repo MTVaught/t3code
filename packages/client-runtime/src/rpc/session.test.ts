@@ -6,6 +6,7 @@ import {
   ServerConfig,
   type ServerConfig as ServerConfigType,
   ServerConfigStreamEvent,
+  ServerProviderCapabilities,
   type ServerConfigStreamEvent as ServerConfigStreamEventType,
   WS_METHODS,
 } from "@t3tools/contracts";
@@ -98,6 +99,9 @@ class TestWebSocket {
     }
   }
 }
+
+// Decoding fills the fork's provider capability defaults.
+const DEFAULT_PROVIDER_CAPABILITIES = Schema.decodeUnknownSync(ServerProviderCapabilities)({});
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -855,6 +859,9 @@ describe("RpcSessionFactory", () => {
               models: [],
               slashCommands: [],
               skills: [],
+              // Decoding fills the fork's capability defaults, so the fixture
+              // carries them for the round-trip equality check.
+              capabilities: DEFAULT_PROVIDER_CAPABILITIES,
             },
           ],
         },
