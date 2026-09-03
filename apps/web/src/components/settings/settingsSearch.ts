@@ -180,6 +180,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["diff ignore spaces edits default"],
   },
   {
+    id: "show-full-files-in-diffs",
+    title: "Show full files in diffs",
+    to: "/settings/general",
+  },
+  {
     id: "skills-in-slash-menu",
     title: "Show skills in slash menu",
     to: "/settings/general",

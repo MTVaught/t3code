@@ -77,6 +77,16 @@ describe("ClaudeSettings auto-compaction", () => {
   });
 });
 
+describe("ClientSettings diff expansion", () => {
+  it("collapses unchanged diff regions by default", () => {
+    expect(decodeClientSettings({}).diffExpandUnchanged).toBe(false);
+  });
+
+  it("accepts an explicit preference", () => {
+    expect(decodeClientSettings({ diffExpandUnchanged: true }).diffExpandUnchanged).toBe(true);
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

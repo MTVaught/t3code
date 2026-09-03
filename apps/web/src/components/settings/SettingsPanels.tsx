@@ -518,6 +518,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
         : []),
+      ...(settings.diffExpandUnchanged !== DEFAULT_UNIFIED_SETTINGS.diffExpandUnchanged
+        ? ["Show full files in diffs"]
+        : []),
       ...(settings.showSkillsInSlashMenu !== DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu
         ? ["Show skills in slash menu"]
         : []),
@@ -574,6 +577,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.newWorktreesStartFromOrigin,
       settings.diffIgnoreWhitespace,
+      settings.diffExpandUnchanged,
       settings.environmentIdentificationMode,
       settings.fontFamilyCode,
       settings.fontFamilyComposer,
@@ -666,6 +670,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
+      diffExpandUnchanged: DEFAULT_UNIFIED_SETTINGS.diffExpandUnchanged,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
@@ -2102,6 +2107,32 @@ export function GeneralSettingsPanel() {
                 updateSettings({ diffIgnoreWhitespace: Boolean(checked) })
               }
               aria-label="Hide whitespace changes by default"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("show-full-files-in-diffs")}
+          description="Show every line of each changed file in the diff panel by default instead of collapsing unchanged sections. The diff toolbar can override this per review."
+          resetAction={
+            settings.diffExpandUnchanged !== DEFAULT_UNIFIED_SETTINGS.diffExpandUnchanged ? (
+              <SettingResetButton
+                label="show full files in diffs"
+                onClick={() =>
+                  updateSettings({
+                    diffExpandUnchanged: DEFAULT_UNIFIED_SETTINGS.diffExpandUnchanged,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.diffExpandUnchanged}
+              onCheckedChange={(checked) =>
+                updateSettings({ diffExpandUnchanged: Boolean(checked) })
+              }
+              aria-label="Show full files in diffs"
             />
           }
         />

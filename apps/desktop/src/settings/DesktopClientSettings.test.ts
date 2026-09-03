@@ -25,6 +25,7 @@ const clientSettings: ClientSettings = {
   confirmThreadUnpin: false,
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
+  diffExpandUnchanged: false,
   environmentIdentificationMode: "artwork",
   favorites: [],
   fontFamilyCode: "",
