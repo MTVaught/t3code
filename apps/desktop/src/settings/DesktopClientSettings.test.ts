@@ -23,6 +23,7 @@ const clientSettings: ClientSettings = {
   confirmThreadDelete: false,
   dismissedProviderUpdateNotificationKeys: [],
   diffIgnoreWhitespace: true,
+  diffExpandUnchanged: false,
   environmentIdentificationMode: "artwork",
   favorites: [],
   fontFamilyCode: "",

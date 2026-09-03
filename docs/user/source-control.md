@@ -34,6 +34,7 @@ T3 Code works with the platforms your team already uses:
 - Click the path to search and jump to any changed file without keeping a file tree open
 - With focus in the diff, press `J` for the previous file or `K` for the next file
 - Narrow panels start with a unified diff; wider panels start with a side-by-side diff
+- Unchanged sections are collapsed by default. Use the unfold button in the diff toolbar to show full files for the current review, or turn on **Show full files in diffs** in Settings → General to make that the default
 
 ### Manage Code Reviews Without Context Switching
 
