@@ -21,6 +21,7 @@ import {
   Rows3Icon,
   SearchIcon,
   TextWrapIcon,
+  UnfoldVerticalIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
@@ -141,6 +142,7 @@ export default function DiffPanel({
   >({ compact: "unified", wide: "split" });
   const [wordWrap, setWordWrap] = useState(settings.wordWrap);
   const [diffIgnoreWhitespace, setDiffIgnoreWhitespace] = useState(settings.diffIgnoreWhitespace);
+  const [diffExpandUnchanged, setDiffExpandUnchanged] = useState(settings.diffExpandUnchanged);
   const [baseRefQuery, setBaseRefQuery] = useState("");
   const [fileQuery, setFileQuery] = useState("");
   const [activeFilePathByScope, setActiveFilePathByScope] = useState<Record<string, string>>({});
@@ -896,6 +898,26 @@ export default function DiffPanel({
             {diffIgnoreWhitespace ? "Show whitespace changes" : "Hide whitespace changes"}
           </TooltipPopup>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                aria-label={diffExpandUnchanged ? "Collapse unchanged lines" : "Show full files"}
+                variant="ghost"
+                size="sm"
+                pressed={diffExpandUnchanged}
+                onPressedChange={(pressed) => {
+                  setDiffExpandUnchanged(Boolean(pressed));
+                }}
+              />
+            }
+          >
+            <UnfoldVerticalIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {diffExpandUnchanged ? "Collapse unchanged lines" : "Show full files"}
+          </TooltipPopup>
+        </Tooltip>
       </div>
     </>
   );
@@ -1191,6 +1213,7 @@ export default function DiffPanel({
                   }}
                   options={{
                     diffStyle: diffRenderMode,
+                    expandUnchanged: diffExpandUnchanged,
                     lineDiffType: "none",
                     overflow: wordWrap ? "wrap" : "scroll",
                     theme: resolveDiffThemeName(resolvedTheme),
