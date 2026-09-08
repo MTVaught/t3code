@@ -114,7 +114,7 @@ export function DraftHeroHeadline({
           render={
             <MenuTrigger
               aria-label={hasResolvedProject ? "Change project" : "Choose a project"}
-              className="pointer-events-auto inline-block max-w-64 truncate border-foreground/60 border-b border-dotted align-baseline text-foreground transition-colors hover:border-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              className="pointer-events-auto inline-block max-w-full truncate border-foreground/60 border-b border-dotted align-baseline text-foreground transition-colors hover:border-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
         >
