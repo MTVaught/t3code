@@ -38,6 +38,13 @@ Bob owns its native rules, hooks, trust settings, and provider configuration. T3
 workspace MCP endpoint through ACP, so Bob can use T3-provided tools alongside Bob's own MCP
 configuration.
 
+## Steering a running turn
+
+Sending a message while Bob is still working steers the turn. T3 asks Bob to cancel its current
+work, waits for it to stop, and then sends your new message in the same session. This is what the
+Bob shell does when you press Enter while it shows "Processing". The output Bob produced before the
+cancel stays in the thread, and the new message continues the same turn.
+
 ## Approvals and attachments
 
 Bob sends tool permission requests to T3 through ACP. T3 applies the thread's runtime setting:
@@ -53,7 +60,6 @@ Image attachments are sent directly as ACP image content. They are not copied in
 
 ## Current protocol boundaries
 
-- A running Bob turn can be interrupted, but cannot accept a steered follow-up prompt.
 - Bob ACP does not expose conversation rewind, so conversation **Revert** is unavailable for Bob.
 - Bob ACP does not expose structured form input or token and billing usage to T3.
 - Subagent and tool progress is displayed to the extent Bob reports it through ACP.

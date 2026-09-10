@@ -43,6 +43,21 @@ workspace's `.bob/custom_modes.yaml` / `.bob/*/custom_modes.yaml` (`Drivers/BobM
 switches to Bob's authoritative list for the active workspace once a session reports it. Project metadata queries refresh while mounted, allowing web, desktop, and
 mobile composers to pick up command and mode changes without a server restart.
 
+## Steering
+
+A `sendTurn` while a prompt is in flight is a steer. Bob runs one prompt per session at a time and
+rejects an overlapping `session/prompt` with "Session is already running a prompt", but after a
+`session/cancel` it holds the next prompt until the cancelled work has wound down. The adapter
+therefore sends `session/cancel`, then the new `session/prompt`, in the same session. This is the
+sequence Bob's own shell runs when the user presses Enter while a task is processing (cancel the
+task, wait for idle, submit the new turn); Tab-to-queue has no T3 equivalent.
+
+The T3 turn stays open across the swap: the superseded prompt resolves as cancelled without emitting
+`turn.completed`, the new prompt reuses the active turn id, and only the last prompt in flight
+settles the turn. A steer that lands between two skill-prelude prompts stops the superseded turn
+from sending the rest of its preludes. Stop still terminates the child; only steering uses
+`session/cancel`.
+
 ## Error handling
 
 ACP agents speak plain JSON-RPC, so `packages/effect-acp` normalizes error responses at the
@@ -56,8 +71,8 @@ server log.
 
 ## Deliberately unsupported capabilities
 
-T3 advertises no Bob steering, rollback, structured user input, model switching, token usage, or
-billing usage because Bob ACP 2.0.1 does not provide the corresponding protocol behavior. These are
+T3 advertises no Bob rollback, structured user input, model switching, token usage, or billing
+usage because Bob ACP 2.0.1 does not provide the corresponding protocol behavior. These are
 capability decisions, not emulated fallbacks. Bob controls model routing, so T3 stores a hidden
 `bob-managed` selection sentinel and never sends it to Bob.
 
