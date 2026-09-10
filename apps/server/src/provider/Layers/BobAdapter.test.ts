@@ -6,7 +6,12 @@ import * as NodeURL from "node:url";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { BobSettings, ProviderDriverKind, ThreadId } from "@t3tools/contracts";
+import {
+  BobSettings,
+  ProviderDriverKind,
+  type ProviderRuntimeEvent,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -240,6 +245,96 @@ describe("Bob ACP adapter", () => {
 
       expect(result.threadId).toBe(threadId);
       yield* adapter.stopSession(threadId);
+    }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
+
+  it.effect("steers a running turn by cancelling its prompt before sending the next one", () =>
+    Effect.gen(function* () {
+      const directory = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bob-acp-steer-")),
+      );
+      const home = NodePath.join(directory, "home");
+      for (const name of ["deploy", "review"]) {
+        const skillDirectory = NodePath.join(home, ".bob", "skills", name);
+        yield* Effect.promise(() => NodeFSP.mkdir(skillDirectory, { recursive: true }));
+        yield* Effect.promise(() =>
+          NodeFSP.writeFile(NodePath.join(skillDirectory, "SKILL.md"), `---\nname: ${name}\n---\n`),
+        );
+      }
+      const requestLogPath = NodePath.join(directory, "requests.ndjson");
+      const wrapper = yield* Effect.promise(() =>
+        makeBobWrapper({
+          requestLogPath,
+          environment: {
+            T3_ACP_HANG_FIRST_PROMPT_FOREVER: "1",
+            T3_ACP_EMIT_BEFORE_HANG: "1",
+          },
+        }),
+      );
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+        { environment: { ...process.env, HOME: home } },
+      );
+      const threadId = ThreadId.make("bob-acp-steer");
+      const promptRunning = yield* Deferred.make<void>();
+      const events: Array<ProviderRuntimeEvent> = [];
+      const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.gen(function* () {
+          events.push(event);
+          if (event.type === "content.delta") {
+            yield* Deferred.succeed(promptRunning, undefined);
+          }
+        }),
+      ).pipe(Effect.forkChild({ startImmediately: true }));
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+
+      const firstTurn = yield* adapter
+        .sendTurn({ threadId, input: "$deploy $review the first thing" })
+        .pipe(Effect.forkChild({ startImmediately: true }));
+      yield* Deferred.await(promptRunning);
+      const steered = yield* adapter.sendTurn({ threadId, input: "do this instead" });
+      const first = yield* Fiber.join(firstTurn);
+
+      // The steer continues the same T3 turn; the superseded prompt does not
+      // settle it and its remaining skill prelude is never sent.
+      expect(steered.turnId).toBe(first.turnId);
+      expect(
+        (yield* adapter.listSessions()).find((session) => session.threadId === threadId)?.status,
+      ).toBe("ready");
+      expect(events.filter((event) => event.type === "turn.started")).toHaveLength(1);
+      const completed = events.filter(
+        (event): event is Extract<ProviderRuntimeEvent, { type: "turn.completed" }> =>
+          event.type === "turn.completed",
+      );
+      expect(completed.map((event) => [event.turnId, event.payload.state])).toEqual([
+        [first.turnId, "completed"],
+      ]);
+      expect((yield* adapter.readThread(threadId)).turns).toHaveLength(1);
+      yield* adapter.stopSession(threadId);
+
+      const requests = (yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")))
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            decodeJsonUnknown(line) as {
+              method?: string;
+              params?: { prompt?: Array<{ text?: string }> };
+            },
+        )
+        .filter((entry) => entry.method === "session/prompt" || entry.method === "session/cancel")
+        .map((entry) => [entry.method, entry.params?.prompt?.map((block) => block.text)]);
+      expect(requests).toEqual([
+        ["session/prompt", ["/deploy"]],
+        ["session/cancel", undefined],
+        ["session/prompt", ["do this instead"]],
+      ]);
+      yield* Fiber.interrupt(eventsFiber);
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 

@@ -44,7 +44,7 @@ const bobPresentation = (_settings: BobSettings) =>
       attachments: true,
       approvals: true,
       structuredInput: false,
-      steering: false,
+      steering: true,
       rollback: false,
       providerModes: true,
       commands: true,
@@ -57,7 +57,7 @@ const bobPresentation = (_settings: BobSettings) =>
 export const BOB_ADAPTER_CAPABILITIES = {
   sessionModelSwitch: "unsupported",
   conversationRollback: false,
-  midTurnSteering: false,
+  midTurnSteering: true,
   interactiveApprovals: true,
   structuredUserInput: false,
   t3McpInjection: true,

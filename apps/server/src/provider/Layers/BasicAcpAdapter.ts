@@ -70,7 +70,13 @@ interface SessionContext {
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   activeTurnId: TurnId | undefined;
   lastPlanFingerprint: string | undefined;
-  promptInFlight: boolean;
+  /**
+   * Prompts currently inside `sendTurn`. >1 while a steer is superseding the
+   * running prompt; only the last remaining prompt settles the turn.
+   */
+  promptsInFlight: number;
+  /** Bumped per `sendTurn`; a superseded turn stops sending its remaining prompts. */
+  promptGeneration: number;
   suppressTurnEvents: boolean;
   stopped: boolean;
 }
@@ -366,7 +372,8 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           notificationFiber: undefined,
           activeTurnId: undefined,
           lastPlanFingerprint: undefined,
-          promptInFlight: false,
+          promptsInFlight: 0,
+          promptGeneration: 0,
           suppressTurnEvents: false,
           stopped: false,
         };
@@ -507,13 +514,11 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
   const sendTurn: ProviderAdapterShape<ProviderAdapterError>["sendTurn"] = (input) =>
     Effect.gen(function* () {
       const context = yield* requireSession(input.threadId);
-      if (context.promptInFlight) {
-        return yield* new ProviderAdapterRequestError({
-          provider: options.provider,
-          method: "session/prompt",
-          detail: `${options.displayName} does not support steering a running turn.`,
-        });
-      }
+      // A sendTurn while a prompt is in flight is a steer. The agent runs one
+      // prompt at a time, so the running prompt is cancelled first and the
+      // new one follows in the same session (what Bob's own shell does on
+      // Enter while processing). The T3 turn stays open across the swap.
+      const steeringTurnId = context.promptsInFlight > 0 ? context.activeTurnId : undefined;
       const split = options.splitPromptPreludes
         ? yield* options.splitPromptPreludes({
             cwd: context.cwd,
@@ -562,82 +567,113 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           issue: "Turn requires non-empty text or attachments.",
         });
       }
-      // A stale persisted mode must not block the turn; the agent keeps its
-      // current mode and reports it through `current_mode_update`.
-      const requestedMode = input.providerMode?.trim();
-      if (requestedMode) {
-        yield* context.acp.setMode(requestedMode).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning(`${options.displayName} rejected the requested provider mode.`, {
-              threadId: input.threadId,
-              providerMode: requestedMode,
-              cause,
-            }),
-          ),
-        );
-      }
-      const turnId = TurnId.make(yield* randomId);
-      context.activeTurnId = turnId;
-      context.promptInFlight = true;
-      context.suppressTurnEvents = false;
-      context.lastPlanFingerprint = undefined;
-      context.session = {
-        ...context.session,
-        status: "running",
-        activeTurnId: turnId,
-        updatedAt: yield* nowIso,
-      };
-      yield* publish({
-        type: "turn.started",
-        ...(yield* stamp()),
-        provider: options.provider,
-        threadId: input.threadId,
-        turnId,
-        payload: { model: context.session.model ?? "provider-managed" },
-      });
+      const turnId = steeringTurnId ?? TurnId.make(yield* randomId);
+      // Count this prompt before cancelling so the superseded prompt, which
+      // resolves as cancelled from here on, does not settle the turn.
+      const generation = ++context.promptGeneration;
+      context.promptsInFlight += 1;
       return yield* Effect.gen(function* () {
+        if (steeringTurnId !== undefined) {
+          // Bob rejects a prompt that overlaps a running one unless that one
+          // was cancelled; after `session/cancel` it holds the next prompt
+          // until the cancelled work has wound down.
+          yield* context.acp.cancel.pipe(
+            Effect.mapError((error) =>
+              mapAcpToAdapterError(options.provider, input.threadId, "session/cancel", error),
+            ),
+          );
+        }
+        // A stale persisted mode must not block the turn; the agent keeps its
+        // current mode and reports it through `current_mode_update`.
+        const requestedMode = input.providerMode?.trim();
+        if (requestedMode) {
+          yield* context.acp.setMode(requestedMode).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning(`${options.displayName} rejected the requested provider mode.`, {
+                threadId: input.threadId,
+                providerMode: requestedMode,
+                cause,
+              }),
+            ),
+          );
+        }
+        context.activeTurnId = turnId;
+        context.suppressTurnEvents = false;
+        context.session = {
+          ...context.session,
+          status: "running",
+          activeTurnId: turnId,
+          updatedAt: yield* nowIso,
+        };
+        if (steeringTurnId === undefined) {
+          context.lastPlanFingerprint = undefined;
+          yield* publish({
+            type: "turn.started",
+            ...(yield* stamp()),
+            provider: options.provider,
+            threadId: input.threadId,
+            turnId,
+            payload: { model: context.session.model ?? "provider-managed" },
+          });
+        }
         // Preludes run before the message; a cancelled prelude ends the turn
-        // without sending the rest.
+        // without sending the rest, and so does a steer that arrived between
+        // prompts.
         const prompts = prompt.length > 0 ? [...preludes, prompt] : preludes;
         const items: Array<unknown> = [];
         let result: EffectAcpSchema.PromptResponse = { stopReason: "cancelled" };
         for (const current of prompts) {
-          result = context.suppressTurnEvents
-            ? { stopReason: "cancelled" }
-            : yield* context.acp
-                .prompt({ prompt: current })
-                .pipe(
-                  Effect.mapError((error) =>
-                    mapAcpToAdapterError(options.provider, input.threadId, "session/prompt", error),
-                  ),
-                );
+          result =
+            context.suppressTurnEvents || context.promptGeneration !== generation
+              ? { stopReason: "cancelled" }
+              : yield* context.acp
+                  .prompt({ prompt: current })
+                  .pipe(
+                    Effect.mapError((error) =>
+                      mapAcpToAdapterError(
+                        options.provider,
+                        input.threadId,
+                        "session/prompt",
+                        error,
+                      ),
+                    ),
+                  );
           items.push({ prompt: current, result });
           if (result.stopReason === "cancelled") break;
         }
-        context.turns.push({ id: turnId, items });
-        context.session = {
-          ...context.session,
-          status: "ready",
-          activeTurnId: turnId,
-          updatedAt: yield* nowIso,
-        };
-        yield* publish({
-          type: "turn.completed",
-          ...(yield* stamp()),
-          provider: options.provider,
-          threadId: input.threadId,
-          turnId,
-          payload: {
-            state: result.stopReason === "cancelled" ? "cancelled" : "completed",
-            stopReason: result.stopReason ?? null,
-          },
-        });
+        const turnRecord = context.turns.find((turn) => turn.id === turnId);
+        if (turnRecord) {
+          turnRecord.items.push(...items);
+        } else {
+          context.turns.push({ id: turnId, items });
+        }
+        // Only the last remaining prompt settles the turn; a steer-superseded
+        // prompt resolving as cancelled must leave the turn running.
+        if (context.promptsInFlight === 1) {
+          context.session = {
+            ...context.session,
+            status: "ready",
+            activeTurnId: turnId,
+            updatedAt: yield* nowIso,
+          };
+          yield* publish({
+            type: "turn.completed",
+            ...(yield* stamp()),
+            provider: options.provider,
+            threadId: input.threadId,
+            turnId,
+            payload: {
+              state: result.stopReason === "cancelled" ? "cancelled" : "completed",
+              stopReason: result.stopReason ?? null,
+            },
+          });
+        }
         return { threadId: input.threadId, turnId, resumeCursor: context.session.resumeCursor };
       }).pipe(
         Effect.ensuring(
           Effect.gen(function* () {
-            context.promptInFlight = false;
-            if (context.session.status === "running") {
+            context.promptsInFlight = Math.max(0, context.promptsInFlight - 1);
+            if (context.promptsInFlight === 0 && context.session.status === "running") {
               context.session = {
                 ...context.session,
                 status: "ready",
@@ -657,7 +693,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "unsupported",
       conversationRollback: false,
-      midTurnSteering: false,
+      midTurnSteering: true,
       interactiveApprovals: true,
       structuredUserInput: false,
       t3McpInjection: true,
