@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -68,6 +69,31 @@ process.env.T3CODE_CURSOR_ENABLED = "1";
 
 const encoder = new TextEncoder();
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
+
+/**
+ * Resolve with the first aggregator snapshot satisfying `predicate`, subscribing
+ * to `streamChanges` before reading the current state so a snapshot that lands
+ * in between is never missed. Replaces attempt-bounded polling, which flaked
+ * under CI load because provider probes complete on real I/O, not the TestClock.
+ */
+const awaitProviders = (
+  registry: ProviderRegistry.ProviderRegistryShape,
+  predicate: (providers: ReadonlyArray<ServerProvider>) => boolean,
+) =>
+  Effect.gen(function* () {
+    const waiter = yield* registry.streamChanges.pipe(
+      Stream.filter(predicate),
+      Stream.runHead,
+      Effect.forkScoped,
+    );
+    yield* Effect.yieldNow;
+    const current = yield* registry.getProviders;
+    if (predicate(current)) {
+      yield* Fiber.interrupt(waiter);
+      return current;
+    }
+    return Option.getOrThrow(yield* Fiber.join(waiter));
+  });
 
 const TestHttpClientLive = Layer.succeed(
   HttpClient.HttpClient,
@@ -1766,18 +1792,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             // Boot-time probe: the default codex instance is enabled with
             // `firstMissing`, so the real spawner yields ENOENT and the
             // snapshot should be `status: "error"`.
-            let initialProviders = yield* registry.getProviders;
-            for (
-              let attempts = 0;
-              attempts < 50 &&
-              initialProviders.find((provider) => provider.instanceId === "codex")?.status !==
-                "error";
-              attempts += 1
-            ) {
-              yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
-              initialProviders = yield* registry.getProviders;
-            }
+            const initialProviders = yield* awaitProviders(
+              registry,
+              (providers) =>
+                providers.find((provider) => provider.instanceId === "codex")?.status === "error",
+            );
             const initialCodex = initialProviders.find(
               (provider) => provider.instanceId === "codex",
             );
@@ -1799,25 +1818,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               },
             });
 
-            // Poll until the injected process boundary observes the new
-            // executable. This verifies the public settings-to-probe behavior
-            // without depending on timestamps assigned by TestClock.
-            const refreshed = yield* Effect.gen(function* () {
-              for (let attempts = 0; attempts < 60; attempts += 1) {
-                const providers = yield* registry.getProviders;
-                const codex = providers.find((provider) => provider.instanceId === "codex");
-                if (
-                  codex !== undefined &&
-                  codex.status === "error" &&
-                  spawnedCommands.includes(secondMissing)
-                ) {
-                  return providers;
-                }
-                yield* TestClock.adjust("50 millis");
-                yield* Effect.yieldNow;
-              }
-              return yield* registry.getProviders;
-            });
+            // The rebuilt instance boots as "warning" and only flips to
+            // "error" once its own probe against `secondMissing` fails, so
+            // wait for the aggregator snapshot that carries that outcome.
+            const refreshed = yield* awaitProviders(
+              registry,
+              (providers) =>
+                spawnedCommands.includes(secondMissing) &&
+                providers.find((provider) => provider.instanceId === "codex")?.status === "error",
+            );
 
             const reprobedCodex = refreshed.find((provider) => provider.instanceId === "codex");
             assert.deepStrictEqual(spawnedCommands, [firstMissing, secondMissing]);
