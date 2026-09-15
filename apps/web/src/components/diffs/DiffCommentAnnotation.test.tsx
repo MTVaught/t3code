@@ -29,6 +29,8 @@ describe("DiffCommentAnnotation", () => {
     expect(textareaControl).toBeDefined();
     expect(textareaControl).not.toContain("ring-ring");
     expect(markup).toContain("cursor-text");
+    const textarea = markup.match(/<textarea[^>]*>/)?.[0];
+    expect(textarea).toContain("caret-current");
   });
 
   it("lets a pull-request diff configure actions without replacing the composer", () => {
