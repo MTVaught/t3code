@@ -1154,6 +1154,30 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect(
+      "returns a working-tree diff larger than the old preview cap without truncating",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const lines = Array.from(
+            { length: 6_000 },
+            (_, index) => `line ${index} ${"x".repeat(40)}`,
+          );
+          yield* writeTextFile(cwd, "large-untracked.txt", `${lines.join("\n")}\n`);
+          yield* writeTextFile(cwd, "README.md", `${lines.join("\n")}\n`);
+
+          const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
+          const source = preview.sources.find((candidate) => candidate.kind === "working-tree");
+
+          assert.isAbove(source?.diff.length ?? 0, 400_000);
+          assert.include(source?.diff, `+line 5999 ${"x".repeat(40)}`);
+          assert.include(source?.diff, "large-untracked.txt");
+          assert.equal(source?.truncated, false);
+        }),
+    );
+
     it.effect("keeps untracked files visible before the first commit", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
