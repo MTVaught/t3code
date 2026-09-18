@@ -113,33 +113,35 @@ const makeIdentity = Effect.gen(function* () {
     return raw.length > 0 ? raw : null;
   });
 
+  // Publish the ID with an exclusive create (O_EXCL) so a file created by another
+  // process is never replaced. A temp file plus hard link did the same job before,
+  // but AFS and some network filesystems reject hard links (EXDEV), which crashed
+  // the backend at boot on hosts with an AFS home directory.
+  const publishExclusive = (path: string, content: string) =>
+    fileSystem
+      .writeFileString(path, content, { flag: "wx" })
+      .pipe(
+        Effect.catch((cause) =>
+          cause.reason._tag === "AlreadyExists" ? Effect.void : Effect.fail(cause),
+        ),
+      );
+
   const persistEnvironmentId = Effect.fn("ServerEnvironmentIdentity.persistEnvironmentId")(
     function* (value: string, mode: "create" | "recover") {
-      const destinationPath =
-        mode === "recover"
-          ? `${serverConfig.environmentIdPath}.recovery`
-          : serverConfig.environmentIdPath;
-      const tempPath = yield* fileSystem.makeTempFileScoped({
-        directory: serverConfig.stateDir,
-        prefix: ".environment-id-",
-      });
-      yield* fileSystem.writeFileString(tempPath, `${value}\n`);
-      // Publish the completed file without replacing an ID created by another process.
-      yield* fileSystem
-        .link(tempPath, destinationPath)
-        .pipe(
-          Effect.catch((cause) =>
-            cause.reason._tag === "AlreadyExists" ? Effect.void : Effect.fail(cause),
-          ),
-        );
-      if (mode === "recover") {
-        // Keep the recovery ID so delayed initializers also publish the same winner.
-        yield* fileSystem.remove(tempPath);
-        yield* fileSystem.copyFile(destinationPath, tempPath);
-        yield* fileSystem.rename(tempPath, serverConfig.environmentIdPath);
+      const content = `${value}\n`;
+      if (mode === "create") {
+        yield* publishExclusive(serverConfig.environmentIdPath, content);
+        return;
       }
+      // Keep the recovery ID so delayed initializers also publish the same winner.
+      const recoveryPath = `${serverConfig.environmentIdPath}.recovery`;
+      yield* publishExclusive(recoveryPath, content);
+      // Stage the winner as a sibling and rename it into place; both live in the
+      // same directory so the rename stays atomic on every filesystem.
+      const tempPath = `${serverConfig.environmentIdPath}.${yield* crypto.randomUUIDv4}.tmp`;
+      yield* fileSystem.copyFile(recoveryPath, tempPath);
+      yield* fileSystem.rename(tempPath, serverConfig.environmentIdPath);
     },
-    Effect.scoped,
     Effect.mapError(
       (cause) =>
         new ServerEnvironmentIdPersistenceError({
