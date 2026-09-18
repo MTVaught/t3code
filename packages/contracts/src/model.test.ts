@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
   DEFAULT_BOB_MODEL,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_MODEL_BY_PROVIDER,
 } from "./model.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
@@ -12,13 +12,13 @@ describe("provider model defaults", () => {
     for (const provider of Object.keys(DEFAULT_SERVER_SETTINGS.providers)) {
       const kind = ProviderDriverKind.make(provider);
       assert.isString(DEFAULT_MODEL_BY_PROVIDER[kind]);
-      assert.isString(DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[kind]);
+      assert.isString(DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[kind]);
     }
   });
 
   it("uses Bob's provider-managed model sentinel", () => {
     const bob = ProviderDriverKind.make("bob");
     assert.equal(DEFAULT_MODEL_BY_PROVIDER[bob], DEFAULT_BOB_MODEL);
-    assert.equal(DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[bob], DEFAULT_BOB_MODEL);
+    assert.equal(DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[bob], DEFAULT_BOB_MODEL);
   });
 });

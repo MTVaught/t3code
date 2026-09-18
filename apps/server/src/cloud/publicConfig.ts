@@ -173,7 +173,7 @@ export const cloudCliOAuthConfig = makeCloudCliOAuthConfig();
 // matching client-side gates in apps/web and apps/mobile. The underlying
 // configuration check is retained behind the flag so it stays type-checked and
 // can be restored by flipping this constant to false.
-export const CLOUD_FEATURE_DISABLED: boolean = true;
+const CLOUD_FEATURE_DISABLED: boolean = true;
 
 export const hasCloudPublicConfig: boolean =
   !CLOUD_FEATURE_DISABLED &&

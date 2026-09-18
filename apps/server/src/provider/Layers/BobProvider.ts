@@ -12,7 +12,6 @@ import {
   type BobSettings,
   DEFAULT_BOB_MODEL,
   type ModelCapabilities,
-  ProviderDriverKind,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -70,18 +69,6 @@ const bobPresentation = (_settings: BobSettings) =>
     },
   }) as const;
 
-export const BOB_ADAPTER_CAPABILITIES = {
-  sessionModelSwitch: "unsupported",
-  supportsConversationRollback: false,
-  midTurnSteering: true,
-  interactiveApprovals: true,
-  structuredUserInput: false,
-  t3McpInjection: true,
-  attachments: true,
-} as const;
-
-export const BOB_PROVIDER = ProviderDriverKind.make("bob");
-
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
@@ -99,15 +86,6 @@ export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     capabilities: EMPTY_CAPABILITIES,
   },
 ];
-
-/**
- * Kept for persisted model-selection compatibility. The adapter never passes
- * this slug to Bob.
- */
-export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set([
-  ...BOB_BUILT_IN_MODELS.map((model) => model.slug),
-  "premium",
-]);
 
 export function bobModelsFromSettings(): ReadonlyArray<ServerProviderModel> {
   return BOB_BUILT_IN_MODELS;
