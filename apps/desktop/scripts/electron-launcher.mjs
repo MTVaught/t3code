@@ -15,8 +15,8 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-export const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Treher Dev)" : "T3 Code (Treher)";
-export const APP_BUNDLE_ID = isDevelopment
+const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Treher Dev)" : "T3 Code (Treher)";
+const APP_BUNDLE_ID = isDevelopment
   ? `dev.treher.t3code.dev.${devBundleIdSuffix || "local"}`
   : "dev.treher.t3code";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["treher-t3code-dev"] : ["treher-t3code"];
@@ -387,7 +387,7 @@ function resolveLinuxSandboxArgs(electronBinaryPath) {
   return ["--no-sandbox"];
 }
 
-export function resolveElectronPath() {
+function resolveElectronPath() {
   const electronBinaryPath = resolveElectronBinaryPath();
 
   if (hostPlatform !== "darwin") {
