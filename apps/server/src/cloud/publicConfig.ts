@@ -37,16 +37,16 @@ function readBuildTimeValue(value: string | undefined): string {
   return typeof value === "undefined" ? "" : value.trim();
 }
 
-export const buildTimeRelayUrl =
+const buildTimeRelayUrl =
   typeof __T3CODE_BUILD_RELAY_URL__ === "undefined"
     ? ""
     : (normalizeSecureRelayUrl(__T3CODE_BUILD_RELAY_URL__) ?? "");
-export const buildTimeClerkPublishableKey = readBuildTimeValue(
+const buildTimeClerkPublishableKey = readBuildTimeValue(
   typeof __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__ === "undefined"
     ? undefined
     : __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__,
 );
-export const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
+const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
   typeof __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__ === "undefined"
     ? undefined
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
@@ -108,11 +108,13 @@ function makePublicValueConfig(name: string, fallback: string) {
 /**
  * The CLI never calls Clerk's /oauth/authorize itself: the browser leg goes
  * through the hosted /connect page, which builds the authorize URL after a
- * Clerk session exists (see CliTokenManager.login). Only the token endpoint
- * is contacted directly.
+ * Clerk session exists (see CliTokenManager.login). The token endpoint and,
+ * for headless hosts, the device authorization endpoint are contacted
+ * directly.
  */
 export interface CloudCliOAuthConfig {
   readonly tokenEndpoint: string;
+  readonly deviceAuthorizationEndpoint: string;
   readonly clientId: string;
   readonly loopbackPort: number;
   readonly redirectUri: string;
@@ -151,6 +153,7 @@ export function makeCloudCliOAuthConfig({
           (clerkFrontendApiUrl) =>
             ({
               tokenEndpoint: `${clerkFrontendApiUrl}/oauth/token`,
+              deviceAuthorizationEndpoint: `${clerkFrontendApiUrl}/oauth/device_authorization`,
               clientId,
               loopbackPort: CLOUD_CLI_OAUTH_LOOPBACK_PORT,
               redirectUri: connectLoopbackRedirectUri(CLOUD_CLI_OAUTH_LOOPBACK_PORT),

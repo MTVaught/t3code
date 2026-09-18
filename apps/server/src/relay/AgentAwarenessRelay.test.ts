@@ -333,6 +333,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       interactionMode: "default",
       branch: null,
       worktreePath: null,
+      pullRequests: [],
       latestTurn: null,
       createdAt: now,
       updatedAt: now,
@@ -476,6 +477,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          pullRequests: [],
           latestTurn: {
             turnId: "turn-1" as TurnId,
             state: "running",
@@ -666,6 +668,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           interactionMode: "default",
           branch: null,
           worktreePath: null,
+          pullRequests: [],
           latestTurn: {
             turnId: "turn-1" as TurnId,
             state: "running",

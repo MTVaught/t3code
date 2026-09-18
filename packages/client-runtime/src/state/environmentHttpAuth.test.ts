@@ -84,6 +84,7 @@ const THREAD = {
     runtimeMode: "full-access",
     interactionMode: "default",
     branch: null,
+    pullRequests: [],
     worktreePath: null,
     latestTurn: null,
     createdAt: "2026-09-04T00:00:00.000Z",
@@ -94,6 +95,7 @@ const THREAD = {
     deletedAt: null,
     messages: [],
     proposedPlans: [],
+    providerMode: null,
     activities: [],
     checkpoints: [],
     session: null,
@@ -214,6 +216,17 @@ const LOADERS: ReadonlyArray<{
 ];
 
 describe("authenticated environment HTTP requests", () => {
+  it.effect.each(LOADERS)("rejects an invalid $name response", (loader) =>
+    Effect.gen(function* () {
+      const harness = makeHarness(() => Response.json({}));
+      const result = yield* loader
+        .load(harness.input)
+        .pipe(Effect.provide(harness.httpLayer), Effect.asVoid, Effect.flip);
+      expect(result._tag).toBe("RemoteEnvironmentAuthInvalidJsonError");
+      expect(harness.calls).toHaveLength(1);
+    }),
+  );
+
   it.effect.each(LOADERS)("uses current relay authorization and endpoint for $name", (loader) =>
     Effect.gen(function* () {
       const harness = makeHarness(() => Response.json(loader.response));

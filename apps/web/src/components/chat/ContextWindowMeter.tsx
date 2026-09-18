@@ -225,3 +225,8 @@ function formatDuration(durationMs: number): string {
   if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
   return `${(durationMs / 1_000).toFixed(1).replace(/\.0$/, "")}s`;
 }
+
+/** Holds the meter's footprint while a thread's activities are still loading. */
+export function ContextWindowMeterPlaceholder() {
+  return <span aria-hidden="true" className="size-7 shrink-0" />;
+}

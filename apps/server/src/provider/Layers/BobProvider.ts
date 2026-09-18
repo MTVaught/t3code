@@ -25,13 +25,29 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import {
   buildServerProvider,
-  detailFromResult,
   isCommandMissingCause,
   parseGenericCliVersion,
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
+
+function detailFromResult(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number | null;
+  readonly timedOut?: boolean;
+}): string | undefined {
+  if (result.timedOut) return "Timed out while running command.";
+  const stderr = result.stderr.trim();
+  if (stderr) return stderr;
+  const stdout = result.stdout.trim();
+  if (stdout) return stdout;
+  if (result.code !== 0) {
+    return `Command exited with code ${result.code}.`;
+  }
+  return undefined;
+}
 
 const bobPresentation = (_settings: BobSettings) =>
   ({
