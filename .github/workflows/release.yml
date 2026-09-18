@@ -232,7 +232,7 @@ jobs:
   # The platform-independent JS (server bundle, web client, Electron main) is
   # built exactly once here and handed to every platform job as `js-bundle`.
   # Fork note: upstream bakes the T3 Connect relay URL and Clerk client config
-  # into this bundle from its relay_public_config job. The fork removed that
+  # into this bundle from its relay public-config job. The fork removed that
   # job, so T3CODE_CLERK_* / T3CODE_RELAY_URL are not set here. Set them as
   # repo variables and export them on this job if you run your own relay.
   build_bundle:
