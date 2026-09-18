@@ -33,9 +33,13 @@ colliding with upstream tags.
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
-  - push tag matching `v*.*.*` for stable releases
-  - scheduled nightly check every three hours
-  - manual `workflow_dispatch` for either channel
+  - push tag matching `v*.*.*` for a stable release of the tagged commit
+  - manual `workflow_dispatch` with `channel=stable` and a `version` input, building the
+    dispatched commit
+  - every push to `main` publishes a nightly
+  - manual `workflow_dispatch` with `channel=nightly`
+- Nightly and stable runs use separate concurrency groups. Runs in a group queue behind each
+  other and are never canceled, so overlapping `main` pushes cannot publish out of order.
 - Runs lint, typecheck, and tests alongside artifact builds. Publishing waits for every check.
 - Reads the shared production T3 Connect relay URL and Clerk client configuration before packaging clients.
 - Builds three artifacts in parallel for both channels:
@@ -129,6 +133,17 @@ Developers deploy personal stages locally rather than through pull-request autom
 vp run --filter t3code-relay deploy -- --stage "$USER" --env-file .env.local
 ```
 
+## Marketing site deployment
+
+After a nightly release is published, the release workflow deploys the same commit
+to the marketing site's Vercel production project. Stable releases do not deploy
+the marketing site because they can promote an older nightly commit.
+
+The job looks up the `t3code-marketing` project using the existing `VERCEL_TOKEN`
+and `VERCEL_ORG_ID` secrets. It also respects the optional `VERCEL_TEAM_SLUG`
+variable. The Vercel project's root directory must be `apps/marketing`.
+Git deployments remain disabled in `apps/marketing/vercel.ts`.
+
 ## Hosted web app release deployment
 
 The hosted app is intentionally not deployed by Vercel's Git integration. The
@@ -185,8 +200,10 @@ One-time Vercel dashboard setup:
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
-  - scheduled check every three hours
+  - scheduled check every 30 minutes
   - manual `workflow_dispatch` with `channel=nightly`
+- Automatic nightlies require new commits and at least six hours since the last nightly was published, including manual nightlies.
+- Manual nightlies bypass the time and change checks. Nightly runs remain serialized. Scheduled runs wait for an active nightly to finish, then check the publication gap before building.
 - Runs the same desktop quality gates and artifact matrix as the tagged release flow.
 - Publishes a GitHub prerelease only:
   - current tag format: `vX.Y.Z-nightly.YYYYMMDD.<run_number>`
@@ -313,7 +330,7 @@ to validate the workflow.
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable
 risk, manually dispatch `channel=nightly`; this still publishes a real nightly npm package, GitHub
-prerelease, desktop updater release, and hosted nightly alias, but it does not update stable aliases or
+prerelease, desktop updater release, hosted nightly alias, and marketing site, but it does not update stable app aliases or
 commit a version bump to `main`. Only run it when a real nightly release is acceptable.
 
 Manual `channel=stable` with a version input is also a real stable-channel release. Omitting signing
@@ -379,17 +396,17 @@ Checklist:
 
 ## 4) Ongoing release checklist
 
-1. Ensure `main` is green in CI.
-2. Bump app version as needed.
-3. Create release tag: `vX.Y.Z`.
-4. Push tag.
-5. Verify workflow steps:
+1. Ensure `main` is green in CI and verify its latest nightly with the smoke test above.
+2. Choose the next tag using the [fork release numbering](#fork-release-numbering), then either
+   push that `vX.Y.Z-treher...` tag or dispatch the Release workflow with `channel=stable` and the
+   version as the `version` input.
+3. Verify workflow steps:
    - preflight passes
    - release quality checks pass
    - all matrix builds pass
    - `publish_cli` publishes the exact release version before the release job
    - release job uploads expected files
-6. Smoke test downloaded artifacts.
+4. Smoke test downloaded artifacts.
 
 ## 5) Troubleshooting
 

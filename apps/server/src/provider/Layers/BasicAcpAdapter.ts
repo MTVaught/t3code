@@ -394,7 +394,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                     payload: { metadata: { providerMode: event.modeId } },
                   });
                   return;
-                case "AvailableCommandsChanged": {
+                case "AvailableCommandsUpdated": {
                   const existing = metadataByCwd.get(cwd) ?? {
                     workspaceTrusted: true,
                     modes: [...options.builtInModes],
@@ -403,11 +403,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   };
                   metadataByCwd.set(cwd, {
                     ...existing,
-                    slashCommands: event.commands.map((command) => ({
-                      name: command.name,
-                      ...(command.description ? { description: command.description } : {}),
-                      ...(command.inputHint ? { input: { hint: command.inputHint } } : {}),
-                    })),
+                    slashCommands: event.availableCommands.flatMap((command) => {
+                      const name = command.name.trim();
+                      if (!name) return [];
+                      const description = command.description?.trim();
+                      const hint = command.input?.hint?.trim();
+                      return [
+                        {
+                          name,
+                          ...(description ? { description } : {}),
+                          ...(hint ? { input: { hint } } : {}),
+                        },
+                      ];
+                    }),
                   });
                   return;
                 }
@@ -469,7 +477,21 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                       threadId: context.threadId,
                       turnId: context.activeTurnId,
                       ...(event.itemId ? { itemId: event.itemId } : {}),
-                      streamKind: event.streamKind,
+                      streamKind: "assistant_text",
+                      text: event.text,
+                      rawPayload: event.rawPayload,
+                    }),
+                  );
+                  return;
+                case "ThoughtDelta":
+                  if (context.suppressTurnEvents) return;
+                  yield* publish(
+                    makeAcpContentDeltaEvent({
+                      stamp: yield* stamp(),
+                      provider: options.provider,
+                      threadId: context.threadId,
+                      turnId: context.activeTurnId,
+                      streamKind: "reasoning_text",
                       text: event.text,
                       rawPayload: event.rawPayload,
                     }),
@@ -526,9 +548,9 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
             slashCommands: metadataByCwd.get(context.cwd)?.slashCommands ?? [],
           })
         : { preludes: [], text: input.input?.trim() ?? "" };
-      const preludes = split.preludes.map(
-        (text): ReadonlyArray<EffectAcpSchema.ContentBlock> => [{ type: "text", text }],
-      );
+      const preludes = split.preludes.map((text): ReadonlyArray<EffectAcpSchema.ContentBlock> => [
+        { type: "text", text },
+      ]);
       const prompt: Array<EffectAcpSchema.ContentBlock> = [];
       if (split.text.trim()) prompt.push({ type: "text", text: split.text.trim() });
       for (const attachment of input.attachments ?? []) {
@@ -692,7 +714,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     provider: options.provider,
     capabilities: {
       sessionModelSwitch: "unsupported",
-      conversationRollback: false,
+      supportsConversationRollback: false,
       midTurnSteering: true,
       interactiveApprovals: true,
       structuredUserInput: false,

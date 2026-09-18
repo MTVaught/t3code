@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { buildThreadFeed, type ThreadFeedActivity } from "../../mobile/src/lib/threadActivity.ts";
 import { deriveLatestContextWindowSnapshot } from "../../web/src/lib/contextWindow.ts";
 import { deriveWorkLogEntries } from "../../web/src/session-logic.ts";
 import {
@@ -134,6 +135,29 @@ const fixtures = [
 ] satisfies ReadonlyArray<OrchestrationThreadActivity>;
 
 describe("projectActivityPayload", () => {
+  function comparableActivity(activity: ThreadFeedActivity) {
+    return {
+      ...activity,
+      fullDetail: activity.getFullDetail(),
+      copyText: activity.getCopyText(),
+      getFullDetail: undefined,
+      getCopyText: undefined,
+    };
+  }
+
+  function comparableThreadFeed(activities: ReadonlyArray<OrchestrationThreadActivity>) {
+    return buildThreadFeed(makeThread(activities)).map((entry) =>
+      entry.type === "activity-group"
+        ? {
+            ...entry,
+            activities: entry.activities.map(comparableActivity),
+          }
+        : entry,
+    );
+  }
+
+  // The fork's web work log keeps file-change tool data only for unprojected
+  // activities, so compare every derived field except toolData.
   function comparableWorkLogEntries(activities: ReadonlyArray<OrchestrationThreadActivity>) {
     return deriveWorkLogEntries(activities).map((entry) => ({
       ...entry,
@@ -169,6 +193,52 @@ describe("projectActivityPayload", () => {
     });
   });
 
+  it("projects a Claude Bash result for the web and mobile expanded rows", () => {
+    const command = `printf 'first line\nsecond line'\n&& printf done`;
+    const source: OrchestrationThreadActivity = {
+      ...makeActivity("claude-bash", "command_execution", {}),
+      summary: "Command run",
+      payload: {
+        itemType: "command_execution",
+        title: "Command run",
+        detail: `Bash: ${command}`,
+        status: "completed",
+        data: {
+          toolName: "Bash",
+          input: { command },
+          result: {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: [
+              { type: "text", text: "first output line" },
+              { type: "text", text: "x".repeat(5_000) },
+            ],
+          },
+        },
+      },
+    };
+    const projected = projectActivityPayload(source);
+
+    expect(projected.payload).toMatchObject({
+      data: {
+        toolName: "Bash",
+        command,
+        rawOutput: { content: "first output line" },
+      },
+    });
+
+    const [webEntry] = deriveWorkLogEntries([projected]);
+    expect(webEntry).toMatchObject({ command, detail: "first output line" });
+
+    const [mobileGroup] = buildThreadFeed(makeThread([projected]));
+    expect(mobileGroup?.type).toBe("activity-group");
+    if (mobileGroup?.type !== "activity-group") return;
+    const [mobileRow] = mobileGroup.activities;
+    expect(mobileRow).toMatchObject({ detail: command, canExpand: true });
+    expect(mobileRow?.getFullDetail()).toBe(`${command}\n\nfirst output line`);
+    expect(mobileRow?.getCopyText()).toBe(`Command run\n${command}\n\nfirst output line`);
+  });
+
   it("slims MCP tool data to the fields the expanded row renders", () => {
     expect(projectActivityPayload(fixtures[4]!).payload).toEqual({
       itemType: "mcp_tool_call",
@@ -186,9 +256,30 @@ describe("projectActivityPayload", () => {
     });
   });
 
-  it("keeps current web derived output identical for every tool item type", () => {
+  it("keeps current web and mobile derived fields for every tool item type", () => {
     for (const activity of fixtures) {
       const projected = projectActivityPayload(activity);
+      if (activity === fixtures[0]) {
+        expect(deriveWorkLogEntries([projected])).toMatchObject([
+          {
+            command: "pnpm test",
+            rawCommand: 'bash -lc "pnpm test"',
+            detail: "first useful line",
+          },
+        ]);
+        expect(comparableThreadFeed([projected])).toMatchObject([
+          {
+            type: "activity-group",
+            activities: [
+              {
+                detail: "pnpm test",
+                fullDetail: 'bash -lc "pnpm test"\n\nfirst useful line',
+              },
+            ],
+          },
+        ]);
+        continue;
+      }
       if (activity === fixtures[4]) {
         // MCP is the one deliberate difference: the expanded row's toolData
         // loses result bulk but keeps the rendered identity fields.
@@ -201,10 +292,11 @@ describe("projectActivityPayload", () => {
         continue;
       }
       expect(comparableWorkLogEntries([projected])).toEqual(comparableWorkLogEntries([activity]));
+      expect(comparableThreadFeed([projected])).toEqual(comparableThreadFeed([activity]));
     }
   });
 
-  it("preserves failed stored tool outcomes for web clients", () => {
+  it("preserves failed stored tool outcomes for web and mobile clients", () => {
     const activities = [
       makeActivity("failed-command", "command_execution", {
         item: {
@@ -229,6 +321,12 @@ describe("projectActivityPayload", () => {
 
       const [webEntry] = deriveWorkLogEntries([projected]);
       expect(webEntry?.toolLifecycleStatus).toBe("failed");
+
+      const [mobileGroup] = buildThreadFeed(makeThread([projected]));
+      expect(mobileGroup).toMatchObject({ type: "activity-group" });
+      if (mobileGroup?.type === "activity-group") {
+        expect(mobileGroup.activities[0]?.status).toBe("failure");
+      }
     }
   });
 

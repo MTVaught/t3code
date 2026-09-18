@@ -56,7 +56,7 @@ const bobPresentation = (_settings: BobSettings) =>
 
 export const BOB_ADAPTER_CAPABILITIES = {
   sessionModelSwitch: "unsupported",
-  conversationRollback: false,
+  supportsConversationRollback: false,
   midTurnSteering: true,
   interactiveApprovals: true,
   structuredUserInput: false,
