@@ -229,17 +229,12 @@ jobs:
               `${baseSha}...${resolvedHeadSha}`,
             ];
 
-            const totalChangedLines = sumNumstat(
-              execFileSync(
-                "git",
-                diffArgs,
-                { encoding: "utf8" },
-              ),
-            );
+            // Upstream syncs touch the vendored .repos tree, so the numstat can
+            // exceed Node's default 1 MiB spawn buffer.
+            const diffOptions = { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 };
+            const totalChangedLines = sumNumstat(execFileSync("git", diffArgs, diffOptions));
             const nonTestChangedLines = sumNumstat(
-              execFileSync("git", [...diffArgs, "--", ".", ...testExcludePathspecs], {
-                encoding: "utf8",
-              }),
+              execFileSync("git", [...diffArgs, "--", ".", ...testExcludePathspecs], diffOptions),
             );
             const testChangedLines = Math.max(0, totalChangedLines - nonTestChangedLines);
 
