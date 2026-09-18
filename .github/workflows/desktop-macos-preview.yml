@@ -52,7 +52,7 @@ jobs:
           run-install: false
 
       - name: Install desktop dependencies
-        run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+        run: vp install --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/web... --filter=@t3tools/scripts...
 
       - name: Cache resource monitor
         id: resource_monitor_cache
@@ -78,6 +78,7 @@ jobs:
           base_version="$(node -p "require('./apps/desktop/package.json').version")"
           preview_version="${base_version}-pr.${PR_NUMBER}.${GITHUB_RUN_NUMBER}"
           node scripts/update-release-package-versions.ts "$preview_version"
+          # Public T3 Connect identifiers (Clerk publishable key, relay URL).
           cp .env.example .env
 
           echo "version=$preview_version" >> "$GITHUB_OUTPUT"

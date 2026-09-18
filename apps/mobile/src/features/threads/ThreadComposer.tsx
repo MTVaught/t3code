@@ -1,14 +1,25 @@
+import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  MessageId,
-  ModelSelection,
-  OrchestrationThreadShell,
-  OrchestrationThreadActivity,
-  ProviderInteractionMode,
-  RuntimeMode,
-  ServerConfig as T3ServerConfig,
+import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { pastedTextDisposition, replaceTextSelection } from "@t3tools/client-runtime/text-paste";
+import {
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type EnvironmentId,
+  type MessageId,
+  type ModelSelection,
+  type OrchestrationThreadShell,
+  type ProviderInteractionMode,
+  type RuntimeMode,
+  type ServerConfig as T3ServerConfig,
+  type UsageLimitsReport,
 } from "@t3tools/contracts";
+import {
+  collectProviderUsageLimits,
+  hasProviderUsageLimits,
+  isUsageLimitsCommand,
+} from "@t3tools/shared/usageLimits";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
 import {
@@ -21,18 +32,17 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { ActivityIndicator, Platform, Pressable, View, type ViewStyle } from "react-native";
+import { Alert, Keyboard, Platform, Pressable, View, type ViewStyle } from "react-native";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import {
   composerAttachmentUploadBlockReason,
+  composerAttachmentsStillUploading,
   composerAttachmentUploadsAtom,
 } from "../../state/composer-attachment-uploads";
 import Animated, {
   FadeIn,
-  FadeInDown,
   FadeOut,
-  FadeOutDown,
-  LinearTransition,
+  type LayoutAnimationFunction,
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
@@ -41,6 +51,13 @@ import Animated, {
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { scopedThreadKey } from "../../lib/scopedEntities";
+import {
+  composerContextImportsAtom,
+  countComposerDraftAttachmentsAfterSelection,
+} from "../../state/use-composer-drafts";
+import type { ComposerDocumentAttachment } from "../../lib/composerContext";
+import { useProject } from "../../state/entities";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
@@ -51,25 +68,28 @@ import {
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import { GlassSurface } from "../../components/GlassSurface";
 import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
+import { fileRoutePathSegments } from "../files/filePath";
 import {
   ComposerActionButton,
   ComposerInlineControl,
   ComposerToolbarRow,
 } from "../../components/ComposerToolbar";
 import { ProviderIcon } from "../../components/ProviderIcon";
-import type {
-  DraftComposerAttachment,
-  DraftComposerFileAttachment,
+import {
+  composerStripAttachments,
+  type DraftComposerAttachment,
+  type DraftComposerFileAttachment,
 } from "../../lib/composerImages";
-import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
+import {
+  buildModelOptions,
+  groupByProvider,
+  isModelSelectionUnavailable,
+} from "../../lib/modelOptions";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import type { RemoteClientConnectionState } from "../../lib/connection";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
-import { serverEnvironment } from "../../state/server";
-import { useEnvironmentQuery } from "../../state/query";
-import { useAtomCommand } from "../../state/use-atom-command";
 import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
@@ -108,34 +128,29 @@ export interface ThreadComposerProps {
   readonly contentMaxWidth?: number;
   readonly bottomInset?: number;
   readonly connectionState: RemoteClientConnectionState;
-  readonly connectionError: string | null;
   readonly environmentLabel: string | null;
-  /**
-   * Message sync phase for the selected thread (drives the status pill):
-   * "loading" = first fetch, nothing to show yet; "syncing" = cached messages
-   * are on screen while they reconcile with the server.
-   */
-  readonly threadSyncPhase?: "loading" | "syncing" | null;
   readonly selectedThread: OrchestrationThreadShell;
+  readonly hasCompactableConversation: boolean;
   readonly serverConfig: T3ServerConfig | null;
   readonly queueCount: number;
   readonly environmentId: EnvironmentId;
   readonly projectCwd: string | null;
-  readonly providerMode: string | null;
-  readonly usageActivities: ReadonlyArray<OrchestrationThreadActivity>;
+  /** Why sending is blocked right now (shown as the send button's label), or null. */
+  readonly sendBlockedReason?: string | null;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
   readonly onNativePasteImages: (uris: ReadonlyArray<string>) => Promise<void>;
+  readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
+  /** `/usage-limits` resolves locally; the host decides where the report shows. Null clears it. */
+  readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly onUpdateModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateInteractionMode: (interactionMode: ProviderInteractionMode) => void;
-  readonly onUpdateProviderMode: (providerMode: string | null) => void;
-  readonly onReconnectEnvironment: () => void;
   readonly onExpandedChange?: (expanded: boolean) => void;
   /** Fires on editor focus/blur; hosts use it to vet stale keyboard state. */
   readonly onEditorFocusChange?: (focused: boolean) => void;
@@ -143,7 +158,7 @@ export interface ThreadComposerProps {
 
 /**
  * The pill / card container — renders with Expo's native GlassView on supported
- * iOS 26+ devices and keeps the existing opaque fallback elsewhere.
+ * iOS 26+ devices, with a frosted blur fallback where supported.
  * Exported so NewTaskDraftScreen can render the same composer chrome.
  */
 // The bottom-anchored dock position and clipped surface height use the same
@@ -153,37 +168,39 @@ export interface ThreadComposerProps {
 // running alongside that translate reads as jitter. Snapping the layout and
 // letting the keyboard-synced slide be the only motion looks native there.
 export const COMPOSER_TRANSITION_DURATION_MS = 220;
+// Side panes already animate the dock's width. Nested horizontal layout
+// transitions would leave the surface trailing its toolbar's new position.
+// Keep the vertical pill/card morph while horizontal layout follows the dock.
+const composerHeightTransition: LayoutAnimationFunction = (values) => {
+  "worklet";
+  const timing = {
+    duration: COMPOSER_TRANSITION_DURATION_MS,
+    reduceMotion: ReduceMotion.System,
+  };
+  return {
+    initialValues: {
+      originX: values.targetOriginX,
+      originY: values.currentOriginY,
+      width: values.targetWidth,
+      height: values.currentHeight,
+    },
+    animations: {
+      originX: values.targetOriginX,
+      originY: withTiming(values.targetOriginY, timing),
+      width: values.targetWidth,
+      height: withTiming(values.targetHeight, timing),
+    },
+  };
+};
 export const COMPOSER_LAYOUT_TRANSITION =
+  Platform.OS === "android" ? undefined : composerHeightTransition;
+
+const COMPOSER_ATTACHMENT_ENTERING =
   Platform.OS === "android"
-    ? undefined
-    : LinearTransition.duration(COMPOSER_TRANSITION_DURATION_MS).reduceMotion(ReduceMotion.System);
+    ? FadeIn.duration(160)
+    : FadeIn.delay(COMPOSER_TRANSITION_DURATION_MS).duration(160).reduceMotion(ReduceMotion.System);
 
 const AnimatedGlassSurface = Animated.createAnimatedComponent(GlassSurface);
-
-function finiteUsageNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function formatTokenCount(value: number): string {
-  return Math.round(value).toLocaleString();
-}
-
-function formatUsagePair(
-  total: number,
-  last: number | null,
-  format: (value: number) => string,
-): string {
-  return last === null ? format(total) : `${format(total)} (+${format(last)})`;
-}
-
-function usageDetail(label: string, total: number | null, last: number | null) {
-  return total === null ? null : { label, value: formatUsagePair(total, last, formatTokenCount) };
-}
-
-function formatUsageDuration(value: number): string {
-  if (value < 1_000) return `${Math.round(value)}ms`;
-  return `${(value / 1_000).toFixed(1).replace(/\.0$/, "")}s`;
-}
 
 export function ComposerSurface(props: {
   readonly children: ReactNode;
@@ -191,6 +208,8 @@ export function ComposerSurface(props: {
   /** Morphs between the compact and expanded composer layouts. */
   readonly animateLayout?: boolean;
 }) {
+  const { materialYouStyleLayoutActive } = useAppearancePreferences();
+  const colors = useUniwindTheme();
   const targetBorderRadius =
     typeof props.style.borderRadius === "number" ? props.style.borderRadius : 0;
   const animatedBorderRadius = useSharedValue(targetBorderRadius);
@@ -212,7 +231,11 @@ export function ComposerSurface(props: {
   // clip leaves the glass and content at their final height on the first frame.
   return (
     <Animated.View
-      className="shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
+      className={
+        materialYouStyleLayoutActive
+          ? undefined
+          : "shadow-[0_6px_28px] shadow-adaptive-black-a15-a35"
+      }
       layout={layoutTransition}
       style={[
         animatedShapeStyle,
@@ -225,7 +248,12 @@ export function ComposerSurface(props: {
     >
       <AnimatedGlassSurface
         chrome="none"
-        fallbackClassName="border border-border bg-card-translucent"
+        fallbackColor={
+          materialYouStyleLayoutActive ? colors["--color-composer-surface"] : colors["--color-card"]
+        }
+        fallbackClassName={
+          materialYouStyleLayoutActive ? "border border-composer-border" : "border border-border"
+        }
         glassEffectStyle="regular"
         // The composer is a passive material containing interactive controls.
         // Keep native glass out of the interactive content's layout path.
@@ -247,97 +275,19 @@ export function ComposerSurface(props: {
   );
 }
 
-type ComposerStatusPillState = {
-  readonly kind: "unavailable" | "reconnecting" | "syncing";
-  readonly label: string;
-};
-
-function composerConnectionStatus(input: {
-  readonly connectionError: string | null;
-  readonly connectionState: RemoteClientConnectionState;
-  readonly environmentLabel: string | null;
-  readonly threadSyncPhase?: "loading" | "syncing" | null;
-}): ComposerStatusPillState | null {
-  const environmentLabel = input.environmentLabel ?? "Environment";
-
-  switch (input.connectionState) {
-    case "connecting":
-    case "reconnecting":
-      return {
-        kind: "reconnecting",
-        label:
-          input.connectionError === null
-            ? `Reconnecting to ${environmentLabel}...`
-            : `Failed to connect. Retrying ${environmentLabel}...`,
-      };
-    case "offline":
-      return { kind: "unavailable", label: "You are offline" };
-    case "error":
-      return {
-        kind: "unavailable",
-        label: input.connectionError
-          ? `Failed to connect to ${environmentLabel}: ${input.connectionError}`
-          : `Failed to connect to ${environmentLabel}`,
-      };
-    case "available":
-      return { kind: "unavailable", label: `${environmentLabel} is not connected` };
-    case "connected":
-      break;
-  }
-
-  // Connected: the pill is the single loading/sync indicator. One stable
-  // label per open — "Loading" when starting from scratch, "Syncing" when
-  // cached messages are already visible.
-  switch (input.threadSyncPhase) {
-    case "loading":
-      return { kind: "syncing", label: "Loading messages..." };
-    case "syncing":
-      return { kind: "syncing", label: "Syncing messages..." };
-    default:
-      return null;
-  }
-}
-
-const ComposerConnectionStatusPill = memo(function ComposerConnectionStatusPill(props: {
-  readonly onPress: () => void;
-  readonly status: ComposerStatusPillState;
-}) {
-  const isReconnecting = props.status.kind !== "unavailable";
-  return (
-    <Animated.View
-      className="absolute inset-x-0 bottom-full items-center pb-2"
-      entering={FadeInDown.duration(180)}
-      exiting={FadeOutDown.duration(140)}
-      pointerEvents="box-none"
-    >
-      <Pressable
-        accessibilityRole="button"
-        onPress={props.onPress}
-        className="max-w-full flex-row items-center gap-2 rounded-full bg-card px-3 py-2 shadow-sm active:opacity-70"
-      >
-        {isReconnecting ? (
-          <ActivityIndicator size="small" colorClassName={"accent-icon-muted"} />
-        ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
-        )}
-        <Text
-          className="max-w-[260px] text-sm font-t3-bold leading-snug text-foreground"
-          numberOfLines={1}
-        >
-          {props.status.label}
-        </Text>
-      </Pressable>
-    </Animated.View>
-  );
-});
-
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
+  const project = useProject(scopeProjectRef(props.environmentId, props.selectedThread.projectId));
+  const { materialYouStyleLayoutActive, themeVariables: materialTheme } =
+    useAppearancePreferences();
+  const composerPanel = materialTheme["--color-composer-panel"];
   const navigation = useNavigation();
   const foregroundColor = useUniwindTheme()["--color-foreground"];
   const bodyText = useScaledTextRole("body");
   const fallbackInputRef = useRef<ComposerEditorHandle>(null);
   const inputRef = props.editorRef ?? fallbackInputRef;
   const [isFocused, setIsFocused] = useState(false);
+  const pendingPastedTextAttachmentCountRef = useRef(0);
+  const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: inputRef,
     isEditorFocused: isFocused,
@@ -351,21 +301,36 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const [previewVideo, setPreviewVideo] = useState<VideoPreviewSource | null>(null);
   const hasContent = props.draftMessage.trim().length > 0 || props.draftAttachments.length > 0;
+  // Only media belongs above the composer; every other file reads as its inline chip.
+  const stripAttachments = useMemo(
+    () => composerStripAttachments(props.draftAttachments),
+    [props.draftAttachments],
+  );
   const showStopAction =
     !hasContent &&
     (props.selectedThread.session?.status === "running" ||
       props.selectedThread.session?.status === "starting");
 
+  const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
+  const attachmentsUploading =
+    props.connectionState === "connected" &&
+    composerAttachmentsStillUploading({
+      environmentId: props.environmentId,
+      attachments: props.draftAttachments,
+      serverConfig: props.serverConfig,
+      states: uploadStates,
+    });
+  // Every send goes through the outbox; the label says whether it leaves now
+  // or waits (for the connection, an earlier queued message, or an upload).
   const sendLabel =
-    props.connectionState !== "connected" || props.queueCount > 0 ? "Queue" : "Send";
+    props.connectionState !== "connected" || props.queueCount > 0 || attachmentsUploading
+      ? "Queue"
+      : "Send";
   const currentModelSelection = props.selectedThread.modelSelection;
   const currentRuntimeMode = props.selectedThread.runtimeMode;
-  const connectionStatus = composerConnectionStatus({
-    connectionError: props.connectionError,
-    connectionState: props.connectionState,
-    environmentLabel: props.environmentLabel,
-    threadSyncPhase: props.threadSyncPhase,
-  });
+  const modelUnavailable =
+    props.connectionState === "connected" &&
+    isModelSelectionUnavailable(props.serverConfig, currentModelSelection);
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -375,92 +340,64 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
-  const resetProviderContext = useAtomCommand(serverEnvironment.resetProviderContext, {
-    reportFailure: false,
-  });
-  // Any Bob session error is recoverable by discarding the saved ACP session;
-  // the error text is provider-owned and not stable enough to pattern-match.
-  const canResetMissingBobSession =
-    selectedProviderStatus?.driver === "bob" &&
-    typeof props.selectedThread.session?.lastError === "string";
-  const projectMetadata = useEnvironmentQuery(
-    props.projectCwd && selectedProviderStatus?.capabilities?.providerModes === true
-      ? serverEnvironment.providerProjectMetadata({
-          environmentId: props.environmentId,
-          input: {
-            instanceId: props.selectedThread.modelSelection.instanceId,
-            projectId: props.selectedThread.projectId,
-          },
-        })
-      : null,
-  ).data;
-  // Bob resolves commands and skills per project; overlay them on the provider
-  // snapshot so the command menu and editor see the project's set.
-  const effectiveProviderStatus = useMemo(
-    () =>
-      selectedProviderStatus && projectMetadata
-        ? {
-            ...selectedProviderStatus,
-            slashCommands: projectMetadata.slashCommands,
-            skills: projectMetadata.skills,
-          }
-        : selectedProviderStatus,
-    [projectMetadata, selectedProviderStatus],
-  );
-  const usagePresentation = useMemo(() => {
-    let tokens: Record<string, unknown> | undefined;
-    for (let index = props.usageActivities.length - 1; index >= 0; index -= 1) {
-      const activity = props.usageActivities[index];
-      if (!activity || !activity.payload || typeof activity.payload !== "object") continue;
-      const payload = activity.payload as Record<string, unknown>;
-      if (!tokens && activity.kind === "context-window.updated") tokens = payload;
+  const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
+    Keyboard.dismiss();
+    navigation.navigate("ThreadAttachment", {
+      environmentId: String(props.environmentId),
+      threadId: String(props.selectedThread.id),
+      attachmentId: attachment.attachmentId,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      sizeBytes: String(attachment.sizeBytes),
+      draftKey: composerOwnerKey,
+    });
+  };
+  const { onSendMessage, onChangeDraftMessage, onShowUsageLimits } = props;
+  // T3 owns /usage-limits only where Limits has data for the selected provider;
+  // elsewhere the name stays the provider's own and is sent through untouched.
+  const usageLimitsOffered =
+    selectedProviderStatus !== null &&
+    hasProviderUsageLimits(
+      selectedProviderStatus.driver,
+      props.serverConfig?.providers ?? [],
+      props.serverConfig?.usageLimitSources ?? [],
+    );
+  // Answered locally from the last Limits snapshot; the agent never sees it.
+  const openUsageLimits = useCallback(() => {
+    const report = collectProviderUsageLimits(
+      currentModelSelection.instanceId,
+      props.serverConfig?.providers ?? [],
+      props.serverConfig?.usageLimitSources ?? [],
+      Date.now(),
+    );
+    onShowUsageLimits(report);
+    if (!report) {
+      Alert.alert("Usage limits unavailable", "This provider does not currently report limits.");
     }
-    const contextTokens = finiteUsageNumber(tokens?.usedTokens);
-    const durationMs = finiteUsageNumber(tokens?.durationMs);
-    const summary = [
-      contextTokens !== null ? `${formatTokenCount(contextTokens)} context tokens` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const details = [
-      usageDetail("Context", contextTokens, finiteUsageNumber(tokens?.lastUsedTokens)),
-      usageDetail(
-        "Input",
-        finiteUsageNumber(tokens?.inputTokens),
-        finiteUsageNumber(tokens?.lastInputTokens),
-      ),
-      usageDetail(
-        "Output",
-        finiteUsageNumber(tokens?.outputTokens),
-        finiteUsageNumber(tokens?.lastOutputTokens),
-      ),
-      usageDetail(
-        "Cache read",
-        finiteUsageNumber(tokens?.cachedInputTokens),
-        finiteUsageNumber(tokens?.lastCachedInputTokens),
-      ),
-      usageDetail(
-        "Cache write",
-        finiteUsageNumber(tokens?.cacheWriteInputTokens),
-        finiteUsageNumber(tokens?.lastCacheWriteInputTokens),
-      ),
-      usageDetail("Tool calls", finiteUsageNumber(tokens?.toolUses), null),
-      durationMs !== null
-        ? { label: "Last duration", value: formatUsageDuration(durationMs) }
-        : null,
-    ].filter((entry): entry is { label: string; value: string } => entry !== null);
-    return summary ? { summary, details } : null;
-  }, [props.usageActivities]);
+    return report !== null;
+  }, [currentModelSelection.instanceId, onShowUsageLimits, props.serverConfig]);
 
   const composerMenu = useComposerCommandMenu({
     draftMessage: props.draftMessage,
     ownerKey: composerOwnerKey,
     environmentId: props.environmentId,
     projectCwd: props.projectCwd,
-    selectedProviderStatus: effectiveProviderStatus,
+    pullRequestProjectId: props.serverConfig?.environment.capabilities.pullRequests
+      ? (project?.id ?? null)
+      : null,
+    pullRequestRepository: project?.repositoryIdentity?.displayName ?? null,
+    selectedProviderStatus,
     hasThread: true,
+    hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
-    onUpdateInteractionMode: props.onUpdateInteractionMode,
+    onUpdateInteractionMode:
+      selectedProviderStatus?.showInteractionModeToggle === false
+        ? undefined
+        : props.onUpdateInteractionMode,
+    offersUsageLimits: usageLimitsOffered,
+    // With attachments aboard the pick just inserts the text, so it sends as a prompt.
+    onUsageLimits:
+      usageLimitsOffered && props.draftAttachments.length === 0 ? openUsageLimits : undefined,
   });
   const voiceInput = useVoiceInputController({
     ownerKey: composerOwnerKey,
@@ -475,10 +412,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
-  const isExpanded = isFocused || settingsSheetPresentation.isActive;
+  const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
   const showsCompactDictation = isVoiceInputPresented && !isExpanded;
   const isToolbarVisible = isExpanded || isVoiceInputPresented;
-  const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
   const attachmentBlockReason = composerAttachmentUploadBlockReason({
     environmentId: props.environmentId,
     attachments: props.draftAttachments,
@@ -486,7 +422,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     serverConfig: props.serverConfig,
     states: uploadStates,
   });
-  const canSend = hasContent && !voiceInput.blocksSubmission && attachmentBlockReason === null;
+  const contextImports = useAtomValue(composerContextImportsAtom);
+  const sendBlockedReason =
+    props.sendBlockedReason ??
+    (pendingPastedTextAttachmentCount > 0 ? "Attaching pasted text" : null) ??
+    attachmentBlockReason;
+  const canSend =
+    hasContent &&
+    !contextImports[composerOwnerKey] &&
+    !voiceInput.blocksSubmission &&
+    sendBlockedReason === null &&
+    !modelUnavailable;
 
   // Keep the feed inset aligned with the card or compact dictation strip.
   useEffect(() => {
@@ -530,15 +476,23 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const handleBlur = useCallback(() => {
     setIsFocused(false);
-    if (!settingsSheetPresentation.isActive) {
+    if (!settingsSheetPresentation.keepsComposerExpanded) {
       onExpandedChange?.(false);
     }
     onEditorFocusChange?.(false);
-  }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.isActive]);
-  const { onSendMessage } = props;
-
+  }, [onEditorFocusChange, onExpandedChange, settingsSheetPresentation.keepsComposerExpanded]);
   const handleSend = useCallback(async () => {
-    if (voiceInput.blocksSubmission) return;
+    if (voiceInput.blocksSubmission || pendingPastedTextAttachmentCountRef.current > 0) return;
+    // Typed out in full rather than picked from the menu. Attachments mean the
+    // user is sending a prompt, so those go through as usual.
+    if (
+      usageLimitsOffered &&
+      isUsageLimitsCommand(props.draftMessage) &&
+      props.draftAttachments.length === 0
+    ) {
+      if (openUsageLimits()) onChangeDraftMessage("");
+      return;
+    }
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
@@ -560,6 +514,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       inFlightThreadIdsRef.current.delete(threadKey);
     }
   }, [
+    props.draftMessage,
+    props.draftAttachments.length,
+    onChangeDraftMessage,
+    openUsageLimits,
+    usageLimitsOffered,
     onSendMessage,
     props.environmentId,
     props.environmentLabel,
@@ -599,6 +558,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     () => ({
       ownerId: settingsOwnerId,
       environmentId: props.environmentId,
+      providerInstanceId: currentModelSelection.instanceId,
       providerGroups: threadProviderGroups,
       selectedModel: currentModelSelection,
       onSelectModel: (option) => props.onUpdateModelSelection(option.selection),
@@ -607,37 +567,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         props.onUpdateModelSelection({ ...currentModelSelection, options }),
       runtimeMode: currentRuntimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      providerModes: projectMetadata?.modes ?? [],
-      providerMode: props.providerMode,
-      onUpdateProviderMode: props.onUpdateProviderMode,
-      usagePresentation,
-      onResetProviderContext:
-        canResetMissingBobSession && selectedProviderStatus
-          ? () => {
-              void resetProviderContext({
-                environmentId: props.environmentId,
-                input: { threadId: props.selectedThread.id },
-              });
-            }
-          : null,
     }),
     [
-      canResetMissingBobSession,
       currentModelSelection,
       currentRuntimeMode,
-      projectMetadata?.modes,
-      props.environmentId,
       props.onUpdateModelSelection,
-      props.onUpdateProviderMode,
       props.onUpdateRuntimeMode,
-      props.providerMode,
-      props.selectedThread.id,
       providerOptionDescriptors,
-      resetProviderContext,
-      selectedProviderStatus,
       settingsOwnerId,
       threadProviderGroups,
-      usagePresentation,
     ],
   );
   const openSettings = useCallback(() => {
@@ -689,35 +627,42 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       style={{
         paddingTop: isExpanded ? 8 : 6,
         paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 8 : 6),
+        backgroundColor: materialYouStyleLayoutActive ? composerPanel : undefined,
       }}
     >
       {/* The backdrop gradient lives on a plain View: Reanimated's Animated.View
           silently drops experimental_backgroundImage on Android, which left this
           strip fully transparent and the feed text legible through the composer. */}
       <View
-        className="absolute inset-0 bg-linear-to-b from-screen/0 via-screen/60 to-screen/90"
+        className={
+          materialYouStyleLayoutActive
+            ? "hidden"
+            : "absolute inset-0 bg-linear-to-b from-screen/0 via-screen/60 to-screen/90"
+        }
         pointerEvents="none"
       />
       <Animated.View
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
       >
-        {!voiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
+        {!voiceInput.isBusy &&
+        composerMenu.trigger &&
+        (composerMenu.items.length > 0 || composerMenu.trigger.kind === "pull-request") ? (
           <View className="absolute inset-x-0 bottom-full z-10 mb-2">
             <ComposerCommandPopover
               items={composerMenu.items}
               triggerKind={composerMenu.trigger.kind}
               isLoading={composerMenu.isLoading}
+              error={composerMenu.error}
               onSelect={composerMenu.onSelect}
             />
           </View>
         ) : null}
 
-        {connectionStatus ? (
-          <ComposerConnectionStatusPill
-            status={connectionStatus}
-            onPress={props.onReconnectEnvironment}
-          />
+        {modelUnavailable ? (
+          <Pressable accessibilityRole="button" className="px-3 py-2" onPress={openSettings}>
+            <Text className="text-xs text-foreground">Model unavailable. Open model settings.</Text>
+          </Pressable>
         ) : null}
 
         <ComposerSurface
@@ -753,18 +698,29 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPickFiles={props.onPickDraftFiles}
               />
             ) : null}
-            {isExpanded ? (
+            {isExpanded && stripAttachments.length > 0 ? (
               <Animated.View
-                className={props.draftAttachments.length > 0 ? "px-[14px] pb-2.5" : undefined}
-                entering={FadeIn.duration(160)}
+                className="px-[14px] pb-2.5"
+                entering={COMPOSER_ATTACHMENT_ENTERING}
                 exiting={FadeOut.duration(120)}
               >
                 <ComposerAttachmentStrip
                   environmentId={props.environmentId}
-                  attachments={props.draftAttachments}
+                  attachments={stripAttachments}
                   onRemove={voiceInput.isBusy ? () => undefined : props.onRemoveDraftImage}
                   onPressPreview={voiceInput.isBusy ? undefined : onPressPreview}
                   onPressVideo={voiceInput.isBusy ? undefined : onPressVideo}
+                  onPressDocument={
+                    voiceInput.isBusy
+                      ? undefined
+                      : (attachment) =>
+                          openDraftDocument({
+                            attachmentId: attachment.id,
+                            name: attachment.name,
+                            mimeType: attachment.mimeType,
+                            sizeBytes: attachment.sizeBytes,
+                          })
+                  }
                 />
               </Animated.View>
             ) : null}
@@ -773,15 +729,100 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               layout={COMPOSER_LAYOUT_TRANSITION}
             >
               <ComposerEditor
+                draftKey={composerOwnerKey}
+                environmentId={props.environmentId}
+                onOpenMention={(path) => {
+                  Keyboard.dismiss();
+                  navigation.navigate("ThreadFile", {
+                    environmentId: String(props.environmentId),
+                    threadId: String(props.selectedThread.id),
+                    path: fileRoutePathSegments(path),
+                  });
+                }}
+                onOpenAttachment={openDraftDocument}
+                // A rested composer full of chips left almost nowhere to tap to start typing:
+                // every chip opened its file instead. Collapsed, they focus the editor.
+                chipsInert={!isExpanded}
+                onInertChipPress={() => inputRef.current?.focus()}
                 ref={inputRef}
                 multiline
                 value={props.draftMessage}
                 readOnly={voiceInput.freezesEditor}
-                skills={effectiveProviderStatus?.skills ?? []}
+                skills={composerMenu.skills}
                 selection={composerMenu.selection}
                 onChangeText={props.onChangeDraftMessage}
                 onSelectionChange={composerMenu.onSelectionChange}
                 onPasteImages={(uris) => void props.onNativePasteImages(uris)}
+                onPasteText={(paste) => {
+                  const insertPaste = () => {
+                    const insertion = replaceTextSelection({
+                      value: paste.value,
+                      selection: paste.selection,
+                      text: paste.text,
+                    });
+                    const selection = { start: insertion.cursor, end: insertion.cursor };
+                    props.onChangeDraftMessage(insertion.value);
+                    composerMenu.onSelectionChange(selection);
+                  };
+                  const capabilities = props.serverConfig?.environment.capabilities;
+                  const advertisedMax =
+                    capabilities?.attachmentUploads === true
+                      ? capabilities.fileAttachments?.maxUploadBytes
+                      : undefined;
+                  const maxBytes =
+                    advertisedMax === undefined
+                      ? null
+                      : clampFileAttachmentUploadBytes(advertisedMax);
+                  const wouldExceedInputLimit =
+                    paste.value.length -
+                      Math.max(0, paste.selection.end - paste.selection.start) +
+                      paste.text.length >
+                    PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
+                  const canAttach =
+                    maxBytes !== null &&
+                    countComposerDraftAttachmentsAfterSelection(composerOwnerKey, {
+                      text: paste.value,
+                      ...paste.selection,
+                    }) < PROVIDER_SEND_TURN_MAX_ATTACHMENTS &&
+                    new TextEncoder().encode(paste.text).byteLength <= maxBytes;
+                  if (
+                    pastedTextDisposition({
+                      text: paste.text,
+                      wouldExceedInputLimit,
+                      canAttach: true,
+                    }) === "attachment"
+                  ) {
+                    if (canAttach) {
+                      pendingPastedTextAttachmentCountRef.current += 1;
+                      setPendingPastedTextAttachmentCount(
+                        pendingPastedTextAttachmentCountRef.current,
+                      );
+                      const finishAttachment = () => {
+                        pendingPastedTextAttachmentCountRef.current = Math.max(
+                          0,
+                          pendingPastedTextAttachmentCountRef.current - 1,
+                        );
+                        setPendingPastedTextAttachmentCount(
+                          pendingPastedTextAttachmentCountRef.current,
+                        );
+                      };
+                      void props.onNativePasteText(paste).then(finishAttachment, finishAttachment);
+                    } else if (!wouldExceedInputLimit) {
+                      insertPaste();
+                    } else {
+                      Alert.alert(
+                        wouldExceedInputLimit
+                          ? "Pasted text is too large for this message"
+                          : "Could not attach pasted text",
+                        wouldExceedInputLimit
+                          ? "Remove some text or an attachment, then paste again."
+                          : "Remove an attachment or use a smaller paste, then try again.",
+                      );
+                    }
+                    return;
+                  }
+                  insertPaste();
+                }}
                 placeholder={props.placeholder}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
@@ -808,9 +849,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 }}
               />
             </Animated.View>
-            {!isExpanded && props.draftAttachments.length > 0 ? (
+            {!isExpanded && stripAttachments.length > 0 ? (
               <View className="flex-row gap-1 pl-1">
-                {props.draftAttachments.slice(0, 3).map((attachment) => (
+                {stripAttachments.slice(0, 3).map((attachment) => (
                   <ComposerAttachmentThumbnail
                     environmentId={props.environmentId}
                     key={attachment.id}
@@ -822,10 +863,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     onPressVideo={onPressVideo}
                   />
                 ))}
-                {props.draftAttachments.length > 3 ? (
+                {stripAttachments.length > 3 ? (
                   <View className="size-[30px] items-center justify-center rounded-lg bg-subtle-strong">
                     <Text className="text-foreground-muted text-2xs font-t3-bold">
-                      +{props.draftAttachments.length - 3}
+                      +{stripAttachments.length - 3}
                     </Text>
                   </View>
                 ) : null}
@@ -848,7 +889,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : (
                   <ComposerActionButton
-                    accessibilityLabel={attachmentBlockReason ?? sendLabel}
+                    accessibilityLabel={sendBlockedReason ?? sendLabel}
                     icon="arrow.up"
                     variant="primary"
                     disabled={!canSend}
@@ -907,7 +948,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       onPickMedia={props.onPickDraftMedia}
                       onPickFiles={props.onPickDraftFiles}
                     />
-                    <View className="min-w-0 shrink" style={{ maxWidth: 152 }}>
+                    <View className="min-w-0 shrink">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
                         emphasized
@@ -915,7 +956,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                           <ProviderIcon provider={currentModelOption?.providerDriver} size={16} />
                         }
                         label={currentModelOption?.label ?? currentModelSelection.model}
-                        maxWidth={152}
+                        maxWidth="100%"
                         onPress={openSettings}
                       />
                     </View>
@@ -939,7 +980,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     />
                   ) : voicePresentation.showsSend ? (
                     <ComposerActionButton
-                      accessibilityLabel={attachmentBlockReason ?? sendLabel}
+                      accessibilityLabel={sendBlockedReason ?? sendLabel}
                       icon="arrow.up"
                       variant="primary"
                       disabled={!canSend}
@@ -951,16 +992,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             </ComposerDictationToolbar>
           </Animated.View>
         </ComposerSurface>
-
-        {/* Queue count */}
-        {props.queueCount > 0 ? (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)}>
-            <Text className="pt-2 text-xs text-foreground-muted">
-              {props.queueCount} queued message{props.queueCount === 1 ? "" : "s"} will send
-              automatically.
-            </Text>
-          </Animated.View>
-        ) : null}
       </Animated.View>
 
       <VideoPreviewModal source={previewVideo} onRequestClose={closePreview} />

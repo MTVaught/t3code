@@ -175,11 +175,16 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       const secret = "acp-core-notification-secret-sentinel";
       const { stdio, input } = yield* makeInMemoryStdio();
       const events: Array<AcpProtocol.AcpProtocolLogEvent> = [];
+      let transformCalls = 0;
       const terminated = yield* Ref.make(false);
       const delivered = yield* Deferred.make<AcpProtocol.AcpIncomingNotification>();
       yield* AcpProtocol.makeAcpPatchedProtocol({
         stdio,
         serverRequestMethods: new Set(),
+        transformSessionUpdate: (notification) => {
+          transformCalls += 1;
+          return notification;
+        },
         logIncoming: true,
         logger: (event) =>
           Effect.sync(() => {
@@ -231,6 +236,8 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       const notification = yield* Deferred.await(delivered);
       assert.equal(notification._tag, "SessionUpdate");
       assert.isFalse(yield* Ref.get(terminated));
+      // Only the decodable notification reached the session update transform.
+      assert.equal(transformCalls, 1);
 
       const event = events.find(({ stage }) => stage === "decode_failed");
       assert.isDefined(event);
@@ -303,25 +310,24 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
 
       yield* transport.notify("session/cancel", { sessionId: "session-1" });
 
+      // A notification must not carry `id` or `headers`. Grok CLI drops frames that do.
       assert.deepEqual(events, [
         {
           direction: "outgoing",
           stage: "decoded",
           payload: {
-            _tag: "Request",
-            id: "",
+            _tag: "Notification",
             tag: "session/cancel",
             payload: {
               sessionId: "session-1",
             },
-            headers: [],
           },
         },
         {
           direction: "outgoing",
           stage: "raw",
           payload:
-            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"},"id":"","headers":[]}\n',
+            '{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"session-1"}}\n',
         },
       ]);
     }),
@@ -367,11 +373,13 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
         serverRequestMethods: new Set(),
       });
 
+      // Notifications encode through Schema, so the cause is the schema failure rather
+      // than the raw TypeError JSON.stringify throws. The ACP error shape is what callers see.
       const bigintError = yield* transport.notify("x/test", 1n).pipe(Effect.flip);
       assert.instanceOf(bigintError, AcpError.AcpProtocolParseError);
       assert.equal(bigintError.operation, "encode-message");
       assert.equal(bigintError.method, "x/test");
-      assert.instanceOf(bigintError.cause, TypeError);
+      assert.isDefined(bigintError.cause);
       assert.equal(
         bigintError.message,
         "ACP protocol operation 'encode-message' failed for method 'x/test'.",
@@ -383,7 +391,7 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       assert.instanceOf(circularError, AcpError.AcpProtocolParseError);
       assert.equal(circularError.operation, "encode-message");
       assert.equal(circularError.method, "x/test");
-      assert.instanceOf(circularError.cause, TypeError);
+      assert.isDefined(circularError.cause);
 
       const requestError = yield* transport.request("x/request", 1n).pipe(
         Effect.match({
@@ -792,4 +800,46 @@ it.layer(NodeServices.layer)("effect-acp protocol", (it) => {
       assert.equal(error.code, 0);
     }),
   );
+
+  for (const operation of ["request", "notification"] as const) {
+    it.effect(`rejects a ${operation} if the connection ends while its logger is running`, () =>
+      Effect.gen(function* () {
+        const { stdio, input, output } = yield* makeInMemoryStdio();
+        const writeStarted = yield* Deferred.make<void>();
+        const releaseWrite = yield* Deferred.make<void>();
+        const terminated = yield* Deferred.make<AcpError.AcpError>();
+        const transport = yield* AcpProtocol.makeAcpPatchedProtocol({
+          stdio,
+          serverRequestMethods: new Set(),
+          logOutgoing: true,
+          logger: (event) =>
+            event.stage === "raw"
+              ? Deferred.succeed(writeStarted, undefined).pipe(
+                  Effect.andThen(Deferred.await(releaseWrite)),
+                )
+              : Effect.void,
+          onTermination: (error) => Deferred.succeed(terminated, error).pipe(Effect.asVoid),
+        });
+        const send = yield* (
+          operation === "request"
+            ? transport.request("x/test", { hello: "world" })
+            : transport.notify("session/cancel", { sessionId: "session-1" })
+        ).pipe(Effect.forkScoped);
+
+        yield* Deferred.await(writeStarted);
+        yield* Queue.end(input);
+        const error = yield* Deferred.await(terminated);
+        yield* Deferred.succeed(releaseWrite, undefined);
+
+        const failure = yield* Fiber.join(send).pipe(
+          Effect.match({
+            onFailure: (failure) => failure,
+            onSuccess: () => assert.fail("Expected the send to fail after termination"),
+          }),
+        );
+        assert.strictEqual(failure, error);
+        assert.equal(yield* Queue.size(output), 0);
+      }),
+    );
+  }
 });

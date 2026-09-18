@@ -28,7 +28,7 @@ import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = ProviderDriverKind.make("bob");
 
-export const BOB_BUILT_IN_MODES: ReadonlyArray<ServerProviderMode> = [
+const BOB_BUILT_IN_MODES: ReadonlyArray<ServerProviderMode> = [
   { slug: "agent", name: "Agent", scope: "built-in" },
   { slug: "ask", name: "Ask", scope: "built-in" },
   { slug: "plan", name: "Plan", scope: "built-in" },

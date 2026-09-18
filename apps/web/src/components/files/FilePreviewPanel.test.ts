@@ -9,6 +9,7 @@ import {
   isAsciiDocPreviewFile,
   isMarkdownPreviewFile,
   setMarkdownTaskChecked,
+  shouldShowFileExplorer,
 } from "./filePreviewMode";
 
 describe("file comment annotations", () => {
@@ -80,6 +81,42 @@ describe("isAsciiDocPreviewFile", () => {
   it("does not treat other text files as AsciiDoc", () => {
     expect(isAsciiDocPreviewFile("docs/guide.txt")).toBe(false);
     expect(isAsciiDocPreviewFile("src/asciidoc.ts")).toBe(false);
+  });
+});
+
+describe("shouldShowFileExplorer", () => {
+  it("hides the workspace tree for host files and attachments", () => {
+    expect(
+      shouldShowFileExplorer({
+        relativePath: "/tmp/report.pdf",
+        explorerOpen: true,
+        attachmentOpen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowFileExplorer({
+        relativePath: "report.pdf",
+        explorerOpen: true,
+        attachmentOpen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the saved explorer preference for workspace files", () => {
+    expect(
+      shouldShowFileExplorer({
+        relativePath: "docs/report.pdf",
+        explorerOpen: true,
+        attachmentOpen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowFileExplorer({
+        relativePath: "docs/report.pdf",
+        explorerOpen: false,
+        attachmentOpen: false,
+      }),
+    ).toBe(false);
   });
 });
 

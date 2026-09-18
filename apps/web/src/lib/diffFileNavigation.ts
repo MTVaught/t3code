@@ -2,7 +2,7 @@ export interface DiffFileNavigationEntry {
   readonly filePath: string;
 }
 
-export const WIDE_DIFF_PANEL_MIN_WIDTH = 760;
+const WIDE_DIFF_PANEL_MIN_WIDTH = 760;
 
 export function isWideDiffPanelWidth(width: number): boolean {
   return width >= WIDE_DIFF_PANEL_MIN_WIDTH;

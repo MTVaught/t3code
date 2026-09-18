@@ -11,7 +11,7 @@ import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
 export interface BobAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
-  "authMethodId" | "continuationMethod" | "modeMethod" | "spawn"
+  "authMethodId" | "resumeMethod" | "modeMethod" | "spawn"
 > {
   readonly bobSettings: Pick<BobSettings, "binaryPath">;
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
@@ -52,7 +52,7 @@ export const makeBobAcpRuntime = (
         ...input,
         spawn: buildBobAcpSpawnInput(input),
         authMethodId: "sso",
-        continuationMethod: "resume",
+        resumeMethod: "resume",
         modeMethod: "set_mode",
       }).pipe(
         Layer.provide(

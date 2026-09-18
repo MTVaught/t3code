@@ -12,7 +12,6 @@ import {
   type BobSettings,
   DEFAULT_BOB_MODEL,
   type ModelCapabilities,
-  ProviderDriverKind,
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -25,13 +24,29 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import {
   buildServerProvider,
-  detailFromResult,
   isCommandMissingCause,
   parseGenericCliVersion,
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
+
+function detailFromResult(result: {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number | null;
+  readonly timedOut?: boolean;
+}): string | undefined {
+  if (result.timedOut) return "Timed out while running command.";
+  const stderr = result.stderr.trim();
+  if (stderr) return stderr;
+  const stdout = result.stdout.trim();
+  if (stdout) return stdout;
+  if (result.code !== 0) {
+    return `Command exited with code ${result.code}.`;
+  }
+  return undefined;
+}
 
 const bobPresentation = (_settings: BobSettings) =>
   ({
@@ -54,18 +69,6 @@ const bobPresentation = (_settings: BobSettings) =>
     },
   }) as const;
 
-export const BOB_ADAPTER_CAPABILITIES = {
-  sessionModelSwitch: "unsupported",
-  conversationRollback: false,
-  midTurnSteering: true,
-  interactiveApprovals: true,
-  structuredUserInput: false,
-  t3McpInjection: true,
-  attachments: true,
-} as const;
-
-export const BOB_PROVIDER = ProviderDriverKind.make("bob");
-
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
@@ -83,15 +86,6 @@ export const BOB_BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
     capabilities: EMPTY_CAPABILITIES,
   },
 ];
-
-/**
- * Kept for persisted model-selection compatibility. The adapter never passes
- * this slug to Bob.
- */
-export const BOB_BUILT_IN_MODEL_SLUGS: ReadonlySet<string> = new Set([
-  ...BOB_BUILT_IN_MODELS.map((model) => model.slug),
-  "premium",
-]);
 
 export function bobModelsFromSettings(): ReadonlyArray<ServerProviderModel> {
   return BOB_BUILT_IN_MODELS;
