@@ -1390,6 +1390,67 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     );
   });
 
+  it.effect("stages the RHEL 8 browser secret prebuild instead of compiling", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-browser-secret-prebuild-" });
+      const prebuildDir = path.join(root, "linux-native");
+      yield* fs.makeDirectory(prebuildDir, { recursive: true });
+      yield* fs.writeFileString(path.join(prebuildDir, "t3-browser-secret"), "rhel8-helper");
+      const stageResourcesDir = path.join(root, "stage", "resources");
+      const commands: Array<string> = [];
+      const spawnerLayer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make((command) => {
+          commands.push((command as unknown as { readonly command: string }).command);
+          return Effect.succeed(mockProcess(0));
+        }),
+      );
+
+      yield* stageBrowserSecret({
+        repoRoot: "/repo",
+        stageResourcesDir,
+        platform: "linux",
+        arch: "x64",
+        verbose: false,
+        linuxNativePrebuilds: prebuildDir,
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            spawnerLayer,
+            Layer.succeed(HostProcessPlatform, "linux"),
+            Layer.succeed(HostProcessArchitecture, "x64"),
+          ),
+        ),
+      );
+
+      const staged = path.join(stageResourcesDir, "browser-secret", "t3-browser-secret");
+      assert.equal(yield* fs.readFileString(staged), "rhel8-helper");
+      assert.equal((yield* fs.stat(staged)).mode & 0o111, 0o111);
+      assert.deepStrictEqual(commands, []);
+
+      const missing = yield* stageBrowserSecret({
+        repoRoot: "/repo",
+        stageResourcesDir,
+        platform: "linux",
+        arch: "x64",
+        verbose: false,
+        linuxNativePrebuilds: path.join(root, "empty"),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            spawnerLayer,
+            Layer.succeed(HostProcessPlatform, "linux"),
+            Layer.succeed(HostProcessArchitecture, "x64"),
+          ),
+        ),
+        Effect.flip,
+      );
+      assert.equal(missing._tag, "LinuxNativePrebuildMissingError");
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("builds the Linux browser secret helper for a concrete architecture", () => {
     const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
     const spawnerLayer = Layer.succeed(
@@ -1838,6 +1899,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       nodePty: "/tmp/linux-native/pty.node",
       resourceMonitor: "/tmp/linux-native/t3-resource-monitor",
       fff: "/tmp/linux-native/libfff_c.so",
+      browserSecret: "/tmp/linux-native/t3-browser-secret",
     });
   });
 

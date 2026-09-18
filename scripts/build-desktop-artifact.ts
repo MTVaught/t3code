@@ -134,6 +134,7 @@ export function resolveLinuxNativePrebuildPaths(directory: string) {
     nodePty: `${root}pty.node`,
     resourceMonitor: `${root}t3-resource-monitor`,
     fff: `${root}libfff_c.so`,
+    browserSecret: `${root}t3-browser-secret`,
   } as const;
 }
 
@@ -712,7 +713,12 @@ export class WindowsPackagedPayloadValidationError extends Schema.TaggedError<Wi
   }
 }
 
-const LinuxNativePrebuildComponent = Schema.Literals(["node-pty", "resource-monitor", "fff"]);
+const LinuxNativePrebuildComponent = Schema.Literals([
+  "node-pty",
+  "resource-monitor",
+  "fff",
+  "browser-secret",
+]);
 
 export class LinuxNativePrebuildMissingError extends Schema.TaggedError<LinuxNativePrebuildMissingError>()(
   "LinuxNativePrebuildMissingError",
@@ -1997,8 +2003,28 @@ export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (inp
   readonly platform: typeof BuildPlatform.Type;
   readonly arch: typeof BuildArch.Type;
   readonly verbose: boolean;
+  readonly linuxNativePrebuilds?: string | undefined;
 }) {
   if (input.platform !== "linux") return;
+  // Release builds ship the helper compiled inside the RHEL 8 container with
+  // the other Linux prebuilds, so the AppImage keeps its glibc 2.28 floor.
+  // Compiling here would link against the Ubuntu runner's newer glibc.
+  if (input.linuxNativePrebuilds !== undefined) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const prebuildPath = resolveLinuxNativePrebuildPaths(input.linuxNativePrebuilds).browserSecret;
+    if (!(yield* fs.exists(prebuildPath))) {
+      return yield* new LinuxNativePrebuildMissingError({
+        component: "browser-secret",
+        prebuildPath,
+      });
+    }
+    const destination = path.join(input.stageResourcesDir, "browser-secret", "t3-browser-secret");
+    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+    yield* fs.copyFile(prebuildPath, destination);
+    yield* fs.chmod(destination, 0o755);
+    return;
+  }
   // The helper links against the host's libsecret, so it can only be built on
   // Linux; the build script is a no-op elsewhere. A Linux artifact from
   // another host would ship without it and every v11 cookie import would
@@ -3348,6 +3374,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     platform: options.platform,
     arch: options.arch,
     verbose: options.verbose,
+    linuxNativePrebuilds: options.platform === "linux" ? options.linuxNativePrebuilds : undefined,
   });
 
   yield* assertPlatformBuildResources(
