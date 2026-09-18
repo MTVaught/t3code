@@ -1042,12 +1042,18 @@ jobs:
 
           native_root="squashfs-root/resources/app.asar.unpacked/node_modules"
           while IFS= read -r -d '' binary; do
-            # xa11y backs SnapShots, which Linux supports on Wayland only. Its
-            # worker imports it lazily per capture, so a newer glibc there
-            # cannot affect startup on RHEL 8; everything else must load.
-            if [[ "$binary" == *"/@crowecawcaw/xa11y-"* ]]; then
-              continue
-            fi
+            # SnapShots pieces are Wayland-only on Linux and never run at
+            # startup: xa11y is imported lazily by a capture worker, and the
+            # Hyprland and KDE helpers are copied out of the bundle only when
+            # that compositor is detected during setup. RHEL 8 runs none of
+            # them, so a newer glibc there is harmless; everything else must load.
+            case "$binary" in
+              *"/@crowecawcaw/xa11y-"* | \
+              squashfs-root/resources/hyprland-capture/* | \
+              squashfs-root/resources/kde-capture/*)
+                continue
+                ;;
+            esac
             if ! readelf --file-header "$binary" >/dev/null 2>&1; then
               continue
             fi
