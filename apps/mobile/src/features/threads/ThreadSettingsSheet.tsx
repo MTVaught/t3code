@@ -5,7 +5,6 @@ import type {
   ProviderOptionDescriptor,
   ProviderOptionSelection,
   RuntimeMode,
-  ServerProviderMode,
 } from "@t3tools/contracts";
 import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
@@ -315,13 +314,7 @@ function SwitchRow(props: {
 
 type ThreadSettingsSubmenuPage =
   | { readonly kind: "descriptor"; readonly id: string }
-  | { readonly kind: "runtime" }
-  | { readonly kind: "provider-mode" };
-
-type ThreadUsagePresentation = {
-  readonly summary: string;
-  readonly details: ReadonlyArray<{ readonly label: string; readonly value: string }>;
-};
+  | { readonly kind: "runtime" };
 
 type ThreadSettingsSessionProps = {
   readonly environmentId: EnvironmentId | null;
@@ -333,11 +326,6 @@ type ThreadSettingsSessionProps = {
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
-  readonly providerModes: ReadonlyArray<ServerProviderMode>;
-  readonly providerMode: string | null;
-  readonly onUpdateProviderMode: (mode: string | null) => void;
-  readonly usagePresentation: ThreadUsagePresentation | null;
-  readonly onResetProviderContext: (() => void) | null;
 };
 
 export type ExistingThreadSettingsRouteSession = ThreadSettingsSessionProps & {
@@ -387,11 +375,6 @@ type ThreadSettingsSessionValue = {
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
-  readonly providerModes: ReadonlyArray<ServerProviderMode>;
-  readonly providerMode: string | null;
-  readonly onUpdateProviderMode: (mode: string | null) => void;
-  readonly usagePresentation: ThreadUsagePresentation | null;
-  readonly onResetProviderContext: (() => void) | null;
   readonly displayedDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly providerExpansionOverrides: ReadonlySet<string>;
   readonly hasLegacyModels: boolean;
@@ -520,11 +503,6 @@ function ThreadSettingsSessionProvider(
       providerGroups: props.providerGroups,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
-      providerModes: props.providerModes,
-      providerMode: props.providerMode,
-      onUpdateProviderMode: props.onUpdateProviderMode,
-      usagePresentation: props.usagePresentation,
-      onResetProviderContext: props.onResetProviderContext,
       displayedDescriptors,
       providerExpansionOverrides,
       hasLegacyModels,
@@ -556,13 +534,8 @@ function ThreadSettingsSessionProvider(
       pressModel,
       providerFilter,
       props.onUpdateRuntimeMode,
-      props.onUpdateProviderMode,
-      props.onResetProviderContext,
-      props.providerMode,
-      props.providerModes,
       props.providerGroups,
       props.runtimeMode,
-      props.usagePresentation,
       searchQuery,
       showLegacyToggle,
       toggleProvider,
@@ -784,7 +757,7 @@ function ThreadSettingsOptionsItem(props: {
         })}
         <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
           <DisclosureRow
-            isLast={session.providerModes.length === 0 && session.onResetProviderContext === null}
+            isLast
             label="Runtime"
             value={
               RUNTIME_MODE_CHOICES.find((choice) => choice.mode === session.runtimeMode)?.label
@@ -792,56 +765,7 @@ function ThreadSettingsOptionsItem(props: {
             onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
           />
         </Animated.View>
-        {session.providerModes.length > 0 ? (
-          <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
-            <DisclosureRow
-              isLast={session.onResetProviderContext === null}
-              label="Provider mode"
-              value={
-                session.providerModes.find(
-                  (mode) => mode.slug === (session.providerMode ?? "agent"),
-                )?.name ?? "Agent"
-              }
-              onPress={() => props.onOpenSubmenu({ kind: "provider-mode" })}
-            />
-          </Animated.View>
-        ) : null}
-        {session.onResetProviderContext ? (
-          <Pressable
-            accessibilityLabel="Start new Bob session"
-            accessibilityRole="button"
-            className="min-h-11 justify-center bg-card px-4 py-2 active:bg-subtle"
-            onPress={session.onResetProviderContext}
-          >
-            <Text className="text-sm font-t3-medium text-danger-foreground">
-              Start new Bob session
-            </Text>
-          </Pressable>
-        ) : null}
       </Animated.View>
-
-      {session.usagePresentation ? (
-        <>
-          <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">
-            Usage · {session.usagePresentation.summary}
-          </Text>
-          <View className="mx-4 overflow-hidden rounded-2xl bg-card">
-            {session.usagePresentation.details.map((detail, index) => (
-              <View
-                key={detail.label}
-                className={cn(
-                  "min-h-11 flex-row items-center justify-between gap-3 px-4 py-2",
-                  index < session.usagePresentation!.details.length - 1 &&
-                    "border-b border-border-subtle",
-                )}
-              >
-                <Text className="text-sm font-t3-medium text-foreground">{detail.label}</Text>
-                <Text className="text-sm text-foreground-muted">{detail.value}</Text>
-              </View>
-            ))}
-          </View>
-        </>
-      ) : null}
 
       {Platform.OS !== "ios" && session.hasLegacyModels ? (
         <>
@@ -998,35 +922,21 @@ function ThreadSettingsChoiceContent(props: {
             },
           })),
         }
-      : props.submenu.kind === "provider-mode"
+      : activeDescriptor?.type === "select"
         ? {
-            rows: session.providerModes.map((mode) => ({
-              id: mode.slug,
-              label: mode.name,
-              description: mode.description,
-              selected: mode.slug === (session.providerMode ?? "agent"),
+            rows: selectableChoices(activeDescriptor).map((choice) => ({
+              id: choice.id,
+              label: choice.label,
+              description: undefined,
+              selected: choice.id === getProviderOptionCurrentValue(activeDescriptor),
               onPress: () => {
                 void Haptics.selectionAsync();
-                session.onUpdateProviderMode(mode.slug === "agent" ? null : mode.slug);
+                session.applyOptionChange(activeDescriptor.id, choice.id);
                 props.onSelected();
               },
             })),
           }
-        : activeDescriptor?.type === "select"
-          ? {
-              rows: selectableChoices(activeDescriptor).map((choice) => ({
-                id: choice.id,
-                label: choice.label,
-                description: undefined,
-                selected: choice.id === getProviderOptionCurrentValue(activeDescriptor),
-                onPress: () => {
-                  void Haptics.selectionAsync();
-                  session.applyOptionChange(activeDescriptor.id, choice.id);
-                  props.onSelected();
-                },
-              })),
-            }
-          : null;
+        : null;
 
   if (!submenuContent) {
     return <View className="flex-1 bg-sheet" />;
@@ -1209,11 +1119,9 @@ function ThreadSettingsModelsScreen() {
           const title =
             submenu.kind === "runtime"
               ? "Runtime"
-              : submenu.kind === "provider-mode"
-                ? "Provider mode"
-                : (session.displayedDescriptors.find(
-                    (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
-                  )?.label ?? "Option");
+              : (session.displayedDescriptors.find(
+                  (descriptor) => descriptor.type === "select" && descriptor.id === submenu.id,
+                )?.label ?? "Option");
           navigation.navigate("ThreadSettingsChoice", { ...submenu, title });
         }}
       />
@@ -1400,11 +1308,6 @@ export function NewTaskThreadSettingsRouteScreen() {
       onUpdateOptionSelections={flow.setSelectedModelOptions}
       runtimeMode={flow.runtimeMode}
       onUpdateRuntimeMode={flow.setRuntimeMode}
-      providerModes={flow.providerModes}
-      providerMode={flow.providerMode}
-      onUpdateProviderMode={flow.setProviderMode}
-      usagePresentation={null}
-      onResetProviderContext={null}
     >
       <ThreadSettingsPickerNavigator onClose={() => navigation.goBack()} />
     </ThreadSettingsSessionProvider>
