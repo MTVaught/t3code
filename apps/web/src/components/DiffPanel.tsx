@@ -7,7 +7,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ReviewWorkingTreeFilter, ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -20,7 +20,9 @@ import {
   FileCode2Icon,
   FolderTreeIcon,
   Globe2Icon,
+  MinusIcon,
   PilcrowIcon,
+  PlusIcon,
   Rows3Icon,
   SearchIcon,
   TextWrapIcon,
@@ -34,7 +36,11 @@ import { type DraftId } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
+import {
+  selectThreadDiffPanelSelection,
+  selectThreadWorkingTreeFilter,
+  useDiffPanelStore,
+} from "../diffPanelStore";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useTheme } from "../hooks/useTheme";
 import {
@@ -114,6 +120,12 @@ interface CollapsedDiffFilesState {
 }
 
 const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
+const EMPTY_PATH_SET: ReadonlySet<string> = new Set();
+const WORKING_TREE_FILTERS: ReadonlyArray<{ value: ReviewWorkingTreeFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "unstaged", label: "Unstaged" },
+  { value: "staged", label: "Staged" },
+];
 
 function diffFileName(filePath: string): string {
   return filePath.slice(filePath.lastIndexOf("/") + 1);
@@ -223,6 +235,11 @@ export default function DiffPanel({
       initialGitScope === "unstaged",
     ),
   );
+  const workingTreeFilter = useDiffPanelStore((state) =>
+    selectThreadWorkingTreeFilter(state.workingTreeFilterByThreadKey, routeThreadRef),
+  );
+  const stagePaths = useAtomCommand(vcsEnvironment.stagePaths, { reportFailure: false });
+  const [pendingStagePaths, setPendingStagePaths] = useState<ReadonlySet<string>>(EMPTY_PATH_SET);
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -272,7 +289,15 @@ export default function DiffPanel({
       : selectedTurn?.turnId === latestTurn?.turnId
         ? "Latest turn"
         : `Turn ${selectedCheckpointTurnCount ?? "?"}`;
-  const reviewSectionId = selectedTurn ? `turn:${selectedTurn.turnId}` : selectedGitScope;
+  const isWorkingTreeScope = selectedTurnId === null && selectedGitScope === "unstaged";
+  // Filtered views show different hunks for the same file, so comments and collapse state
+  // must not bleed between them.
+  const activeWorkingTreeFilter = isWorkingTreeScope ? workingTreeFilter : "all";
+  const reviewSectionId = selectedTurn
+    ? `turn:${selectedTurn.turnId}`
+    : activeWorkingTreeFilter === "all"
+      ? selectedGitScope
+      : `${selectedGitScope}:${activeWorkingTreeFilter}`;
   const collapseScopeKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
     : null;
@@ -312,6 +337,9 @@ export default function DiffPanel({
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            ...(activeWorkingTreeFilter === "all"
+              ? {}
+              : { workingTreeFilter: activeWorkingTreeFilter }),
           },
         })
       : null,
@@ -329,6 +357,9 @@ export default function DiffPanel({
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            ...(activeWorkingTreeFilter === "all"
+              ? {}
+              : { workingTreeFilter: activeWorkingTreeFilter }),
           },
         })
       : null,
@@ -360,6 +391,10 @@ export default function DiffPanel({
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
+  const fileStagingByPath = useMemo(
+    () => new Map(selectedGitSource?.fileStaging?.map((entry) => [entry.path, entry] as const)),
+    [selectedGitSource],
+  );
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
     const preview = branchDiffPreview.data;
     if (selectedTurnId !== null || !activeThread || !preview || !selectedGitSource) {
@@ -372,10 +407,14 @@ export default function DiffPanel({
       sourceKind: selectedGitSource.kind,
       baseRef: selectedGitSource.baseRef,
       headRef: selectedGitSource.headRef,
-      cacheKey: selectedGitSource.diffHash,
+      ...(selectedGitSource.kind === "working-tree" && activeWorkingTreeFilter !== "all"
+        ? { workingTreeFilter: activeWorkingTreeFilter }
+        : {}),
+      cacheKey: `${activeWorkingTreeFilter}:${selectedGitSource.diffHash}`,
     });
   }, [
     activeThread,
+    activeWorkingTreeFilter,
     branchDiffPreview.data,
     getDiffFileContents,
     selectedGitSource,
@@ -665,9 +704,64 @@ export default function DiffPanel({
     });
   }, [collapseScopeKey, defaultCollapsedDiffFileKeys, diffFileKeys]);
 
+  const previewCwd = branchDiffPreview.data?.cwd ?? activeCwd;
+  const setPathsStaged = useCallback(
+    (paths: ReadonlyArray<string>, staged: boolean) => {
+      if (!activeThread || !previewCwd || paths.length === 0) return;
+      const environmentId = activeThread.environmentId;
+      setPendingStagePaths((current) => new Set([...current, ...paths]));
+      void (async () => {
+        const result = await stagePaths({
+          environmentId,
+          input: { cwd: previewCwd, paths, staged },
+        });
+        setPendingStagePaths((current) => {
+          const next = new Set(current);
+          for (const path of paths) next.delete(path);
+          return next;
+        });
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: staged ? "Unable to stage files" : "Unable to unstage files",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+        refreshBranchDiffPreview();
+      })();
+    },
+    [activeThread, previewCwd, refreshBranchDiffPreview, stagePaths],
+  );
+  // The filtered views already say which way a file can go; the unfiltered view asks the index.
+  const stagingActionFor = useCallback(
+    (filePath: string): "stage" | "unstage" => {
+      if (workingTreeFilter !== "all") return workingTreeFilter === "staged" ? "unstage" : "stage";
+      const staging = fileStagingByPath.get(filePath);
+      return staging?.staged && !staging.unstaged ? "unstage" : "stage";
+    },
+    [fileStagingByPath, workingTreeFilter],
+  );
+  const bulkStagingAction = useMemo(() => {
+    if (!isWorkingTreeScope || renderableFileEntries.length === 0) return null;
+    if (workingTreeFilter === "staged") {
+      return { staged: false, paths: renderableFileEntries.map((entry) => entry.filePath) };
+    }
+    const paths = renderableFileEntries
+      .filter((entry) => fileStagingByPath.get(entry.filePath)?.unstaged !== false)
+      .map((entry) => entry.filePath);
+    return paths.length > 0 ? { staged: true, paths } : null;
+  }, [fileStagingByPath, isWorkingTreeScope, renderableFileEntries, workingTreeFilter]);
+
   const selectTurn = (turnId: TurnId) => {
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectTurn(routeThreadRef, turnId);
+  };
+  const selectWorkingTreeFilter = (filter: ReviewWorkingTreeFilter) => {
+    if (!routeThreadRef) return;
+    useDiffPanelStore.getState().selectWorkingTreeFilter(routeThreadRef, filter);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
     if (!routeThreadRef) return;
@@ -749,6 +843,42 @@ export default function DiffPanel({
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
+        {isWorkingTreeScope && (
+          <div className="flex min-w-0 shrink-0 items-center gap-1">
+            <ToggleGroup
+              aria-label="Working tree filter"
+              variant="segmented"
+              value={[workingTreeFilter]}
+              onValueChange={(value) => {
+                const next = WORKING_TREE_FILTERS.find((filter) => filter.value === value[0]);
+                if (next) selectWorkingTreeFilter(next.value);
+              }}
+            >
+              {WORKING_TREE_FILTERS.map((filter) => (
+                <Toggle
+                  key={filter.value}
+                  aria-label={`Show ${filter.label.toLocaleLowerCase()} changes`}
+                  className="px-1.5 text-[11px]"
+                  value={filter.value}
+                >
+                  {filter.label}
+                </Toggle>
+              ))}
+            </ToggleGroup>
+            {bulkStagingAction && (
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+                disabled={bulkStagingAction.paths.some((path) => pendingStagePaths.has(path))}
+                onClick={() => setPathsStaged(bulkStagingAction.paths, bulkStagingAction.staged)}
+              >
+                {bulkStagingAction.staged ? "Stage all" : "Unstage all"}
+              </Button>
+            )}
+          </div>
+        )}
         {selectedTurnId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
           <div
             className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
@@ -1224,7 +1354,11 @@ export default function DiffPanel({
                 <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
                   <p>
                     {hasNoNetChanges
-                      ? "No net changes in this selection."
+                      ? activeWorkingTreeFilter === "staged"
+                        ? "No staged changes."
+                        : activeWorkingTreeFilter === "unstaged"
+                          ? "No unstaged changes."
+                          : "No net changes in this selection."
                       : "No patch available for this selection."}
                   </p>
                 </div>
@@ -1290,8 +1424,55 @@ export default function DiffPanel({
                           environmentHttpBaseUrl !== null &&
                           isPreviewSupportedInRuntime() &&
                           isBrowserPreviewFile(filePath);
+                        const staging = isWorkingTreeScope
+                          ? fileStagingByPath.get(filePath)
+                          : undefined;
+                        const stagingAction = isWorkingTreeScope
+                          ? stagingActionFor(filePath)
+                          : null;
+                        const stagingBadge = staging?.staged
+                          ? staging.unstaged
+                            ? "Partially staged"
+                            : "Staged"
+                          : null;
                         return (
                           <span className="inline-flex items-center gap-0.5">
+                            {stagingBadge ? (
+                              <span className="me-1 rounded-sm bg-foreground/[0.08] px-1.5 py-0.5 text-[10px] font-sans font-medium text-muted-foreground">
+                                {stagingBadge}
+                              </span>
+                            ) : null}
+                            {stagingAction ? (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
+                                      aria-label={
+                                        stagingAction === "stage"
+                                          ? `Stage ${filePath}`
+                                          : `Unstage ${filePath}`
+                                      }
+                                      disabled={pendingStagePaths.has(filePath)}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setPathsStaged([filePath], stagingAction === "stage");
+                                      }}
+                                    >
+                                      {stagingAction === "stage" ? (
+                                        <PlusIcon className="size-3.5" />
+                                      ) : (
+                                        <MinusIcon className="size-3.5" />
+                                      )}
+                                    </button>
+                                  }
+                                />
+                                <TooltipPopup>
+                                  {stagingAction === "stage" ? "Stage file" : "Unstage file"}
+                                </TooltipPopup>
+                              </Tooltip>
+                            ) : null}
                             <DiffFilePathCopyButton filePath={filePath} />
                             <Tooltip>
                               <TooltipTrigger

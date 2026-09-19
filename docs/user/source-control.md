@@ -103,6 +103,12 @@ uses the project's instructions and recent commit subjects.
 - Unchanged sections are collapsed by default. Use the unfold button in the diff toolbar to show
   full files for the current review, or turn on **Show full files in diffs** in
   **Settings → General** to make that the default.
+- In the **Working tree** scope, stage a file once you have reviewed it with the plus button in
+  its header, and unstage it with the minus button. **Stage all** and **Unstage all** act on every
+  file currently shown.
+- Switch the working tree between **All**, **Unstaged**, and **Staged** to focus the review.
+  **Unstaged** shows only what changed since you staged, so after the agent's next turn it lists
+  just the new edits, including new edits to files you had already staged.
 
 ## Review and merge
 

@@ -13,6 +13,7 @@ import {
   GitCommandError,
   VcsProcessExitError,
   type VcsSwitchRefInput,
+  type VcsStagePathsInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
   type VcsCreateRefResult,
@@ -372,6 +373,7 @@ export class GitVcsDriver extends Context.Service<
     readonly switchRef: (
       input: VcsSwitchRefInput,
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
+    readonly stagePaths: (input: VcsStagePathsInput) => Effect.Effect<void, GitCommandError>;
     readonly initRepo: (input: VcsInitInput) => Effect.Effect<void, GitCommandError>;
     readonly listLocalBranchNames: (cwd: string) => Effect.Effect<string[], GitCommandError>;
   }

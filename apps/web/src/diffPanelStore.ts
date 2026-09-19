@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ReviewWorkingTreeFilter, ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -16,8 +16,11 @@ const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  /** Which working-tree files the diff shows. Kept per thread so the reader's focus survives navigation. */
+  workingTreeFilterByThreadKey: Record<string, ReviewWorkingTreeFilter>;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
+  selectWorkingTreeFilter: (ref: ScopedThreadRef, filter: ReviewWorkingTreeFilter) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
@@ -33,6 +36,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      workingTreeFilterByThreadKey: {},
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -67,6 +71,17 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             branchBaseRefByThreadKey: {
               ...state.branchBaseRefByThreadKey,
               [threadKey]: normalizedBaseRef,
+            },
+          };
+        }),
+      selectWorkingTreeFilter: (ref, filter) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (state.workingTreeFilterByThreadKey[threadKey] === filter) return state;
+          return {
+            workingTreeFilterByThreadKey: {
+              ...state.workingTreeFilterByThreadKey,
+              [threadKey]: filter,
             },
           };
         }),
@@ -108,13 +123,19 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
+          if (
+            !(threadKey in state.byThreadKey) &&
+            !(threadKey in state.branchBaseRefByThreadKey) &&
+            !(threadKey in state.workingTreeFilterByThreadKey)
+          ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey };
+          const { [threadKey]: _removedFilter, ...workingTreeFilterByThreadKey } =
+            state.workingTreeFilterByThreadKey;
+          return { byThreadKey, branchBaseRefByThreadKey, workingTreeFilterByThreadKey };
         }),
     }),
     {
@@ -126,6 +147,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        workingTreeFilterByThreadKey: state.workingTreeFilterByThreadKey,
       }),
     },
   ),
@@ -141,4 +163,12 @@ export function selectThreadDiffPanelSelection(
     byThreadKey[scopedThreadKey(ref)] ??
     (hasWorkingTreeChanges ? DEFAULT_WORKING_TREE_SELECTION : DEFAULT_SELECTION)
   );
+}
+
+export function selectThreadWorkingTreeFilter(
+  workingTreeFilterByThreadKey: Record<string, ReviewWorkingTreeFilter>,
+  ref: ScopedThreadRef | null | undefined,
+): ReviewWorkingTreeFilter {
+  if (!ref) return "all";
+  return workingTreeFilterByThreadKey[scopedThreadKey(ref)] ?? "all";
 }
