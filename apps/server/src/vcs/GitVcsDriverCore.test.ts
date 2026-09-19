@@ -26,6 +26,7 @@ import { gitCommandDuration } from "../observability/Metrics.ts";
 import {
   makeGitVcsDriverCore,
   parseGitCheckoutProgressLine,
+  parsePorcelainFileStaging,
   splitNullSeparatedGitStdoutPaths,
 } from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
@@ -1291,6 +1292,142 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
 
         assert.strictEqual(contents.oldContents, "# test\n");
         assert.strictEqual(contents.newContents, "# branch change\nunchanged context\n");
+      }),
+    );
+
+    it.effect("reads per-file index state from porcelain status records", () =>
+      Effect.sync(() => {
+        const entries = parsePorcelainFileStaging({
+          stdout:
+            "M  staged.ts\0 M unstaged.ts\0MM partial.ts\0R  renamed.ts\0original.ts\0?? new.ts\0!! ignored.ts\0",
+          stdoutTruncated: false,
+        });
+
+        assert.deepStrictEqual(entries, [
+          { path: "staged.ts", staged: true, unstaged: false },
+          { path: "unstaged.ts", staged: false, unstaged: true },
+          { path: "partial.ts", staged: true, unstaged: true },
+          { path: "renamed.ts", staged: true, unstaged: false },
+          { path: "new.ts", staged: false, unstaged: true },
+        ]);
+      }),
+    );
+
+    it.effect("filters the working tree preview by index state and reports file staging", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# staged\nunstaged line\n");
+        yield* writeTextFile(cwd, "staged-only.txt", "staged only\n");
+        yield* git(cwd, ["add", "staged-only.txt"]);
+        yield* writeTextFile(cwd, "untracked.txt", "untracked\n");
+        const workingTreeDiff = (filter: "all" | "staged" | "unstaged") =>
+          driver
+            .getReviewDiffPreview({ cwd, ignoreWhitespace: false, workingTreeFilter: filter })
+            .pipe(Effect.map((preview) => preview.sources.find((s) => s.kind === "working-tree")));
+
+        const all = yield* workingTreeDiff("all");
+        const staged = yield* workingTreeDiff("staged");
+        const unstaged = yield* workingTreeDiff("unstaged");
+
+        assert.include(all?.diff, "+# staged");
+        assert.include(all?.diff, "+unstaged line");
+        assert.include(all?.diff, "+staged only");
+        assert.include(all?.diff, "+untracked");
+        assert.include(staged?.diff, "+# staged");
+        assert.include(staged?.diff, "+staged only");
+        assert.notInclude(staged?.diff, "unstaged line");
+        assert.notInclude(staged?.diff, "untracked");
+        assert.include(unstaged?.diff, "+unstaged line");
+        assert.include(unstaged?.diff, "+untracked");
+        assert.notInclude(unstaged?.diff, "+# staged");
+        assert.notInclude(unstaged?.diff, "staged only");
+        assert.deepStrictEqual(
+          [...(all?.fileStaging ?? [])].toSorted((left, right) =>
+            left.path.localeCompare(right.path),
+          ),
+          [
+            { path: "README.md", staged: true, unstaged: true },
+            { path: "staged-only.txt", staged: true, unstaged: false },
+            { path: "untracked.txt", staged: false, unstaged: true },
+          ],
+        );
+      }),
+    );
+
+    it.effect("keys a staged rename by its new path", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["mv", "README.md", "RENAMED.md"]);
+
+        const preview = yield* driver.getReviewDiffPreview({ cwd, ignoreWhitespace: false });
+
+        assert.deepStrictEqual(
+          preview.sources.find((source) => source.kind === "working-tree")?.fileStaging,
+          [{ path: "RENAMED.md", staged: true, unstaged: false }],
+        );
+      }),
+    );
+
+    it.effect("expands staged and unstaged file views against the index", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# worktree\n");
+
+        const stagedView = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, { workingTreeFilter: "staged" }),
+        );
+        const unstagedView = yield* driver.getReviewDiffFileContents(
+          makeReviewDiffFileContentsInput(cwd, { workingTreeFilter: "unstaged" }),
+        );
+
+        assert.deepStrictEqual(stagedView, { oldContents: "# test\n", newContents: "# staged\n" });
+        assert.deepStrictEqual(unstagedView, {
+          oldContents: "# staged\n",
+          newContents: "# worktree\n",
+        });
+      }),
+    );
+
+    it.effect("stages and unstages repository-relative paths from a nested workspace", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "nested/new.txt", "new\n");
+        yield* writeTextFile(cwd, ":(exclude)magic.txt", "magic\n");
+        yield* fileSystem.remove(pathService.join(cwd, "README.md"));
+
+        yield* driver.stagePaths({
+          cwd: pathService.join(cwd, "nested"),
+          paths: ["nested/new.txt", ":(exclude)magic.txt", "README.md"],
+          staged: true,
+        });
+        assert.strictEqual(
+          yield* git(cwd, ["diff", "--cached", "--name-status"]),
+          "A\t:(exclude)magic.txt\nD\tREADME.md\nA\tnested/new.txt",
+        );
+
+        yield* driver.stagePaths({ cwd, paths: ["README.md", "nested/new.txt"], staged: false });
+        assert.strictEqual(
+          yield* git(cwd, ["diff", "--cached", "--name-status"]),
+          "A\t:(exclude)magic.txt",
+        );
+        assert.strictEqual(
+          yield* git(cwd, ["ls-files", "--others", "--exclude-standard"]),
+          "nested/new.txt",
+        );
       }),
     );
   });

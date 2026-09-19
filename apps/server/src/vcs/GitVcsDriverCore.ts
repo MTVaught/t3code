@@ -24,6 +24,8 @@ import {
   type ReviewDiffFileContentsInput,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
+  type ReviewWorkingTreeFileStaging,
+  type ReviewWorkingTreeFilter,
   type VcsRef,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3tools/shared/git";
@@ -290,6 +292,39 @@ function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return parts.filter((value) => value.length > 0);
+}
+
+/**
+ * Index state per changed file from `git status --porcelain=v1 -z`. Renames and copies carry
+ * the original path in the following record, which is skipped; the file is keyed by its
+ * current path, matching the path a rename-aware diff shows.
+ */
+export function parsePorcelainFileStaging(result: {
+  readonly stdout: string;
+  readonly stdoutTruncated: boolean;
+}): ReviewWorkingTreeFileStaging[] {
+  const tokens = result.stdout.split("\0");
+  if (result.stdoutTruncated) tokens.pop();
+  const entries: ReviewWorkingTreeFileStaging[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index] ?? "";
+    if (token.length < 4) continue;
+    const indexStatus = token[0] ?? " ";
+    const worktreeStatus = token[1] ?? " ";
+    const filePath = token.slice(3);
+    if ("RC".includes(indexStatus) || "RC".includes(worktreeStatus)) index += 1;
+    if (indexStatus === "!") continue;
+    if (indexStatus === "?") {
+      entries.push({ path: filePath, staged: false, unstaged: true });
+      continue;
+    }
+    entries.push({
+      path: filePath,
+      staged: indexStatus !== " ",
+      unstaged: worktreeStatus !== " ",
+    });
+  }
+  return entries;
 }
 
 export function splitNullSeparatedGitStdoutPaths(
@@ -2311,9 +2346,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
+  // `all` diffs HEAD against the files on disk, `staged` HEAD against the index, and
+  // `unstaged` the index against the files on disk.
+  const workingTreeDiffRangeArgs = (filter: ReviewWorkingTreeFilter) =>
+    filter === "unstaged" ? [] : filter === "staged" ? ["--cached", "HEAD"] : ["HEAD"];
+
   const readTrackedReviewDiff = Effect.fn("readTrackedReviewDiff")(function* (
     cwd: string,
     ignoreWhitespace: boolean | undefined,
+    filter: ReviewWorkingTreeFilter,
   ) {
     const result = yield* executeGit(
       "GitVcsDriver.readTrackedReviewDiff",
@@ -2328,7 +2369,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ...PATCH_RENDER_PREFIX_ARGS,
         "--find-renames",
         ...(ignoreWhitespace ? ["--ignore-all-space"] : []),
-        "HEAD",
+        ...workingTreeDiffRangeArgs(filter),
         "--",
       ],
       {
@@ -2344,6 +2385,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     untrackedPaths: ReadonlyArray<string>,
     pathsTruncated: boolean,
     ignoreWhitespace: boolean | undefined,
+    filter: Exclude<ReviewWorkingTreeFilter, "staged">,
   ) {
     const [stagedDeletionsStdout, indexValue] = yield* Effect.all(
       [
@@ -2365,9 +2407,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       { concurrency: 2 },
     );
     const stagedDeletions = new Set(stagedDeletionsStdout.split("\0").filter(Boolean));
-    const pathsToAdd = untrackedPaths.filter((relativePath) => !stagedDeletions.has(relativePath));
+    // Against the index a staged deletion has no entry left, so the file on disk is simply new.
+    const pathsToAdd =
+      filter === "unstaged"
+        ? untrackedPaths
+        : untrackedPaths.filter((relativePath) => !stagedDeletions.has(relativePath));
     if (pathsToAdd.length === 0) {
-      const tracked = yield* readTrackedReviewDiff(cwd, ignoreWhitespace);
+      const tracked = yield* readTrackedReviewDiff(cwd, ignoreWhitespace, filter);
       return { ...tracked, truncated: pathsTruncated || tracked.truncated };
     }
 
@@ -2418,7 +2464,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ...PATCH_RENDER_PREFIX_ARGS,
         "--find-renames",
         ...(ignoreWhitespace ? ["--ignore-all-space"] : []),
-        "HEAD",
+        ...workingTreeDiffRangeArgs(filter),
         "--",
       ],
       {
@@ -2433,7 +2479,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const readWorkingTreeReviewDiff = Effect.fn("readWorkingTreeReviewDiff")(function* (
     cwd: string,
     ignoreWhitespace: boolean | undefined,
+    filter: ReviewWorkingTreeFilter,
   ) {
+    if (filter === "staged") {
+      return yield* readTrackedReviewDiff(cwd, ignoreWhitespace, filter);
+    }
     const untrackedResult = yield* executeGit(
       "GitVcsDriver.readWorkingTreeReviewDiff.listUntracked",
       cwd,
@@ -2444,11 +2494,11 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       },
     ).pipe(Effect.option);
     if (untrackedResult._tag === "None") {
-      return yield* readTrackedReviewDiff(cwd, ignoreWhitespace);
+      return yield* readTrackedReviewDiff(cwd, ignoreWhitespace, filter);
     }
     const untrackedPaths = splitNullSeparatedGitStdoutPaths(untrackedResult.value);
     if (untrackedPaths.length === 0) {
-      const tracked = yield* readTrackedReviewDiff(cwd, ignoreWhitespace);
+      const tracked = yield* readTrackedReviewDiff(cwd, ignoreWhitespace, filter);
       return { ...tracked, truncated: untrackedResult.value.stdoutTruncated || tracked.truncated };
     }
 
@@ -2457,11 +2507,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       untrackedPaths,
       untrackedResult.value.stdoutTruncated,
       ignoreWhitespace,
+      filter,
     ).pipe(
       Effect.scoped,
       Effect.catch(() =>
         Effect.all([
-          readTrackedReviewDiff(cwd, ignoreWhitespace).pipe(
+          readTrackedReviewDiff(cwd, ignoreWhitespace, filter).pipe(
             Effect.orElseSucceed(() => ({ diff: "", truncated: false })),
           ),
           readUntrackedReviewDiffs(cwd).pipe(
@@ -2477,6 +2528,18 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ),
       ),
     );
+  });
+
+  const readWorkingTreeFileStaging = Effect.fn("readWorkingTreeFileStaging")(function* (
+    cwd: string,
+  ) {
+    const result = yield* executeGit(
+      "GitVcsDriver.readWorkingTreeFileStaging",
+      cwd,
+      ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--"],
+      { maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES },
+    );
+    return parsePorcelainFileStaging(result);
   });
 
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
@@ -2500,7 +2563,16 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           )
         : null);
 
-    const dirtyResult = yield* readWorkingTreeReviewDiff(input.cwd, input.ignoreWhitespace).pipe(
+    const workingTreeFilter = input.workingTreeFilter ?? "all";
+    // Status refreshes the index; read it before the diff copies the index file.
+    const fileStaging = yield* readWorkingTreeFileStaging(input.cwd).pipe(
+      Effect.orElseSucceed((): ReviewWorkingTreeFileStaging[] => []),
+    );
+    const dirtyResult = yield* readWorkingTreeReviewDiff(
+      input.cwd,
+      input.ignoreWhitespace,
+      workingTreeFilter,
+    ).pipe(
       Effect.orElseSucceed(() => ({
         diff: "",
         truncated: false,
@@ -2568,6 +2640,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         diff: dirtyDiff,
         diffHash: dirtyDiffHash,
         truncated: dirtyResult.truncated,
+        fileStaging,
       },
       {
         id: "branch-range",
@@ -2703,14 +2776,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       if (repositoryRoot.length === 0) {
         return yield* reviewDiffFileError(input, "Could not resolve the Git repository root.");
       }
+      // `git show :path` reads the index. The staged view ends there; the unstaged view starts there.
+      const workingTreeFilter = input.workingTreeFilter ?? "all";
       const [oldContents, newContents] = yield* Effect.all(
         [
           input.changeType === "new"
             ? Effect.succeed("")
-            : readReviewFileAtRevision(input, input.baseRef ?? "HEAD", input.oldPath),
+            : readReviewFileAtRevision(
+                input,
+                workingTreeFilter === "unstaged" ? "" : (input.baseRef ?? "HEAD"),
+                input.oldPath,
+              ),
           input.changeType === "deleted"
             ? Effect.succeed("")
-            : readWorkingTreeReviewFile(input, repositoryRoot),
+            : workingTreeFilter === "staged"
+              ? readReviewFileAtRevision(input, "", input.newPath)
+              : readWorkingTreeReviewFile(input, repositoryRoot),
         ],
         { concurrency: 2 },
       );
@@ -3450,6 +3531,34 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { branch: targetBranch };
   });
 
+  // Diff paths are repository-relative, so pathspecs are applied from the top level rather
+  // than a workspace that may sit below it. `reset` (not `restore --staged`) also unstages on
+  // an unborn branch.
+  const stagePaths: GitVcsDriver.GitVcsDriver["Service"]["stagePaths"] = Effect.fn("stagePaths")(
+    function* (input) {
+      const repositoryRoot = yield* runGitStdout(
+        "GitVcsDriver.stagePaths.repositoryRoot",
+        input.cwd,
+        ["rev-parse", "--show-toplevel"],
+      ).pipe(Effect.map((value) => value.trim()));
+      yield* executeGit(
+        input.staged ? "GitVcsDriver.stagePaths.add" : "GitVcsDriver.stagePaths.reset",
+        repositoryRoot.length > 0 ? repositoryRoot : input.cwd,
+        [
+          "--literal-pathspecs",
+          ...(input.staged ? ["add", "--all"] : ["reset", "--quiet"]),
+          "--pathspec-from-file=-",
+          "--pathspec-file-nul",
+        ],
+        {
+          stdin: `${input.paths.join("\0")}\0`,
+          timeoutMs: 30_000,
+          fallbackErrorDetail: input.staged ? "git add failed" : "git reset failed",
+        },
+      );
+    },
+  );
+
   const switchRef: GitVcsDriver.GitVcsDriver["Service"]["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -3614,6 +3723,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     readRangeContext,
     getReviewDiffPreview,
     getReviewDiffFileContents,
+    stagePaths,
     readConfigValue,
     listRefs,
     createWorktree: (input, options) =>

@@ -2,7 +2,11 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId, TurnId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "./diffPanelStore";
+import {
+  selectThreadDiffPanelSelection,
+  selectThreadWorkingTreeFilter,
+  useDiffPanelStore,
+} from "./diffPanelStore";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
 
@@ -11,8 +15,28 @@ describe("diffPanelStore", () => {
     useDiffPanelStore.setState({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      workingTreeFilterByThreadKey: {},
     }),
   );
+
+  it("keeps the working tree filter per thread and drops it with the thread", () => {
+    const filterFor = (ref: typeof THREAD_REF) =>
+      selectThreadWorkingTreeFilter(useDiffPanelStore.getState().workingTreeFilterByThreadKey, ref);
+    const otherThread = scopeThreadRef(
+      EnvironmentId.make("environment-1"),
+      ThreadId.make("thread-2"),
+    );
+    expect(filterFor(THREAD_REF)).toBe("all");
+
+    useDiffPanelStore.getState().selectWorkingTreeFilter(THREAD_REF, "unstaged");
+
+    expect(filterFor(THREAD_REF)).toBe("unstaged");
+    expect(filterFor(otherThread)).toBe("all");
+
+    useDiffPanelStore.getState().removeThread(THREAD_REF);
+
+    expect(filterFor(THREAD_REF)).toBe("all");
+  });
 
   it("defaults each thread to branch changes when the working tree is clean", () => {
     expect(
