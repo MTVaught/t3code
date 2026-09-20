@@ -39,6 +39,8 @@ export type SettleThreadInput = CommandInput<"thread.settle">;
 export type UnsettleThreadInput = CommandInput<"thread.unsettle">;
 export type SnoozeThreadInput = CommandInput<"thread.snooze">;
 export type UnsnoozeThreadInput = CommandInput<"thread.unsnooze">;
+export type FlagReviewFileInput = CommandInput<"thread.review-file.flag">;
+export type UnflagReviewFileInput = CommandInput<"thread.review-file.unflag">;
 export type PinThreadInput = CommandInput<"thread.pin">;
 export type UnpinThreadInput = CommandInput<"thread.unpin">;
 export type ReorderPinnedThreadInput = CommandInput<"thread.pin.reorder">;
@@ -192,6 +194,26 @@ export const snoozeThread: (input: SnoozeThreadInput) => CommandEffect = Effect.
   return yield* dispatch({
     ...input,
     type: "thread.snooze",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const flagReviewFile: (input: FlagReviewFileInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.flagReviewFile",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.review-file.flag",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const unflagReviewFile: (input: UnflagReviewFileInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.unflagReviewFile",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.review-file.unflag",
     commandId: yield* commandId(input),
   });
 });

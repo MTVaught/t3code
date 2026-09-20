@@ -634,6 +634,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pinnedAt: null,
             pinOrderKey: null,
             activeOrderKey: null,
+            reviewFollowUpPaths: [],
             titleRegenerationRequestId: null,
             titleRegenerationStartedAt: null,
             latestUserMessageAt: null,
@@ -744,6 +745,44 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             snoozedUntil: null,
             snoozedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.review-file-flagged": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reviewFollowUpPaths: [
+              ...new Set([
+                ...(existingRow.value.reviewFollowUpPaths ?? []),
+                ...event.payload.paths,
+              ]),
+            ],
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.review-file-unflagged": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          const cleared = new Set(event.payload.paths);
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            reviewFollowUpPaths: (existingRow.value.reviewFollowUpPaths ?? []).filter(
+              (path) => !cleared.has(path),
+            ),
             updatedAt: event.payload.updatedAt,
           });
           return;

@@ -715,6 +715,60 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.review-file.flag": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const flagged = new Set(thread.reviewFollowUpPaths ?? []);
+      const added = command.paths.filter((path) => !flagged.has(path));
+      const occurredAt = yield* nowIso;
+      // Re-flagging is a duplicate: re-emit without touching updatedAt.
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.review-file-flagged",
+        payload: {
+          threadId: command.threadId,
+          paths: command.paths,
+          updatedAt: added.length > 0 ? occurredAt : thread.updatedAt,
+        },
+      };
+    }
+
+    case "thread.review-file.unflag": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const flagged = thread.reviewFollowUpPaths ?? [];
+      const paths =
+        command.paths === undefined
+          ? flagged
+          : command.paths.filter((path) => flagged.includes(path));
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.review-file-unflagged",
+        payload: {
+          threadId: command.threadId,
+          paths,
+          updatedAt: paths.length > 0 ? occurredAt : thread.updatedAt,
+        },
+      };
+    }
+
     case "thread.pin": {
       const thread = yield* requireThreadNotArchived({
         readModel,

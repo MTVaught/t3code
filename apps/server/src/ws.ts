@@ -131,6 +131,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
+import { clearCommittedReviewFlags } from "./git/clearCommittedReviewFlags.ts";
 import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
@@ -3209,6 +3210,21 @@ const makeWsRpcLayer = (
                             ),
                           )
                       ).pipe(
+                        Effect.andThen(
+                          input.threadId === undefined
+                            ? Effect.void
+                            : clearCommittedReviewFlags({
+                                threadId: input.threadId,
+                                result,
+                                filePaths: input.filePaths,
+                                commandId: serverCommandId("commit-review-flags-clear"),
+                              }).pipe(
+                                Effect.provideService(
+                                  OrchestrationEngine.OrchestrationEngineService,
+                                  orchestrationEngine,
+                                ),
+                              ),
+                        ),
                         Effect.andThen(refreshGitStatus(input.cwd)),
                         Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                       ),

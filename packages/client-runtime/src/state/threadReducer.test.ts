@@ -237,6 +237,59 @@ describe("applyThreadDetailEvent", () => {
     });
   });
 
+  describe("thread.review-file-flagged / thread.review-file-unflagged", () => {
+    it("adds flagged paths without duplicating existing ones", () => {
+      const updatedAt = "2026-04-01T05:00:00.000Z";
+      const result = applyThreadDetailEvent(
+        { ...baseThread, reviewFollowUpPaths: ["src/app.ts"] },
+        {
+          ...baseEventFields,
+          sequence: 5,
+          occurredAt: updatedAt,
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          type: "thread.review-file-flagged",
+          payload: {
+            threadId: ThreadId.make("thread-1"),
+            paths: ["src/app.ts", "src/other.ts"],
+            updatedAt,
+          },
+        },
+      );
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.reviewFollowUpPaths).toEqual(["src/app.ts", "src/other.ts"]);
+        expect(result.thread.updatedAt).toBe(updatedAt);
+      }
+    });
+
+    it("removes only the cleared paths", () => {
+      const updatedAt = "2026-04-01T06:00:00.000Z";
+      const result = applyThreadDetailEvent(
+        { ...baseThread, reviewFollowUpPaths: ["src/app.ts", "src/other.ts"] },
+        {
+          ...baseEventFields,
+          sequence: 6,
+          occurredAt: updatedAt,
+          aggregateKind: "thread",
+          aggregateId: ThreadId.make("thread-1"),
+          type: "thread.review-file-unflagged",
+          payload: {
+            threadId: ThreadId.make("thread-1"),
+            paths: ["src/app.ts"],
+            updatedAt,
+          },
+        },
+      );
+
+      expect(result.kind).toBe("updated");
+      if (result.kind === "updated") {
+        expect(result.thread.reviewFollowUpPaths).toEqual(["src/other.ts"]);
+      }
+    });
+  });
+
   describe("thread.pinned / thread.unpinned", () => {
     it("sets pinnedAt", () => {
       const pinnedAt = "2026-04-01T05:00:00.000Z";
