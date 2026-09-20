@@ -28,6 +28,7 @@ import {
   TextWrapIcon,
   UnfoldVerticalIcon,
 } from "lucide-react";
+import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
@@ -240,6 +241,13 @@ export default function DiffPanel({
   );
   const stagePaths = useAtomCommand(vcsEnvironment.stagePaths, { reportFailure: false });
   const [pendingStagePaths, setPendingStagePaths] = useState<ReadonlySet<string>>(EMPTY_PATH_SET);
+  // Files that a filtered view drops as soon as they are staged or unstaged, so the reader is
+  // not left waiting on the server to regenerate the preview. Bound to the preview they came
+  // from; the next refresh carries the real answer.
+  const [optimisticallyHiddenFiles, setOptimisticallyHiddenFiles] = useState<{
+    readonly previewKey: string | null;
+    readonly paths: ReadonlySet<string>;
+  }>({ previewKey: null, paths: EMPTY_PATH_SET });
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -492,17 +500,26 @@ export default function DiffPanel({
       }),
     [resolvedTheme, selectedPatch, selectedTurnId],
   );
+  const previewKey = branchDiffPreview.data
+    ? `${DateTime.toEpochMillis(branchDiffPreview.data.generatedAt)}:${selectedGitSource?.diffHash ?? ""}`
+    : null;
+  const hiddenFilePaths =
+    previewKey !== null && optimisticallyHiddenFiles.previewKey === previewKey
+      ? optimisticallyHiddenFiles.paths
+      : EMPTY_PATH_SET;
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
       return [];
     }
-    return renderablePatch.files.toSorted((left, right) =>
-      resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }, [renderablePatch]);
+    return renderablePatch.files
+      .filter((fileDiff) => !hiddenFilePaths.has(resolveFileDiffPath(fileDiff)))
+      .toSorted((left, right) =>
+        resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
+  }, [hiddenFilePaths, renderablePatch]);
   const renderableFileEntries = useMemo(
     () =>
       renderableFiles.map((fileDiff) => ({
@@ -710,6 +727,17 @@ export default function DiffPanel({
       if (!activeThread || !previewCwd || paths.length === 0) return;
       const environmentId = activeThread.environmentId;
       setPendingStagePaths((current) => new Set([...current, ...paths]));
+      const leavesFilteredView =
+        (workingTreeFilter === "unstaged" && staged) || (workingTreeFilter === "staged" && !staged);
+      if (leavesFilteredView) {
+        setOptimisticallyHiddenFiles((current) => ({
+          previewKey,
+          paths: new Set([
+            ...(current.previewKey === previewKey ? current.paths : EMPTY_PATH_SET),
+            ...paths,
+          ]),
+        }));
+      }
       void (async () => {
         const result = await stagePaths({
           environmentId,
@@ -721,6 +749,13 @@ export default function DiffPanel({
           return next;
         });
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          if (leavesFilteredView) {
+            setOptimisticallyHiddenFiles((current) => {
+              const next = new Set(current.paths);
+              for (const path of paths) next.delete(path);
+              return { previewKey: current.previewKey, paths: next };
+            });
+          }
           const error = squashAtomCommandFailure(result);
           toastManager.add(
             stackedThreadToast({
@@ -733,7 +768,7 @@ export default function DiffPanel({
         refreshBranchDiffPreview();
       })();
     },
-    [activeThread, previewCwd, refreshBranchDiffPreview, stagePaths],
+    [activeThread, previewCwd, previewKey, refreshBranchDiffPreview, stagePaths, workingTreeFilter],
   );
   // The filtered views already say which way a file can go; the unfiltered view asks the index.
   const stagingActionFor = useCallback(
