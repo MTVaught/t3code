@@ -8,6 +8,7 @@ import {
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsStagePathsInput,
+  type VcsStagePathsResult,
   type VcsCreateRefInput,
   type VcsCreateRefResult,
   type VcsCreateWorktreeInput,
@@ -106,7 +107,9 @@ export class GitWorkflowService extends Context.Service<
     readonly switchRef: (
       input: VcsSwitchRefInput,
     ) => Effect.Effect<VcsSwitchRefResult, GitCommandError>;
-    readonly stagePaths: (input: VcsStagePathsInput) => Effect.Effect<void, GitCommandError>;
+    readonly stagePaths: (
+      input: VcsStagePathsInput,
+    ) => Effect.Effect<VcsStagePathsResult, GitCommandError>;
     readonly renameBranch: (input: {
       readonly cwd: string;
       readonly oldBranch: string;

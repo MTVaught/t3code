@@ -241,13 +241,14 @@ export default function DiffPanel({
   );
   const stagePaths = useAtomCommand(vcsEnvironment.stagePaths, { reportFailure: false });
   const [pendingStagePaths, setPendingStagePaths] = useState<ReadonlySet<string>>(EMPTY_PATH_SET);
-  // Files that a filtered view drops as soon as they are staged or unstaged, so the reader is
-  // not left waiting on the server to regenerate the preview. Bound to the preview they came
-  // from; the next refresh carries the real answer.
-  const [optimisticallyHiddenFiles, setOptimisticallyHiddenFiles] = useState<{
-    readonly previewKey: string | null;
-    readonly paths: ReadonlySet<string>;
-  }>({ previewKey: null, paths: EMPTY_PATH_SET });
+  // Files a filtered view drops as soon as they are staged or unstaged, so the reader is not
+  // left waiting on the server to regenerate the preview. Each entry holds the server time the
+  // index change completed (null while in flight); the file stays hidden until a preview
+  // generated after that time lands, so a refresh already in flight cannot bring it back.
+  const [hiddenStagedFiles, setHiddenStagedFiles] = useState<{
+    readonly scopeKey: string | null;
+    readonly entries: ReadonlyMap<string, number | null>;
+  }>({ scopeKey: null, entries: new Map() });
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -500,13 +501,19 @@ export default function DiffPanel({
       }),
     [resolvedTheme, selectedPatch, selectedTurnId],
   );
-  const previewKey = branchDiffPreview.data
-    ? `${DateTime.toEpochMillis(branchDiffPreview.data.generatedAt)}:${selectedGitSource?.diffHash ?? ""}`
+  const previewGeneratedAt = branchDiffPreview.data
+    ? DateTime.toEpochMillis(branchDiffPreview.data.generatedAt)
     : null;
-  const hiddenFilePaths =
-    previewKey !== null && optimisticallyHiddenFiles.previewKey === previewKey
-      ? optimisticallyHiddenFiles.paths
-      : EMPTY_PATH_SET;
+  const hiddenFilePaths = useMemo(() => {
+    if (hiddenStagedFiles.scopeKey !== fileSelectionScopeKey) return EMPTY_PATH_SET;
+    const paths = new Set<string>();
+    for (const [path, completedAt] of hiddenStagedFiles.entries) {
+      if (completedAt === null || previewGeneratedAt === null || previewGeneratedAt < completedAt) {
+        paths.add(path);
+      }
+    }
+    return paths;
+  }, [fileSelectionScopeKey, hiddenStagedFiles, previewGeneratedAt]);
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
       return [];
@@ -729,14 +736,17 @@ export default function DiffPanel({
       setPendingStagePaths((current) => new Set([...current, ...paths]));
       const leavesFilteredView =
         (workingTreeFilter === "unstaged" && staged) || (workingTreeFilter === "staged" && !staged);
+      const scopeKey = fileSelectionScopeKey;
+      const updateHiddenFiles = (update: (entries: Map<string, number | null>) => void) =>
+        setHiddenStagedFiles((current) => {
+          const entries = new Map(current.scopeKey === scopeKey ? current.entries : []);
+          update(entries);
+          return { scopeKey, entries };
+        });
       if (leavesFilteredView) {
-        setOptimisticallyHiddenFiles((current) => ({
-          previewKey,
-          paths: new Set([
-            ...(current.previewKey === previewKey ? current.paths : EMPTY_PATH_SET),
-            ...paths,
-          ]),
-        }));
+        updateHiddenFiles((entries) => {
+          for (const path of paths) entries.set(path, null);
+        });
       }
       void (async () => {
         const result = await stagePaths({
@@ -748,14 +758,18 @@ export default function DiffPanel({
           for (const path of paths) next.delete(path);
           return next;
         });
+        if (leavesFilteredView) {
+          updateHiddenFiles((entries) => {
+            for (const path of paths) {
+              if (result._tag === "Success") {
+                entries.set(path, DateTime.toEpochMillis(result.value.completedAt));
+              } else {
+                entries.delete(path);
+              }
+            }
+          });
+        }
         if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          if (leavesFilteredView) {
-            setOptimisticallyHiddenFiles((current) => {
-              const next = new Set(current.paths);
-              for (const path of paths) next.delete(path);
-              return { previewKey: current.previewKey, paths: next };
-            });
-          }
           const error = squashAtomCommandFailure(result);
           toastManager.add(
             stackedThreadToast({
@@ -768,7 +782,14 @@ export default function DiffPanel({
         refreshBranchDiffPreview();
       })();
     },
-    [activeThread, previewCwd, previewKey, refreshBranchDiffPreview, stagePaths, workingTreeFilter],
+    [
+      activeThread,
+      fileSelectionScopeKey,
+      previewCwd,
+      refreshBranchDiffPreview,
+      stagePaths,
+      workingTreeFilter,
+    ],
   );
   // The filtered views already say which way a file can go; the unfiltered view asks the index.
   const stagingActionFor = useCallback(
