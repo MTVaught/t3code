@@ -729,58 +729,86 @@ export default function DiffPanel({
   }, [collapseScopeKey, defaultCollapsedDiffFileKeys, diffFileKeys]);
 
   const previewCwd = branchDiffPreview.data?.cwd ?? activeCwd;
+  // Clicks that arrive while a command is running are merged into the next one, so a burst of
+  // staging becomes a couple of git invocations and a single preview refresh instead of one
+  // of each per file.
+  const stageQueueRef = useRef<{
+    draining: boolean;
+    queued: Map<string, { staged: boolean; scopeKey: string; leavesFilteredView: boolean }>;
+  }>({ draining: false, queued: new Map() });
   const setPathsStaged = useCallback(
     (paths: ReadonlyArray<string>, staged: boolean) => {
       if (!activeThread || !previewCwd || paths.length === 0) return;
       const environmentId = activeThread.environmentId;
-      setPendingStagePaths((current) => new Set([...current, ...paths]));
+      const cwd = previewCwd;
+      const scopeKey = fileSelectionScopeKey;
       const leavesFilteredView =
         (workingTreeFilter === "unstaged" && staged) || (workingTreeFilter === "staged" && !staged);
-      const scopeKey = fileSelectionScopeKey;
-      const updateHiddenFiles = (update: (entries: Map<string, number | null>) => void) =>
+      const updateHiddenFiles = (
+        targetScopeKey: string,
+        update: (entries: Map<string, number | null>) => void,
+      ) =>
         setHiddenStagedFiles((current) => {
-          const entries = new Map(current.scopeKey === scopeKey ? current.entries : []);
+          const entries = new Map(current.scopeKey === targetScopeKey ? current.entries : []);
           update(entries);
-          return { scopeKey, entries };
+          return { scopeKey: targetScopeKey, entries };
         });
+
+      setPendingStagePaths((current) => new Set([...current, ...paths]));
       if (leavesFilteredView) {
-        updateHiddenFiles((entries) => {
+        updateHiddenFiles(scopeKey, (entries) => {
           for (const path of paths) entries.set(path, null);
         });
       }
-      void (async () => {
-        const result = await stagePaths({
-          environmentId,
-          input: { cwd: previewCwd, paths, staged },
-        });
-        setPendingStagePaths((current) => {
-          const next = new Set(current);
-          for (const path of paths) next.delete(path);
-          return next;
-        });
-        if (leavesFilteredView) {
-          updateHiddenFiles((entries) => {
-            for (const path of paths) {
-              if (result._tag === "Success") {
-                entries.set(path, DateTime.toEpochMillis(result.value.completedAt));
-              } else {
-                entries.delete(path);
-              }
+      const queue = stageQueueRef.current;
+      for (const path of paths) queue.queued.set(path, { staged, scopeKey, leavesFilteredView });
+      if (queue.draining) return;
+      queue.draining = true;
+
+      const drain = async () => {
+        while (queue.queued.size > 0) {
+          const batch = queue.queued;
+          queue.queued = new Map();
+          for (const batchStaged of [true, false]) {
+            const entries = [...batch].filter(([, entry]) => entry.staged === batchStaged);
+            if (entries.length === 0) continue;
+            const batchPaths = entries.map(([path]) => path);
+            const result = await stagePaths({
+              environmentId,
+              input: { cwd, paths: batchPaths, staged: batchStaged },
+            });
+            setPendingStagePaths((current) => {
+              const next = new Set(current);
+              for (const path of batchPaths) next.delete(path);
+              return next;
+            });
+            for (const [path, entry] of entries) {
+              if (!entry.leavesFilteredView) continue;
+              updateHiddenFiles(entry.scopeKey, (hidden) => {
+                if (result._tag === "Success") {
+                  hidden.set(path, DateTime.toEpochMillis(result.value.completedAt));
+                } else {
+                  hidden.delete(path);
+                }
+              });
             }
-          });
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: batchStaged ? "Unable to stage files" : "Unable to unstage files",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+          }
         }
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: staged ? "Unable to stage files" : "Unable to unstage files",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
+      };
+      void drain().finally(() => {
+        queue.draining = false;
         refreshBranchDiffPreview();
-      })();
+      });
     },
     [
       activeThread,
