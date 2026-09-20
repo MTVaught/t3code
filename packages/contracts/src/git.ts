@@ -193,6 +193,12 @@ export const VcsStagePathsInput = Schema.Struct({
 });
 export type VcsStagePathsInput = typeof VcsStagePathsInput.Type;
 
+export const VcsStagePathsResult = Schema.Struct({
+  /** Server clock when the index was updated; a preview generated later reflects it. */
+  completedAt: Schema.DateTimeUtc,
+});
+export type VcsStagePathsResult = typeof VcsStagePathsResult.Type;
+
 export const VcsInitInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   kind: Schema.optional(VcsDriverKind),

@@ -2545,11 +2545,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
   ) {
+    // Stamped before any repository read, so a client can tell whether the preview saw an
+    // index change that completed at a known server time.
+    const generatedAt = yield* DateTime.now;
     const details = yield* statusDetailsLocal(input.cwd);
     if (!details.isRepo) {
       return {
         cwd: input.cwd,
-        generatedAt: yield* DateTime.now,
+        generatedAt,
         sources: [],
       };
     }
@@ -2656,7 +2659,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     return {
       cwd: input.cwd,
-      generatedAt: yield* DateTime.now,
+      generatedAt,
       sources,
     };
   });
@@ -3556,6 +3559,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           fallbackErrorDetail: input.staged ? "git add failed" : "git reset failed",
         },
       );
+      return { completedAt: yield* DateTime.now };
     },
   );
 
