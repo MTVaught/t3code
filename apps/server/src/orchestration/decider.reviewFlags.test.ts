@@ -3,8 +3,12 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  ThreadReviewFileFlaggedPayload,
+  ThreadReviewFileUnflaggedPayload,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -49,11 +53,16 @@ function makeReadModel(reviewFollowUpPaths: ReadonlyArray<string>): Orchestratio
   };
 }
 
-const single = <T>(value: T | ReadonlyArray<T>): T => {
-  const events = Array.isArray(value) ? value : [value];
+type DecidedEvent = Omit<OrchestrationEvent, "sequence">;
+
+const single = (value: DecidedEvent | ReadonlyArray<DecidedEvent>): DecidedEvent => {
+  const events = Array.isArray(value) ? value : [value as DecidedEvent];
   expect(events).toHaveLength(1);
-  return events[0] as T;
+  return events[0] as DecidedEvent;
 };
+// The decider's event type is not a distributive union, so payloads are decoded explicitly.
+const flaggedPayload = Schema.decodeUnknownSync(ThreadReviewFileFlaggedPayload);
+const unflaggedPayload = Schema.decodeUnknownSync(ThreadReviewFileUnflaggedPayload);
 
 it.layer(NodeServices.layer)("review flag decider", (it) => {
   it.effect("flags a file and stamps updatedAt", () =>
@@ -70,10 +79,9 @@ it.layer(NodeServices.layer)("review flag decider", (it) => {
         }),
       );
       expect(event.type).toBe("thread.review-file-flagged");
-      if (event.type === "thread.review-file-flagged") {
-        expect(event.payload.paths).toEqual(["src/app.ts"]);
-        expect(event.payload.updatedAt).toBe(NOW);
-      }
+      const payload = flaggedPayload(event.payload);
+      expect(payload.paths).toEqual(["src/app.ts"]);
+      expect(payload.updatedAt).toBe(NOW);
     }),
   );
 
@@ -90,9 +98,8 @@ it.layer(NodeServices.layer)("review flag decider", (it) => {
           readModel: makeReadModel(["src/app.ts"]),
         }),
       );
-      if (event.type === "thread.review-file-flagged") {
-        expect(event.payload.updatedAt).toBe(EARLIER);
-      }
+      const payload = flaggedPayload(event.payload);
+      expect(payload.updatedAt).toBe(EARLIER);
     }),
   );
 
@@ -110,10 +117,9 @@ it.layer(NodeServices.layer)("review flag decider", (it) => {
         }),
       );
       expect(event.type).toBe("thread.review-file-unflagged");
-      if (event.type === "thread.review-file-unflagged") {
-        expect(event.payload.paths).toEqual(["src/app.ts"]);
-        expect(event.payload.updatedAt).toBe(NOW);
-      }
+      const payload = unflaggedPayload(event.payload);
+      expect(payload.paths).toEqual(["src/app.ts"]);
+      expect(payload.updatedAt).toBe(NOW);
     }),
   );
 
@@ -129,9 +135,8 @@ it.layer(NodeServices.layer)("review flag decider", (it) => {
           readModel: makeReadModel(["src/app.ts", "src/other.ts"]),
         }),
       );
-      if (event.type === "thread.review-file-unflagged") {
-        expect(event.payload.paths).toEqual(["src/app.ts", "src/other.ts"]);
-      }
+      const payload = unflaggedPayload(event.payload);
+      expect(payload.paths).toEqual(["src/app.ts", "src/other.ts"]);
     }),
   );
 
@@ -147,10 +152,9 @@ it.layer(NodeServices.layer)("review flag decider", (it) => {
           readModel: makeReadModel([]),
         }),
       );
-      if (event.type === "thread.review-file-unflagged") {
-        expect(event.payload.paths).toEqual([]);
-        expect(event.payload.updatedAt).toBe(EARLIER);
-      }
+      const payload = unflaggedPayload(event.payload);
+      expect(payload.paths).toEqual([]);
+      expect(payload.updatedAt).toBe(EARLIER);
     }),
   );
 });
