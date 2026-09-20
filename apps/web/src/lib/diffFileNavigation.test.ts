@@ -50,6 +50,17 @@ describe("filterDiffFiles", () => {
     expect(filterDiffFiles(FILES, "PACKAGES/CONTRACTS")).toEqual([FILES[2]]);
   });
 
+  it("matches fuzzy subsequences and ranks substring hits first", () => {
+    expect(filterDiffFiles(FILES, "dfpnl")).toEqual([FILES[1]]);
+    expect(filterDiffFiles(FILES, "cmpnts")).toEqual([FILES[0], FILES[1]]);
+    expect(filterDiffFiles(FILES, "review")).toEqual([FILES[2], FILES[0]]);
+    expect(filterDiffFiles(FILES, "src")).toEqual([FILES[0], FILES[1], FILES[2]]);
+  });
+
+  it("drops files that do not match", () => {
+    expect(filterDiffFiles(FILES, "zzz")).toEqual([]);
+  });
+
   it("returns every file for an empty query", () => {
     expect(filterDiffFiles(FILES, "   ")).toEqual(FILES);
   });
