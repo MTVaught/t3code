@@ -800,7 +800,10 @@ export default function DiffPanel({
     ],
   );
   // Files the reviewer flagged as still needing follow-up. The flag lives on the thread, so
-  // it survives reloads and shows on every device; it blocks staging until cleared.
+  // it survives reloads and shows on every device; it blocks staging until cleared. Servers
+  // from before the flag reject the command, so the controls stay hidden there.
+  const supportsFollowUpFlags =
+    isWorkingTreeScope && serverConfig?.environment.capabilities.threadReviewFlags === true;
   const followUpPaths = useMemo(
     () => new Set(activeThread?.reviewFollowUpPaths ?? []),
     [activeThread?.reviewFollowUpPaths],
@@ -1388,7 +1391,7 @@ export default function DiffPanel({
         </TooltipTrigger>
         <TooltipPopup side="top">Next changed file (K)</TooltipPopup>
       </Tooltip>
-      {isWorkingTreeScope ? (
+      {supportsFollowUpFlags ? (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -1570,7 +1573,7 @@ export default function DiffPanel({
                             : "Staged"
                           : null;
                         const flaggedForFollowUp =
-                          isWorkingTreeScope && followUpPaths.has(filePath);
+                          supportsFollowUpFlags && followUpPaths.has(filePath);
                         return (
                           <span className="inline-flex items-center gap-0.5">
                             {flaggedForFollowUp ? (
@@ -1583,7 +1586,7 @@ export default function DiffPanel({
                                 {stagingBadge}
                               </span>
                             ) : null}
-                            {isWorkingTreeScope ? (
+                            {supportsFollowUpFlags ? (
                               <Tooltip>
                                 <TooltipTrigger
                                   render={
