@@ -791,12 +791,15 @@ export default function DiffPanel({
       workingTreeFilter,
     ],
   );
-  // The filtered views already say which way a file can go; the unfiltered view asks the index.
-  const stagingActionFor = useCallback(
-    (filePath: string): "stage" | "unstage" => {
-      if (workingTreeFilter !== "all") return workingTreeFilter === "staged" ? "unstage" : "stage";
+  // The filtered views already say which way a file can go; the unfiltered view asks the
+  // index, and a partially staged file can go either way.
+  const stagingActionsFor = useCallback(
+    (filePath: string): ReadonlyArray<"stage" | "unstage"> => {
+      if (workingTreeFilter !== "all")
+        return workingTreeFilter === "staged" ? ["unstage"] : ["stage"];
       const staging = fileStagingByPath.get(filePath);
-      return staging?.staged && !staging.unstaged ? "unstage" : "stage";
+      if (!staging?.staged) return ["stage"];
+      return staging.unstaged ? ["stage", "unstage"] : ["unstage"];
     },
     [fileStagingByPath, workingTreeFilter],
   );
@@ -1483,9 +1486,9 @@ export default function DiffPanel({
                         const staging = isWorkingTreeScope
                           ? fileStagingByPath.get(filePath)
                           : undefined;
-                        const stagingAction = isWorkingTreeScope
-                          ? stagingActionFor(filePath)
-                          : null;
+                        const stagingActions = isWorkingTreeScope
+                          ? stagingActionsFor(filePath)
+                          : [];
                         const stagingBadge = staging?.staged
                           ? staging.unstaged
                             ? "Partially staged"
@@ -1498,8 +1501,8 @@ export default function DiffPanel({
                                 {stagingBadge}
                               </span>
                             ) : null}
-                            {stagingAction ? (
-                              <Tooltip>
+                            {stagingActions.map((stagingAction) => (
+                              <Tooltip key={stagingAction}>
                                 <TooltipTrigger
                                   render={
                                     <button
@@ -1528,7 +1531,7 @@ export default function DiffPanel({
                                   {stagingAction === "stage" ? "Stage file" : "Unstage file"}
                                 </TooltipPopup>
                               </Tooltip>
-                            ) : null}
+                            ))}
                             <DiffFilePathCopyButton filePath={filePath} />
                             <Tooltip>
                               <TooltipTrigger
