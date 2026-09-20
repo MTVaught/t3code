@@ -57,6 +57,7 @@ import {
   GitActionProgressEvent,
   VcsSwitchRefInput,
   VcsStagePathsInput,
+  VcsStagePathsResult,
   VcsSwitchRefResult,
   GitCommandError,
   VcsCreateRefInput,
@@ -1079,6 +1080,7 @@ const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
 
 const WsVcsStagePathsRpc = Rpc.make(WS_METHODS.vcsStagePaths, {
   payload: VcsStagePathsInput,
+  success: VcsStagePathsResult,
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
