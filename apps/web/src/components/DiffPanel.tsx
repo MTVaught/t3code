@@ -1332,7 +1332,7 @@ export default function DiffPanel({
           </div>
           <ComboboxEmpty>No matching changed files.</ComboboxEmpty>
           <ComboboxList className="max-h-80 overflow-x-hidden">
-            {renderableFileEntries.map((entry) => (
+            {filteredFileEntries.map((entry) => (
               <ComboboxItem
                 key={entry.fileKey}
                 className="min-h-11 py-1.5"

@@ -1,3 +1,10 @@
+import {
+  insertRankedSearchResult,
+  normalizeSearchQuery,
+  scoreQueryMatch,
+  type RankedSearchResult,
+} from "@t3tools/shared/searchRanking";
+
 export interface DiffFileNavigationEntry {
   readonly filePath: string;
 }
@@ -31,11 +38,34 @@ export function moveActiveDiffFile<T extends DiffFileNavigationEntry>(
   return files[nextIndex];
 }
 
+/**
+ * Filters and ranks changed files for the diff file picker. Substring hits on
+ * the path rank first, then subsequence (fuzzy) matches like "dfp" → DiffPanel.
+ */
 export function filterDiffFiles<T extends DiffFileNavigationEntry>(
   files: ReadonlyArray<T>,
   query: string,
 ): T[] {
-  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const normalizedQuery = normalizeSearchQuery(query);
   if (!normalizedQuery) return [...files];
-  return files.filter((file) => file.filePath.toLocaleLowerCase().includes(normalizedQuery));
+  const ranked: RankedSearchResult<T>[] = [];
+  for (const file of files) {
+    const score = scoreQueryMatch({
+      value: file.filePath.toLocaleLowerCase(),
+      query: normalizedQuery,
+      exactBase: 0,
+      prefixBase: 10,
+      boundaryBase: 20,
+      includesBase: 30,
+      fuzzyBase: 1000,
+      boundaryMarkers: ["/", ".", "-", "_"],
+    });
+    if (score === null) continue;
+    insertRankedSearchResult(
+      ranked,
+      { item: file, score, tieBreaker: file.filePath },
+      files.length,
+    );
+  }
+  return ranked.map((entry) => entry.item);
 }
