@@ -791,15 +791,16 @@ export default function DiffPanel({
       workingTreeFilter,
     ],
   );
-  // The filtered views already say which way a file can go; the unfiltered view asks the
-  // index, and a partially staged file can go either way.
+  // A file can be staged while it has edits outside the index and unstaged while it has
+  // entries in it, so a partially staged file offers both in every view. The filtered views
+  // imply one direction even before the index state has arrived.
   const stagingActionsFor = useCallback(
     (filePath: string): ReadonlyArray<"stage" | "unstage"> => {
-      if (workingTreeFilter !== "all")
-        return workingTreeFilter === "staged" ? ["unstage"] : ["stage"];
       const staging = fileStagingByPath.get(filePath);
-      if (!staging?.staged) return ["stage"];
-      return staging.unstaged ? ["stage", "unstage"] : ["unstage"];
+      const canStage =
+        workingTreeFilter === "unstaged" || staging === undefined || staging.unstaged;
+      const canUnstage = workingTreeFilter === "staged" || staging?.staged === true;
+      return [...(canStage ? ["stage" as const] : []), ...(canUnstage ? ["unstage" as const] : [])];
     },
     [fileStagingByPath, workingTreeFilter],
   );
