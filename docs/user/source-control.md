@@ -109,6 +109,10 @@ uses the project's instructions and recent commit subjects.
 - Switch the working tree between **All**, **Unstaged**, and **Staged** to focus the review.
   **Unstaged** shows only what changed since you staged, so after the agent's next turn it lists
   just the new edits, including new edits to files you had already staged.
+- Flag a file for follow-up with the flag button in its header when it still needs more work or
+  a comment from you. A flagged file cannot be staged, on its own or by **Stage all**, until you
+  clear the flag. Flags belong to the thread, so they show on every device and are cleared for
+  the files a commit takes along.
 
 ## Review and merge
 

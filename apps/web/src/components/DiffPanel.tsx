@@ -18,6 +18,7 @@ import {
   ChevronsUpDownIcon,
   Columns2Icon,
   FileCode2Icon,
+  FlagIcon,
   FolderTreeIcon,
   Globe2Icon,
   MinusIcon,
@@ -63,6 +64,7 @@ import {
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
 import { useProject, useThread } from "../state/entities";
+import { threadEnvironment } from "../state/threads";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
@@ -240,6 +242,12 @@ export default function DiffPanel({
     selectThreadWorkingTreeFilter(state.workingTreeFilterByThreadKey, routeThreadRef),
   );
   const stagePaths = useAtomCommand(vcsEnvironment.stagePaths, { reportFailure: false });
+  const flagReviewFile = useAtomCommand(threadEnvironment.flagReviewFile, {
+    reportFailure: false,
+  });
+  const unflagReviewFile = useAtomCommand(threadEnvironment.unflagReviewFile, {
+    reportFailure: false,
+  });
   const [pendingStagePaths, setPendingStagePaths] = useState<ReadonlySet<string>>(EMPTY_PATH_SET);
   // Files a filtered view drops as soon as they are staged or unstaged, so the reader is not
   // left waiting on the server to regenerate the preview. Each entry holds the server time the
@@ -791,6 +799,36 @@ export default function DiffPanel({
       workingTreeFilter,
     ],
   );
+  // Files the reviewer flagged as still needing follow-up. The flag lives on the thread, so
+  // it survives reloads and shows on every device; it blocks staging until cleared.
+  const followUpPaths = useMemo(
+    () => new Set(activeThread?.reviewFollowUpPaths ?? []),
+    [activeThread?.reviewFollowUpPaths],
+  );
+  const toggleFollowUp = useCallback(
+    (filePath: string) => {
+      if (!activeThread) return;
+      const flagged = followUpPaths.has(filePath);
+      const request = {
+        environmentId: activeThread.environmentId,
+        input: { threadId: activeThread.id, paths: [filePath] },
+      };
+      void (async () => {
+        const result = await (flagged ? unflagReviewFile(request) : flagReviewFile(request));
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: flagged ? "Unable to clear follow-up flag" : "Unable to flag for follow-up",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [activeThread, flagReviewFile, followUpPaths, unflagReviewFile],
+  );
   // A file can be staged while it has edits outside the index and unstaged while it has
   // entries in it, so a partially staged file offers both in every view. The filtered views
   // imply one direction even before the index state has arrived.
@@ -810,10 +848,20 @@ export default function DiffPanel({
       return { staged: false, paths: renderableFileEntries.map((entry) => entry.filePath) };
     }
     const paths = renderableFileEntries
-      .filter((entry) => fileStagingByPath.get(entry.filePath)?.unstaged !== false)
+      .filter(
+        (entry) =>
+          !followUpPaths.has(entry.filePath) &&
+          fileStagingByPath.get(entry.filePath)?.unstaged !== false,
+      )
       .map((entry) => entry.filePath);
     return paths.length > 0 ? { staged: true, paths } : null;
-  }, [fileStagingByPath, isWorkingTreeScope, renderableFileEntries, workingTreeFilter]);
+  }, [
+    fileStagingByPath,
+    followUpPaths,
+    isWorkingTreeScope,
+    renderableFileEntries,
+    workingTreeFilter,
+  ]);
 
   const selectTurn = (turnId: TurnId) => {
     if (!routeThreadRef) return;
@@ -1340,6 +1388,32 @@ export default function DiffPanel({
         </TooltipTrigger>
         <TooltipPopup side="top">Next changed file (K)</TooltipPopup>
       </Tooltip>
+      {isWorkingTreeScope ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                aria-label={
+                  followUpPaths.has(activeFile.filePath)
+                    ? `Clear follow-up flag on ${activeFile.filePath}`
+                    : `Flag ${activeFile.filePath} for follow-up`
+                }
+                variant="ghost"
+                size="sm"
+                pressed={followUpPaths.has(activeFile.filePath)}
+                onPressedChange={() => toggleFollowUp(activeFile.filePath)}
+              />
+            }
+          >
+            <FlagIcon className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {followUpPaths.has(activeFile.filePath)
+              ? "Clear follow-up flag"
+              : "Flag for follow-up (blocks staging)"}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
       <DiffStatLabel
         additions={activeFile.stat.additions}
         deletions={activeFile.stat.deletions}
@@ -1495,12 +1569,53 @@ export default function DiffPanel({
                             ? "Partially staged"
                             : "Staged"
                           : null;
+                        const flaggedForFollowUp =
+                          isWorkingTreeScope && followUpPaths.has(filePath);
                         return (
                           <span className="inline-flex items-center gap-0.5">
+                            {flaggedForFollowUp ? (
+                              <span className="me-1 rounded-sm bg-warning/15 px-1.5 py-0.5 text-[10px] font-sans font-medium text-warning">
+                                Follow-up
+                              </span>
+                            ) : null}
                             {stagingBadge ? (
                               <span className="me-1 rounded-sm bg-foreground/[0.08] px-1.5 py-0.5 text-[10px] font-sans font-medium text-muted-foreground">
                                 {stagingBadge}
                               </span>
+                            ) : null}
+                            {isWorkingTreeScope ? (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "inline-flex size-6 items-center justify-center rounded-sm transition-colors hover:bg-foreground/10 focus-visible:outline-hidden",
+                                        flaggedForFollowUp
+                                          ? "text-warning hover:text-warning"
+                                          : "text-muted-foreground hover:text-foreground",
+                                      )}
+                                      aria-pressed={flaggedForFollowUp}
+                                      aria-label={
+                                        flaggedForFollowUp
+                                          ? `Clear follow-up flag on ${filePath}`
+                                          : `Flag ${filePath} for follow-up`
+                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleFollowUp(filePath);
+                                      }}
+                                    >
+                                      <FlagIcon className="size-3.5" />
+                                    </button>
+                                  }
+                                />
+                                <TooltipPopup>
+                                  {flaggedForFollowUp
+                                    ? "Clear follow-up flag"
+                                    : "Flag for follow-up (blocks staging)"}
+                                </TooltipPopup>
+                              </Tooltip>
                             ) : null}
                             {stagingActions.map((stagingAction) => (
                               <Tooltip key={stagingAction}>
@@ -1514,7 +1629,10 @@ export default function DiffPanel({
                                           ? `Stage ${filePath}`
                                           : `Unstage ${filePath}`
                                       }
-                                      disabled={pendingStagePaths.has(filePath)}
+                                      disabled={
+                                        pendingStagePaths.has(filePath) ||
+                                        (stagingAction === "stage" && flaggedForFollowUp)
+                                      }
                                       onClick={(event) => {
                                         event.stopPropagation();
                                         setPathsStaged([filePath], stagingAction === "stage");
@@ -1529,7 +1647,11 @@ export default function DiffPanel({
                                   }
                                 />
                                 <TooltipPopup>
-                                  {stagingAction === "stage" ? "Stage file" : "Unstage file"}
+                                  {stagingAction === "stage"
+                                    ? flaggedForFollowUp
+                                      ? "Clear the follow-up flag to stage"
+                                      : "Stage file"
+                                    : "Unstage file"}
                                 </TooltipPopup>
                               </Tooltip>
                             ))}

@@ -99,6 +99,7 @@ describe("orchestration projector", () => {
         unsettledAt: null,
         snoozedUntil: null,
         snoozedAt: null,
+        reviewFollowUpPaths: [],
         deletedAt: null,
         messages: [],
         proposedPlans: [],
@@ -108,6 +109,69 @@ describe("orchestration projector", () => {
       },
     ]);
   });
+
+  effectIt.effect("accumulates and clears review follow-up flags", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const eventFields = {
+        aggregateKind: "thread" as const,
+        aggregateId: "thread-1",
+        occurredAt: now,
+        commandId: null,
+      };
+      let model = yield* projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          ...eventFields,
+          sequence: 1,
+          type: "thread.created",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+      expect(model.threads[0]?.reviewFollowUpPaths).toEqual([]);
+
+      model = yield* projectEvent(
+        model,
+        makeEvent({
+          ...eventFields,
+          sequence: 2,
+          type: "thread.review-file-flagged",
+          payload: { threadId: "thread-1", paths: ["src/app.ts"], updatedAt: now },
+        }),
+      );
+      model = yield* projectEvent(
+        model,
+        makeEvent({
+          ...eventFields,
+          sequence: 3,
+          type: "thread.review-file-flagged",
+          payload: { threadId: "thread-1", paths: ["src/app.ts", "src/other.ts"], updatedAt: now },
+        }),
+      );
+      expect(model.threads[0]?.reviewFollowUpPaths).toEqual(["src/app.ts", "src/other.ts"]);
+
+      model = yield* projectEvent(
+        model,
+        makeEvent({
+          ...eventFields,
+          sequence: 4,
+          type: "thread.review-file-unflagged",
+          payload: { threadId: "thread-1", paths: ["src/app.ts"], updatedAt: now },
+        }),
+      );
+      expect(model.threads[0]?.reviewFollowUpPaths).toEqual(["src/other.ts"]);
+    }),
+  );
 
   effectIt.effect("sets and clears branch pull requests without changing manual links", () =>
     Effect.gen(function* () {

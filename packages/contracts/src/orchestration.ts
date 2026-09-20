@@ -775,6 +775,10 @@ export const OrchestrationThread = Schema.Struct({
   // Manual Active placement. Keyless threads retain their creation/re-entry
   // order above the arranged run. Settling clears this slot.
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  // Repository-relative paths the reviewer flagged in the diff panel as still
+  // needing follow-up. A flagged file cannot be staged until the flag is
+  // cleared. Optional so payloads from pre-flag servers still decode.
+  reviewFollowUpPaths: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
@@ -1130,6 +1134,22 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+const ThreadReviewFileFlagCommand = Schema.Struct({
+  type: Schema.Literal("thread.review-file.flag"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  paths: Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1)),
+});
+
+const ThreadReviewFileUnflagCommand = Schema.Struct({
+  type: Schema.Literal("thread.review-file.unflag"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Absent clears every flag on the thread, which is what a commit that took
+  // the whole working tree along means for them.
+  paths: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1))),
+});
+
 const ThreadPinCommand = Schema.Struct({
   type: Schema.Literal("thread.pin"),
   commandId: CommandId,
@@ -1365,6 +1385,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  ThreadReviewFileFlagCommand,
+  ThreadReviewFileUnflagCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1398,6 +1420,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  ThreadReviewFileFlagCommand,
+  ThreadReviewFileUnflagCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1605,6 +1629,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unsettled",
   "thread.snoozed",
   "thread.unsnoozed",
+  "thread.review-file-flagged",
+  "thread.review-file-unflagged",
   "thread.pinned",
   "thread.unpinned",
   "thread.pin-reordered",
@@ -1724,6 +1750,20 @@ export const ThreadUnsnoozedPayload = Schema.Struct({
   // thread.unsettled's activity resets. Timer wakes emit no event: clients
   // derive them from snoozedUntil passing.
   reason: Schema.Literals(["user", "activity"]),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadReviewFileFlaggedPayload = Schema.Struct({
+  threadId: ThreadId,
+  paths: Schema.Array(TrimmedNonEmptyString),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadReviewFileUnflaggedPayload = Schema.Struct({
+  threadId: ThreadId,
+  // The concrete paths that were cleared, resolved by the decider even when
+  // the command asked for all of them.
+  paths: Schema.Array(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
 });
 
@@ -1996,6 +2036,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unsnoozed"),
     payload: ThreadUnsnoozedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.review-file-flagged"),
+    payload: ThreadReviewFileFlaggedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.review-file-unflagged"),
+    payload: ThreadReviewFileUnflaggedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

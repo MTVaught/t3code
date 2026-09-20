@@ -38,8 +38,12 @@ import {
   type UnpinThreadInput,
   type UnsettleThreadInput,
   type UnsnoozeThreadInput,
+  type FlagReviewFileInput,
+  type UnflagReviewFileInput,
   type UpdateThreadMetadataInput,
   archiveThread,
+  flagReviewFile,
+  unflagReviewFile,
   createThread,
   deleteThread,
   interruptThreadTurn,
@@ -90,6 +94,8 @@ export type {
   UnpinThreadInput,
   UnsettleThreadInput,
   UnsnoozeThreadInput,
+  FlagReviewFileInput,
+  UnflagReviewFileInput,
   UpdateThreadMetadataInput,
 } from "../operations/commands.ts";
 
@@ -149,6 +155,18 @@ export function createThreadEnvironmentAtoms<R, E>(
     unsnooze: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:unsnooze",
       execute: (input: UnsnoozeThreadInput) => unsnoozeThread(input),
+      scheduler,
+      concurrency,
+    }),
+    flagReviewFile: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:flag-review-file",
+      execute: (input: FlagReviewFileInput) => flagReviewFile(input),
+      scheduler,
+      concurrency,
+    }),
+    unflagReviewFile: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:unflag-review-file",
+      execute: (input: UnflagReviewFileInput) => unflagReviewFile(input),
       scheduler,
       concurrency,
     }),

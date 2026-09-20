@@ -50,6 +50,8 @@ import {
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
   ThreadUnsnoozedPayload,
+  ThreadReviewFileFlaggedPayload,
+  ThreadReviewFileUnflaggedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
@@ -443,6 +445,7 @@ export function projectEvent(
             activeOrderKey: null,
             snoozedUntil: null,
             snoozedAt: null,
+            reviewFollowUpPaths: [],
             deletedAt: null,
             messages: [],
             activities: [],
@@ -553,6 +556,49 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    case "thread.review-file-flagged":
+      return decodeForEvent(
+        ThreadReviewFileFlaggedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              reviewFollowUpPaths: [
+                ...new Set([...(thread?.reviewFollowUpPaths ?? []), ...payload.paths]),
+              ],
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.review-file-unflagged":
+      return decodeForEvent(
+        ThreadReviewFileUnflaggedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          const cleared = new Set(payload.paths);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              reviewFollowUpPaths: (thread?.reviewFollowUpPaths ?? []).filter(
+                (path) => !cleared.has(path),
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.pinned":

@@ -133,6 +133,7 @@ export function applyThreadDetailEvent(
           activeOrderKey: null,
           snoozedUntil: null,
           snoozedAt: null,
+          reviewFollowUpPaths: [],
           deletedAt: null,
           pullRequests: [],
           messages: [],
@@ -214,6 +215,32 @@ export function applyThreadDetailEvent(
           updatedAt: event.payload.updatedAt,
         },
       };
+
+    case "thread.review-file-flagged":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          reviewFollowUpPaths: [
+            ...new Set([...(thread.reviewFollowUpPaths ?? []), ...event.payload.paths]),
+          ],
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "thread.review-file-unflagged": {
+      const cleared = new Set(event.payload.paths);
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          reviewFollowUpPaths: (thread.reviewFollowUpPaths ?? []).filter(
+            (path) => !cleared.has(path),
+          ),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+    }
 
     case "thread.pinned":
       return {
