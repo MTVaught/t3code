@@ -344,16 +344,22 @@ export function isThreadDetailEvent(event: OrchestrationEvent): event is Extract
       | "thread.activity-appended"
       | "thread.turn-diff-completed"
       | "thread.reverted"
-      | "thread.session-set";
+      | "thread.session-set"
+      | "thread.review-file-flagged"
+      | "thread.review-file-unflagged";
   }
 > {
+  // Review flags live only on the detail (the shell does not carry them), so
+  // their events must ride this stream or the open diff never sees a change.
   return (
     event.type === "thread.message-sent" ||
     event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||
-    event.type === "thread.session-set"
+    event.type === "thread.session-set" ||
+    event.type === "thread.review-file-flagged" ||
+    event.type === "thread.review-file-unflagged"
   );
 }
 

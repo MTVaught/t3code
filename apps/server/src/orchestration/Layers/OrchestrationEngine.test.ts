@@ -759,6 +759,73 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("flags review files on a thread and reads them back from the detail snapshot", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+    const threadId = ThreadId.make("thread-review-flags");
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.make("cmd-project-review-flags-create"),
+        projectId: asProjectId("project-review-flags"),
+        title: "Project Review Flags",
+        workspaceRoot: "/tmp/project-review-flags",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("cmd-thread-review-flags-create"),
+        threadId,
+        projectId: asProjectId("project-review-flags"),
+        title: "Flag me",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.review-file.flag",
+        commandId: CommandId.make("cmd-review-flag"),
+        threadId,
+        paths: ["src/app.ts"],
+      }),
+    );
+    expect(Option.getOrNull(await system.readThread(threadId))?.reviewFollowUpPaths).toEqual([
+      "src/app.ts",
+    ]);
+    expect(
+      (await system.readModel()).threads.find((thread) => thread.id === threadId)
+        ?.reviewFollowUpPaths,
+    ).toEqual(["src/app.ts"]);
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.review-file.unflag",
+        commandId: CommandId.make("cmd-review-unflag"),
+        threadId,
+      }),
+    );
+    expect(Option.getOrNull(await system.readThread(threadId))?.reviewFollowUpPaths).toEqual([]);
+
+    await system.dispose();
+  });
+
   it("archives and unarchives threads through orchestration commands", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
