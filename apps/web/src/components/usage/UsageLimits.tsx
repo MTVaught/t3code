@@ -12,6 +12,7 @@ import {
   elapsedShare,
   formatDuration,
   formatResetsIn,
+  formatRemainingAmount,
   type LimitPace,
   paceOf,
   remainingPercent,
@@ -129,6 +130,9 @@ function WindowBar({
       </TooltipTrigger>
       <TooltipPopup side="top" className="max-w-72 text-xs">
         <div className="flex flex-col gap-0.5">
+          {formatRemainingAmount(window) ? (
+            <span className="text-foreground">{formatRemainingAmount(window)}</span>
+          ) : null}
           <span className="text-foreground">
             {remaining}% left{timeLeft !== null ? ` · ${timeLeft}% of the window left` : ""}
           </span>

@@ -58,6 +58,50 @@ const testServices = Layer.merge(
 );
 
 describe("Bob ACP adapter", () => {
+  it.effect(
+    "refreshes context and cumulative coin spend on startup and before turn completion",
+    () =>
+      Effect.gen(function* () {
+        const wrapper = yield* Effect.promise(() =>
+          makeBobWrapper({
+            environment: {
+              T3_ACP_BOB_USAGE: "1",
+            },
+          }),
+        );
+        const adapter = yield* makeBobAdapter(
+          decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+        );
+        const events: Array<ProviderRuntimeEvent> = [];
+        const completed = yield* Deferred.make<void>();
+        yield* Stream.runForEach(adapter.streamEvents, (event) => {
+          events.push(event);
+          return event.type === "turn.completed"
+            ? Deferred.succeed(completed, undefined).pipe(Effect.asVoid)
+            : Effect.void;
+        }).pipe(Effect.forkChild({ startImmediately: true }));
+        const threadId = ThreadId.make("bob-usage-thread");
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("bob"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId, input: "hello" });
+        yield* Deferred.await(completed);
+        const updates = events.filter((event) => event.type === "thread.token-usage.updated");
+        expect(updates).toHaveLength(2);
+        expect(updates.map((event) => event.payload.usage)).toEqual([
+          { usedTokens: 11263, threadSpend: { amount: 0.044804, unit: "Bobcoins" } },
+          { usedTokens: 11263, threadSpend: { amount: 0.044804, unit: "Bobcoins" } },
+        ]);
+        expect(updates[1]?.turnId).toBeDefined();
+        expect(events.indexOf(updates[1]!)).toBeLessThan(
+          events.findIndex((event) => event.type === "turn.completed"),
+        );
+        yield* adapter.stopSession(threadId);
+      }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
   it.effect("starts an ACP session and discovers advertised commands", () =>
     Effect.gen(function* () {
       const wrapper = yield* Effect.promise(() =>

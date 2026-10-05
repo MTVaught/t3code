@@ -12,6 +12,7 @@ import {
   elapsedShare,
   formatDuration,
   formatResetsIn,
+  formatRemainingAmount,
   limitsNotice,
   paceOf,
   remainingPercent,
@@ -63,6 +64,11 @@ function WindowRow(props: {
           {remaining}% left
         </Text>
       </View>
+      {formatRemainingAmount(window) ? (
+        <Text className="text-xs tabular-nums text-foreground-muted">
+          {formatRemainingAmount(window)}
+        </Text>
+      ) : null}
       <View className="h-3 justify-center">
         <View className="h-1.5 flex-row overflow-hidden rounded-full bg-subtle">
           <View

@@ -312,8 +312,15 @@ const ThreadMetadataUpdatedPayload = Schema.Struct({
 });
 export type ThreadMetadataUpdatedPayload = typeof ThreadMetadataUpdatedPayload.Type;
 
+export const ThreadSpend = Schema.Struct({
+  amount: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  unit: TrimmedNonEmptyStringSchema,
+});
+export type ThreadSpend = typeof ThreadSpend.Type;
+
 export const ThreadTokenUsageSnapshot = Schema.Struct({
   usedTokens: NonNegativeInt,
+  threadSpend: Schema.optional(ThreadSpend),
   totalProcessedTokens: Schema.optional(NonNegativeInt),
   maxTokens: Schema.optional(PositiveInt),
   inputTokens: Schema.optional(NonNegativeInt),

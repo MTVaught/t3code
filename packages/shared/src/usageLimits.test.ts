@@ -18,6 +18,7 @@ import {
   collectLimitPools,
   elapsedShare,
   formatResetsIn,
+  formatRemainingAmount,
   limitsNotice,
   paceOf,
   providersWithLimits,
@@ -1006,5 +1007,24 @@ describe("isUsageLimitsCommand", () => {
     expect(isUsageLimitsCommand("/usage-limits explain")).toBe(false);
     expect(isUsageLimitsCommand("Explain /usage-limits")).toBe(false);
     expect(isUsageLimitsCommand("/usage")).toBe(false);
+  });
+});
+
+describe("formatRemainingAmount", () => {
+  it("preserves fractional coin amounts rather than deriving them from rounded percentages", () => {
+    expect(
+      formatRemainingAmount({ ...window, amount: { used: 42.6, limit: 160, unit: "Bobcoins" } }),
+    ).toBe("117.4 / 160 Bobcoins remaining");
+  });
+  it("shows no negative balance when spending exceeds the allowance", () => {
+    expect(
+      formatRemainingAmount({ ...window, amount: { used: 170, limit: 160, unit: "Bobcoins" } }),
+    ).toBe("0 / 160 Bobcoins remaining");
+  });
+  it("keeps percentage-only quotas and zero allowances usable", () => {
+    expect(formatRemainingAmount(window)).toBeNull();
+    expect(
+      formatRemainingAmount({ ...window, amount: { used: 0, limit: 0, unit: "Bobcoins" } }),
+    ).toBe("0 / 0 Bobcoins remaining");
   });
 });

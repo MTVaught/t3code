@@ -271,6 +271,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { formatThreadSpend } from "@t3tools/shared/threadUsage";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1177,6 +1178,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  threadSpend: ContextWindowSnapshot["threadSpend"];
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1215,6 +1217,16 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         />
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
+      ) : null}
+      {props.threadSpend ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="px-1 text-[11px] text-muted-foreground tabular-nums" />}
+          >
+            {formatThreadSpend(props.threadSpend)}
+          </TooltipTrigger>
+          <TooltipPopup>Cumulative thread spend</TooltipPopup>
+        </Tooltip>
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
@@ -6877,6 +6889,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
+                    threadSpend={activeContextWindow?.threadSpend ?? null}
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }

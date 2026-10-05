@@ -16,6 +16,18 @@ function makeActivity(id: string, kind: string, payload: unknown): Orchestration
 }
 
 describe("contextWindow", () => {
+  it("preserves Bob context and thread spend when no capacity is reported", () => {
+    const snapshot = deriveLatestContextWindowSnapshot([
+      makeActivity("bob-usage", "context-window.updated", {
+        usedTokens: 11263,
+        threadSpend: { amount: 0.044804, unit: "Bobcoins" },
+      }),
+    ]);
+    expect(snapshot?.threadSpend).toEqual({ amount: 0.044804, unit: "Bobcoins" });
+    expect(snapshot?.usedTokens).toBe(11263);
+    expect(snapshot?.maxTokens).toBeNull();
+    expect(snapshot?.usedPercentage).toBeNull();
+  });
   it("derives the latest valid context window snapshot", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("activity-1", "context-window.updated", {
