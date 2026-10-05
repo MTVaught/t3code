@@ -22,14 +22,6 @@ export const ServerProviderUsageWindow = Schema.Struct({
   kind: Schema.Literals(["session", "weekly", "monthly", "other"]),
   label: TrimmedNonEmptyString,
   usedPercent: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
-  /** Provider-reported amounts for quotas measured in credits or coins. */
-  amount: Schema.optional(
-    Schema.Struct({
-      used: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-      limit: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-      unit: TrimmedNonEmptyString,
-    }),
-  ),
   resetsAt: Schema.optional(IsoDateTime),
   windowDurationMins: Schema.optional(NonNegativeInt),
 });

@@ -158,23 +158,6 @@ describe("server config forward compatibility", () => {
     expect(parsed).toEqual([decodedBase]);
   });
 
-  it("preserves fractional allowances and rejects invalid quota amounts", () => {
-    const window = { id: "monthly", kind: "monthly", label: "Monthly", usedPercent: 26.625 };
-    const amount = { used: 42.6, limit: 160, unit: "Bobcoins" };
-    const parsed = decodeServerProvider({
-      ...baseProviderSnapshot,
-      usageLimits: {
-        checkedAt: "2026-04-10T00:00:00.000Z",
-        windows: [
-          { ...window, amount },
-          { ...window, amount: { ...amount, used: -1 } },
-          { ...window, amount: { ...amount, limit: Infinity } },
-        ],
-      },
-    });
-    expect(parsed.usageLimits?.windows).toEqual([{ ...window, amount }]);
-  });
-
   it("drops usage windows this build cannot decode instead of failing the provider", () => {
     const parsed = decodeServerProvider({
       ...baseProviderSnapshot,
