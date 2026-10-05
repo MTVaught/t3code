@@ -30,7 +30,6 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
-import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 
 function detailFromResult(result: {
   readonly stdout: string;
@@ -266,11 +265,6 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
       version,
       status: "ready",
       auth: { status: "unknown" },
-      usageLimits: makeUnavailableUsageLimits({
-        checkedAt,
-        reason: "unsupported",
-        message: "Bob does not expose account budgets through its process protocol.",
-      }),
     },
   });
 });

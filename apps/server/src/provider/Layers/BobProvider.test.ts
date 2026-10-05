@@ -1,8 +1,6 @@
 import { assert, it } from "@effect/vitest";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe } from "vite-plus/test";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import { BobSettings } from "@t3tools/contracts";
 
@@ -10,10 +8,8 @@ import {
   BOB_BUILT_IN_MODELS,
   bobModelsFromSettings,
   buildInitialBobProviderSnapshot,
-  checkBobProviderStatus,
   isCompatibleBob2Version,
 } from "./BobProvider.ts";
-import { writeFakeCli } from "../../testUtils/fakeCli.ts";
 
 const decodeBobSettings = Schema.decodeSync(BobSettings);
 
@@ -48,25 +44,4 @@ describe("BobProvider", () => {
     assert.isFalse(isCompatibleBob2Version("not-a-version"));
     assert.isFalse(isCompatibleBob2Version(null));
   });
-});
-
-it.layer(NodeServices.layer)("Bob account limits", (it) => {
-  it.effect("keeps Bob ready while reporting that its process exposes no account allowance", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-bob-version-" });
-      const binaryPath = writeFakeCli({ directory, name: "bob", source: 'console.log("2.0.5");' });
-      const snapshot = yield* checkBobProviderStatus(
-        decodeBobSettings({ enabled: true, binaryPath }),
-      );
-      assert.equal(snapshot.status, "ready");
-      assert.equal(snapshot.installed, true);
-      assert.deepEqual(snapshot.usageLimits?.windows, []);
-      assert.equal(snapshot.usageLimits?.unavailable?.reason, "unsupported");
-      assert.equal(
-        snapshot.usageLimits?.unavailable?.message,
-        "Bob does not expose account budgets through its process protocol.",
-      );
-    }).pipe(Effect.scoped),
-  );
 });
