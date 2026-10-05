@@ -16,6 +16,8 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import type * as FileSystem from "effect/FileSystem";
+import type * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -30,6 +32,8 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { resolveBobBinary } from "../Drivers/BobEnvironment.ts";
+import { readBobUsageLimits } from "./bobUsageLimits.ts";
+import { makeUnavailableUsageLimits } from "../providerUsageLimits.ts";
 
 function detailFromResult(result: {
   readonly stdout: string;
@@ -155,7 +159,11 @@ const runBobVersionCommand = (bobSettings: BobSettings, environment: NodeJS.Proc
 export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(function* (
   bobSettings: BobSettings,
   environment: NodeJS.ProcessEnv = process.env,
-): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
+): Effect.fn.Return<
+  ServerProviderDraft,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const models = bobModelsFromSettings();
 
@@ -255,6 +263,19 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
     });
   }
 
+  const usageLimits = yield* readBobUsageLimits(environment, checkedAt).pipe(
+    Effect.timeout("12 seconds"),
+    Effect.catch(() =>
+      Effect.succeed(
+        makeUnavailableUsageLimits({
+          checkedAt,
+          reason: "probeFailed",
+          message:
+            "Could not read Bob's account budget. Check Bob authentication and account access on this environment.",
+        }),
+      ),
+    ),
+  );
   return buildServerProvider({
     presentation: bobPresentation(bobSettings),
     enabled: bobSettings.enabled,
@@ -265,6 +286,7 @@ export const checkBobProviderStatus = Effect.fn("checkBobProviderStatus")(functi
       version,
       status: "ready",
       auth: { status: "unknown" },
+      usageLimits,
     },
   });
 });
