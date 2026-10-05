@@ -1,4 +1,5 @@
 import type { OrchestrationThreadActivity, ThreadTokenUsageSnapshot } from "@t3tools/contracts";
+import { latestThreadUsage } from "@t3tools/shared/threadUsage";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -49,6 +50,7 @@ export function deriveLatestContextWindowSnapshot(
 
     return {
       usedTokens,
+      threadSpend: latestThreadUsage([activity])?.threadSpend ?? null,
       totalProcessedTokens: asFiniteNumber(payload?.totalProcessedTokens),
       maxTokens,
       remainingTokens,

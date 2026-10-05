@@ -418,6 +418,7 @@ const program = Effect.gen(function* () {
         protocolVersion: 1,
         agentCapabilities: {
           loadSession: true,
+          ...(process.env.T3_ACP_BOB_USAGE ? { _meta: { "bob/extensions": { version: 1 } } } : {}),
           sessionCapabilities: { resume: {}, close: {}, delete: {}, list: {} },
         },
         // Grok advertises model state before any session exists; the provider
@@ -1415,6 +1416,14 @@ const program = Effect.gen(function* () {
   );
 
   yield* agent.handleUnknownExtRequest((method, params) => {
+    if (method === "_bob/task/export" && process.env.T3_ACP_BOB_USAGE) {
+      return Effect.succeed({
+        version: 1,
+        tasks: [
+          { task: { id: "mock-session-1", costs: { contextTokens: 11263, cost: 0.044804 } } },
+        ],
+      });
+    }
     if (method === "_test/environment") {
       return Effect.succeed({
         inherited: process.env.T3_ACP_RUNTIME_AMBIENT === "sentinel",

@@ -407,6 +407,14 @@ export function remainingPercent(window: ServerProviderUsageWindow): number {
   return Math.round(100 - Math.max(0, Math.min(100, window.usedPercent)));
 }
 
+/** Exact quota amounts when the provider reports them, independent of the rounded bar percentage. */
+export function formatRemainingAmount(window: ServerProviderUsageWindow): string | null {
+  if (!window.amount) return null;
+  const { used, limit, unit } = window.amount;
+  const format = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+  return `${format(Math.max(0, limit - used))} / ${format(limit)} ${unit} remaining`;
+}
+
 function resetMillis(window: ServerProviderUsageWindow): number | null {
   if (window.resetsAt === undefined) return null;
   const at = Date.parse(window.resetsAt);

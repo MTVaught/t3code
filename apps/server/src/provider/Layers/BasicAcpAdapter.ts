@@ -12,6 +12,7 @@ import {
   type ServerProviderProjectMetadata,
   type ServerProviderSlashCommand,
   type ThreadId,
+  type ThreadTokenUsageSnapshot,
   TurnId,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
@@ -98,6 +99,10 @@ export interface BasicAcpAdapterOptions {
     readonly mcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
     readonly scope: Scope.Closeable;
   }) => Effect.Effect<AcpSessionRuntime.AcpSessionRuntime["Service"], ProviderAdapterError>;
+  /** Reads provider-specific usage after session startup and each settled turn. */
+  readonly readThreadUsage?: (
+    runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
+  ) => Effect.Effect<ThreadTokenUsageSnapshot | undefined>;
   /**
    * Split turn text into prompts the agent must receive one at a time before
    * the message itself. Bob loads one `/skill` per prompt, so its adapter peels
@@ -157,6 +162,23 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     Effect.all({ eventId: Effect.map(randomId, EventId.make), createdAt: nowIso });
   const publish = (event: ProviderRuntimeEvent) =>
     PubSub.publish(events, event).pipe(Effect.asVoid);
+
+  const publishThreadUsage = Effect.fn("BasicAcpAdapter.publishThreadUsage")(function* (
+    context: SessionContext,
+  ) {
+    if (!options.readThreadUsage) return;
+    const usage = yield* options.readThreadUsage(context.acp);
+    if (!usage) return;
+    yield* publish({
+      type: "thread.token-usage.updated",
+      ...(yield* stamp()),
+      provider: options.provider,
+      providerInstanceId: options.instanceId,
+      threadId: context.threadId,
+      ...(context.activeTurnId ? { turnId: context.activeTurnId } : {}),
+      payload: { usage },
+    });
+  });
 
   const getLock = (threadId: string) =>
     SynchronizedRef.modifyEffect(locks, (current) => {
@@ -529,6 +551,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           threadId: input.threadId,
           payload: { providerThreadId: started.sessionId },
         });
+        yield* publishThreadUsage(context);
         return session;
       }).pipe(Effect.scoped),
     );
@@ -671,6 +694,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         }
         // Only the last remaining prompt settles the turn; a steer-superseded
         // prompt resolving as cancelled must leave the turn running.
+        if (context.promptsInFlight === 1) yield* publishThreadUsage(context);
         if (context.promptsInFlight === 1) {
           context.session = {
             ...context.session,
