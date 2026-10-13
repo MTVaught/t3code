@@ -16,7 +16,6 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterProcessError } from "../Errors.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
 import { makeBobAcpRuntime } from "../acp/BobAcpSupport.ts";
-import { readBobThreadUsage } from "../acp/BobUsage.ts";
 import { discoverBobModes, mergeBobModes } from "../Drivers/BobModes.ts";
 import {
   discoverBobSkills,
@@ -68,7 +67,6 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
     instanceId,
     displayName: "Bob",
     builtInModes: BOB_BUILT_IN_MODES,
-    readThreadUsage: readBobThreadUsage,
     // Until a session advertises its modes over ACP, read Bob's custom_modes.yaml
     // files so custom modes are selectable on a brand-new thread.
     discoverModes: (cwd) =>

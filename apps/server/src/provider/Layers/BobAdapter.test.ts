@@ -59,13 +59,18 @@ const testServices = Layer.merge(
 
 describe("Bob ACP adapter", () => {
   it.effect(
-    "refreshes context and cumulative coin spend on startup and before turn completion",
+    "completes a turn without exporting history when Bob advertises task-transfer extensions",
     () =>
       Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bob-acp-no-export-")),
+        );
+        const requestLogPath = NodePath.join(directory, "requests.ndjson");
         const wrapper = yield* Effect.promise(() =>
           makeBobWrapper({
+            requestLogPath,
             environment: {
-              T3_ACP_BOB_USAGE: "1",
+              T3_ACP_BOB_EXTENSIONS: "1",
             },
           }),
         );
@@ -89,17 +94,23 @@ describe("Bob ACP adapter", () => {
         });
         yield* adapter.sendTurn({ threadId, input: "hello" });
         yield* Deferred.await(completed);
-        const updates = events.filter((event) => event.type === "thread.token-usage.updated");
-        expect(updates).toHaveLength(2);
-        expect(updates.map((event) => event.payload.usage)).toEqual([
-          { usedTokens: 11263, threadSpend: { amount: 0.044804, unit: "Bobcoins" } },
-          { usedTokens: 11263, threadSpend: { amount: 0.044804, unit: "Bobcoins" } },
-        ]);
-        expect(updates[1]?.turnId).toBeDefined();
-        expect(events.indexOf(updates[1]!)).toBeLessThan(
-          events.findIndex((event) => event.type === "turn.completed"),
+        expect(events.filter((event) => event.type === "thread.token-usage.updated")).toHaveLength(
+          0,
         );
         yield* adapter.stopSession(threadId);
+        const requests = (yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")))
+          .trim()
+          .split("\n")
+          .map((line) => decodeJsonUnknown(line));
+        expect(
+          requests.some(
+            (entry) =>
+              typeof entry === "object" &&
+              entry !== null &&
+              "method" in entry &&
+              entry.method === "_bob/task/export",
+          ),
+        ).toBe(false);
       }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
   it.effect("starts an ACP session and discovers advertised commands", () =>
