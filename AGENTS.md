@@ -4,12 +4,44 @@ T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provid
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
-## Fork scope
+## Fork differences and upstream merges
 
-This fork distributes the desktop app. The bundled web client, server, shared packages, and
-runtime archives support that app. Mobile apps, hosted sites, T3 Connect relay deployments,
-and external service webhooks are outside this fork's scope. Keep their workflows under
-`.github/disabled-workflows`; do not enable them during upstream merges.
+This is the Treher desktop fork, `MTVaught/t3code`. The rules in this section take precedence
+over the upstream product and multi-surface guidance below. Keep these decisions when merging
+upstream. Change this section when the maintainer changes the fork's scope.
+
+- Distribute the desktop app. Its bundled web client, server, shared packages, and runtime
+  archives remain required, including support for SSH environments and Windows WSL. Do not
+  remove them because this fork does not distribute a separate web or mobile app.
+- Do not enable mobile builds, hosted web or marketing deployments, T3 Connect relay
+  deployments, or external service webhooks. Keep those workflows under
+  `.github/disabled-workflows`. Do not add their jobs or required checks to CI or branch
+  protection. Remote connections use servers controlled by the user. Do not inject upstream
+  Clerk credentials or hosted relay configuration into builds or development templates.
+- Use standard GitHub-hosted runners for all active workflows. Do not restore Blacksmith,
+  paid runner labels, or self-hosted runner requirements during upstream merges. Typecheck
+  and test the desktop dependency graph and contributor tooling. General repository lint
+  and unused-code checks may still cover retained upstream source.
+- Release only macOS ARM64, Linux x64, and Windows x64 artifacts. Installers, download links,
+  and managed runtime selection must report unsupported targets before a download. Do not
+  advertise Linux ARM64, Windows ARM64, or macOS x64 artifacts that the workflow does not build.
+- Installers and updaters must use this fork's releases. Stable accepts plain upstream version
+  tags and final Treher tags such as `v0.0.45-treher.1.1`. It excludes candidates such as
+  `v0.0.45-treher.1.0.rc.1` and nightlies. See the [release guide](docs/operations/release.md)
+  for tag numbering and publishing procedures.
+- Preserve Treher app identity, URL schemes, and the separate `.t3-treher` state directory.
+  Fork builds must not share upstream's live state. Do not restore upstream usage analytics;
+  local resource monitoring is separate from usage analytics.
+- Preserve IBM Bob provider support alongside the upstream providers. Include Bob when
+  changing provider contracts, settings, authentication, or runtime behavior.
+- Use the full upstream review experience, including loading large diffs one file at a time.
+  Do not restore the retired fork staging filters, follow-up flags, file search, or J/K
+  navigation. Preserve compatibility with stored fork events and database state when removing
+  their UI or handlers.
+
+Resolve routine merge conflicts within these decisions. If redundant or broken fork code needs
+a new product decision, identify the affected behavior and ask the maintainer before choosing
+its replacement. Do not preserve old fork code only because it differs from upstream.
 
 ## What makes T3 Code special?
 
