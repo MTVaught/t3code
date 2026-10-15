@@ -1964,10 +1964,23 @@ export default function ChatView(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
-  const providerMode =
-    composerProviderMode !== undefined
-      ? composerProviderMode
-      : (activeThread?.providerMode ?? null);
+  const [pendingProviderMode, setPendingProviderMode] = useState<{
+    threadKey: string;
+    mode: string | null;
+  } | null>(null);
+  const providerMode = isServerThread
+    ? pendingProviderMode?.threadKey === routeThreadKey
+      ? pendingProviderMode.mode
+      : (activeThread?.providerMode ?? null)
+    : (composerProviderMode ?? null);
+  // Keep a choice visible until its server update arrives, then follow Bob's mode reports.
+  if (
+    pendingProviderMode !== null &&
+    (pendingProviderMode.threadKey !== routeThreadKey ||
+      pendingProviderMode.mode === activeThread?.providerMode)
+  ) {
+    setPendingProviderMode(null);
+  }
   const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
@@ -4539,15 +4552,20 @@ export default function ChatView(props: ChatViewProps) {
   const handleProviderModeChange = useCallback(
     (mode: string | null) => {
       if (mode === providerMode) return;
-      setComposerDraftProviderMode(composerDraftTarget, mode);
       scheduleComposerFocus();
-      if (!isServerThread || !activeThread) return;
+      if (!isServerThread || !activeThread) {
+        setComposerDraftProviderMode(composerDraftTarget, mode);
+        return;
+      }
+      setPendingProviderMode({ threadKey: routeThreadKey, mode });
       void updateThreadMetadata({
         environmentId,
         input: { threadId: activeThread.id, providerMode: mode },
       }).then((result) => {
         if (result._tag !== "Failure") return;
-        setComposerDraftProviderMode(composerDraftTarget, undefined);
+        setPendingProviderMode((pending) =>
+          pending?.threadKey === routeThreadKey && pending.mode === mode ? null : pending,
+        );
         if (!isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           toastManager.add(
@@ -4566,6 +4584,7 @@ export default function ChatView(props: ChatViewProps) {
       environmentId,
       isServerThread,
       providerMode,
+      routeThreadKey,
       scheduleComposerFocus,
       setComposerDraftProviderMode,
       updateThreadMetadata,

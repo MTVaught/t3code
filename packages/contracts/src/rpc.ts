@@ -518,7 +518,8 @@ const WsServerGetProviderProjectMetadataRpc = Rpc.make(
   {
     payload: Schema.Struct({
       instanceId: ProviderInstanceId,
-      projectId: ProjectId,
+      cwd: TrimmedNonEmptyString,
+      threadId: Schema.optional(ThreadId),
     }),
     success: ServerProviderProjectMetadata,
     error: EnvironmentAuthorizationError,

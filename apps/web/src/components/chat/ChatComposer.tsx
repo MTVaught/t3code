@@ -1988,10 +1988,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Providers with project-scoped modes (Bob) publish per-project skills and
   // slash commands alongside the mode list; those win over the provider-wide set.
   const projectMetadata = useEnvironmentQuery(
-    activeProjectId && selectedProviderStatus?.driver === "bob"
+    gitCwd && selectedProviderStatus?.driver === "bob"
       ? serverEnvironment.providerProjectMetadata({
           environmentId,
-          input: { instanceId: selectedInstanceId, projectId: activeProjectId },
+          input: {
+            instanceId: selectedInstanceId,
+            cwd: gitCwd,
+            ...(routeKind === "server" && activeThreadId ? { threadId: activeThreadId } : {}),
+          },
         })
       : null,
   ).data;

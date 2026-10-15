@@ -12,6 +12,7 @@ import type {
   ServerProvider,
   ServerProviderUpdateState,
   ServerProviderProjectMetadata,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -51,6 +52,7 @@ export interface ProviderRegistryShape {
   readonly getProjectMetadata: (
     instanceId: ProviderInstanceId,
     cwd: string,
+    threadId?: ThreadId,
   ) => Effect.Effect<ServerProviderProjectMetadata>;
 
   /**

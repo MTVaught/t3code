@@ -73,6 +73,7 @@ export interface ProviderAdapterShape<TError> {
   readonly capabilities: ProviderAdapterCapabilities;
   readonly getProjectMetadata?: (
     cwd: string,
+    threadId?: ThreadId,
   ) => Effect.Effect<ServerProviderProjectMetadata, TError>;
 
   /**

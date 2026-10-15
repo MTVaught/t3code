@@ -136,7 +136,7 @@ describe("Bob ACP adapter", () => {
       expect(session.resumeCursor).toEqual({ schemaVersion: 1, sessionId: "mock-session-1" });
 
       yield* adapter.sendTurn({ threadId, input: "hello" });
-      const metadata = yield* adapter.getProjectMetadata!(process.cwd());
+      const metadata = yield* adapter.getProjectMetadata!(process.cwd(), threadId);
       expect(metadata.slashCommands).toEqual([
         {
           name: "review",
@@ -145,6 +145,77 @@ describe("Bob ACP adapter", () => {
         },
       ]);
 
+      yield* adapter.stopSession(threadId);
+    }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
+
+  it.effect("keeps command catalogs separate for threads in the same worktree", () =>
+    Effect.gen(function* () {
+      const wrapper = yield* Effect.promise(() =>
+        makeBobWrapper({
+          environment: { T3_ACP_EMIT_AVAILABLE_COMMANDS: "1" },
+        }),
+      );
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+      );
+      const first = ThreadId.make("bob-first-worktree-thread");
+      const second = ThreadId.make("bob-second-worktree-thread");
+      const start = (threadId: ThreadId) =>
+        adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("bob"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
+      yield* start(first);
+      yield* adapter.sendTurn({ threadId: first, input: "discover commands" });
+      yield* start(second);
+      expect(
+        (yield* adapter.getProjectMetadata!(process.cwd(), first)).slashCommands.map(
+          (command) => command.name,
+        ),
+      ).toEqual(["review"]);
+      expect((yield* adapter.getProjectMetadata!(process.cwd(), second)).slashCommands).toEqual([]);
+      expect((yield* adapter.getProjectMetadata!(process.cwd())).slashCommands).toEqual([]);
+      expect(
+        (yield* adapter.getProjectMetadata!(NodePath.dirname(process.cwd()), first)).slashCommands,
+      ).toEqual([]);
+      yield* adapter.stopSession(first);
+      yield* adapter.stopSession(second);
+    }).pipe(Effect.scoped, Effect.provide(testServices)),
+  );
+
+  it.effect("reports Bob's initial mode and later mode changes", () =>
+    Effect.gen(function* () {
+      const wrapper = yield* Effect.promise(() => makeBobWrapper());
+      const adapter = yield* makeBobAdapter(
+        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+      );
+      const modes: Array<string> = [];
+      const initial = yield* Deferred.make<void>();
+      const changed = yield* Deferred.make<void>();
+      yield* Stream.runForEach(adapter.streamEvents, (event) => {
+        if (event.type !== "thread.metadata.updated") return Effect.void;
+        const mode = event.payload.metadata?.providerMode;
+        if (typeof mode !== "string") return Effect.void;
+        modes.push(mode);
+        return Deferred.succeed(mode === "architect" ? changed : initial, undefined).pipe(
+          Effect.asVoid,
+        );
+      }).pipe(Effect.forkChild({ startImmediately: true }));
+      const threadId = ThreadId.make("bob-authoritative-mode");
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("bob"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+      });
+      yield* Deferred.await(initial);
+      expect(modes).toEqual(["ask"]);
+      yield* adapter.sendTurn({ threadId, input: "change mode", providerMode: "architect" });
+      yield* Deferred.await(changed);
+      expect(modes.at(-1)).toBe("architect");
       yield* adapter.stopSession(threadId);
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );

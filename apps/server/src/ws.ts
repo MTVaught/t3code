@@ -2630,27 +2630,7 @@ const makeWsRpcLayer = (
         [WS_METHODS.serverGetProviderProjectMetadata]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverGetProviderProjectMetadata,
-            projectionSnapshotQuery.getProjectShellById(input.projectId).pipe(
-              Effect.flatMap((project) =>
-                Option.match(project, {
-                  onNone: () =>
-                    Effect.succeed({
-                      workspaceTrusted: false,
-                      modes: [],
-                      slashCommands: [],
-                      skills: [],
-                    }),
-                  onSome: (value) =>
-                    providerRegistry.getProjectMetadata(input.instanceId, value.workspaceRoot),
-                }),
-              ),
-              Effect.orElseSucceed(() => ({
-                workspaceTrusted: false,
-                modes: [],
-                slashCommands: [],
-                skills: [],
-              })),
-            ),
+            providerRegistry.getProjectMetadata(input.instanceId, input.cwd, input.threadId),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverResetProviderContext]: (input) =>

@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProviderMode,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -111,9 +112,9 @@ export const makeBobAdapter = Effect.fn("makeBobAdapter")(function* (
 
   return {
     ...adapter,
-    getProjectMetadata: (cwd) =>
+    getProjectMetadata: (cwd: string, threadId?: ThreadId) =>
       Effect.all({
-        metadata: adapter.getProjectMetadata!(cwd),
+        metadata: adapter.getProjectMetadata!(cwd, threadId),
         skills: skillsFor(cwd),
       }).pipe(
         Effect.map(({ metadata, skills }) => ({

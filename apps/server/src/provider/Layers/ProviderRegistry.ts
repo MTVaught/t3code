@@ -27,6 +27,7 @@ import {
   ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProvider,
+  type ThreadId,
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -944,11 +945,11 @@ export const ProviderRegistryLive = Layer.effect(
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
         refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
-      getProjectMetadata: (instanceId: ProviderInstanceId, cwd: string) =>
+      getProjectMetadata: (instanceId: ProviderInstanceId, cwd: string, threadId?: ThreadId) =>
         instanceRegistry.getInstance(instanceId).pipe(
           Effect.flatMap((instance) =>
             instance?.adapter.getProjectMetadata
-              ? instance.adapter.getProjectMetadata(cwd).pipe(
+              ? instance.adapter.getProjectMetadata(cwd, threadId).pipe(
                   Effect.orElseSucceed(() => ({
                     workspaceTrusted: false,
                     modes: [],
