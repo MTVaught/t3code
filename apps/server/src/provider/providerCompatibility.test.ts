@@ -65,6 +65,26 @@ describe("provider compatibility", () => {
     }
   });
 
+  it("matches Bob's ACP minimum version without recommending an unverified release", () => {
+    for (const [version, expected] of [
+      ["1.9.9", "unsupported"],
+      ["2.0.0", "unsupported"],
+      ["2.0.1", "supported"],
+      ["2.4.1", "supported"],
+      ["2.0.1-beta.1", "unknown"],
+      [null, "unknown"],
+    ] as const) {
+      const advisory = resolveProviderCompatibility(
+        ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+        ProviderDriverKind.make("bob"),
+        version,
+      );
+      assert.strictEqual(advisory?.status, expected);
+      assert.strictEqual(advisory?.recommendedRange, ">=2.0.1");
+      assert.isNull(advisory?.recommendedVersion);
+    }
+  });
+
   it("compares Cursor build dates without treating semver prereleases as stable", () => {
     const cursor = ProviderDriverKind.make("cursor");
     const cursorPolicy: ProviderCompatibilityPolicy = {

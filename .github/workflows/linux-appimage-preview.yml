@@ -189,6 +189,15 @@ jobs:
           "$app_image" --appimage-extract >/dev/null
 
           while IFS= read -r -d '' binary; do
+            # Match the release gate: these optional helpers only run on newer
+            # Wayland compositors. RHEL 8's required runtime remains checked.
+            case "$binary" in
+              *"/@crowecawcaw/xa11y-"* | \
+              squashfs-root/resources/hyprland-capture/* | \
+              squashfs-root/resources/kde-capture/*)
+                continue
+                ;;
+            esac
             if ! readelf --file-header "$binary" >/dev/null 2>&1; then
               continue
             fi
