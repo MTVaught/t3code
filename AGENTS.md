@@ -25,6 +25,14 @@ upstream. Change this section when the maintainer changes the fork's scope.
 - Release only macOS ARM64, Linux x64, and Windows x64 artifacts. Installers, download links,
   and managed runtime selection must report unsupported targets before a download. Do not
   advertise Linux ARM64, Windows ARM64, or macOS x64 artifacts that the workflow does not build.
+- RHEL 8 x64 is a required fork platform, even though upstream does not support it. The Linux
+  AppImage, its bundled server, and required native components must work with glibc 2.28.
+  Preserve the Rocky Linux 8 native builds and packaged AppImage verification in release and
+  Linux preview workflows. Publishing must depend on successful RHEL 8 verification. Check
+  dependency, Electron, and build-image updates for compatibility; do not raise the required
+  glibc version or remove these checks to match upstream. Verify the packaged app in a RHEL 8
+  environment or its compatible Rocky Linux 8 environment. A build or typecheck on a newer
+  Linux distribution does not prove RHEL 8 support.
 - Installers and updaters must use this fork's releases. Stable accepts plain upstream version
   tags and final Treher tags such as `v0.0.45-treher.1.1`. It excludes candidates such as
   `v0.0.45-treher.1.0.rc.1` and nightlies. See the [release guide](docs/operations/release.md)
