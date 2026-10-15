@@ -347,31 +347,53 @@ describe("Bob ACP adapter", () => {
     }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
-  it.effect("keeps sending the turn when Bob rejects the requested mode", () =>
-    Effect.gen(function* () {
-      const wrapper = yield* Effect.promise(() =>
-        makeBobWrapper({ environment: { T3_ACP_FAIL_SET_MODE: "1" } }),
-      );
-      const adapter = yield* makeBobAdapter(
-        decodeBobSettings({ enabled: true, binaryPath: wrapper }),
-      );
-      const threadId = ThreadId.make("bob-acp-stale-mode");
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("bob"),
-        cwd: process.cwd(),
-        runtimeMode: "full-access",
-      });
+  it.effect(
+    "restores Bob's reported mode and completes the turn after a rejected mode change",
+    () =>
+      Effect.gen(function* () {
+        const wrapper = yield* Effect.promise(() =>
+          makeBobWrapper({ environment: { T3_ACP_FAIL_SET_MODE: "1" } }),
+        );
+        const adapter = yield* makeBobAdapter(
+          decodeBobSettings({ enabled: true, binaryPath: wrapper }),
+        );
+        const events: Array<ProviderRuntimeEvent> = [];
+        const completed = yield* Deferred.make<void>();
+        yield* Stream.runForEach(adapter.streamEvents, (event) => {
+          events.push(event);
+          return event.type === "turn.completed"
+            ? Deferred.succeed(completed, undefined).pipe(Effect.asVoid)
+            : Effect.void;
+        }).pipe(Effect.forkChild({ startImmediately: true }));
+        const threadId = ThreadId.make("bob-acp-stale-mode");
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("bob"),
+          cwd: process.cwd(),
+          runtimeMode: "full-access",
+        });
 
-      const result = yield* adapter.sendTurn({
-        threadId,
-        input: "hello",
-        providerMode: "retired-mode",
-      });
+        const result = yield* adapter.sendTurn({
+          threadId,
+          input: "hello",
+          providerMode: "retired-mode",
+        });
 
-      expect(result.threadId).toBe(threadId);
-      yield* adapter.stopSession(threadId);
-    }).pipe(Effect.scoped, Effect.provide(testServices)),
+        yield* Deferred.await(completed);
+        expect(result.threadId).toBe(threadId);
+        const modeUpdates = events.filter((event) => event.type === "thread.metadata.updated");
+        expect(modeUpdates.map((event) => event.payload.metadata?.providerMode)).toEqual([
+          "ask",
+          "ask",
+        ]);
+        const correction = modeUpdates[1]!;
+        expect(correction.threadId).toBe(threadId);
+        expect(correction.providerInstanceId).toBe("bob");
+        expect(events.indexOf(correction)).toBeLessThan(
+          events.findIndex((event) => event.type === "turn.started"),
+        );
+        yield* adapter.stopSession(threadId);
+      }).pipe(Effect.scoped, Effect.provide(testServices)),
   );
 
   it.effect("steers a running turn by cancelling its prompt before sending the next one", () =>

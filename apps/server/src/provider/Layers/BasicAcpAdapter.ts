@@ -157,6 +157,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     Effect.all({ eventId: Effect.map(randomId, EventId.make), createdAt: nowIso });
   const publish = (event: ProviderRuntimeEvent) =>
     PubSub.publish(events, event).pipe(Effect.asVoid);
+  const publishMode = Effect.fn("BasicAcpAdapter.publishMode")(function* (
+    threadId: ThreadId,
+    providerMode: string,
+  ) {
+    yield* publish({
+      type: "thread.metadata.updated",
+      ...(yield* stamp()),
+      provider: options.provider,
+      providerInstanceId: options.instanceId,
+      threadId,
+      payload: { metadata: { providerMode } },
+    });
+  });
 
   const getLock = (threadId: string) =>
     SynchronizedRef.modifyEffect(locks, (current) => {
@@ -385,14 +398,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   yield* Deferred.succeed(event.acknowledge, undefined);
                   return;
                 case "ModeChanged":
-                  yield* publish({
-                    type: "thread.metadata.updated",
-                    ...(yield* stamp()),
-                    provider: options.provider,
-                    providerInstanceId: options.instanceId,
-                    threadId: context.threadId,
-                    payload: { metadata: { providerMode: event.modeId } },
-                  });
+                  yield* publishMode(context.threadId, event.modeId);
                   return;
                 case "AvailableCommandsUpdated": {
                   context.metadata = {
@@ -525,14 +531,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         });
         const currentMode = yield* acp.getModeState;
         if (currentMode) {
-          yield* publish({
-            type: "thread.metadata.updated",
-            ...(yield* stamp()),
-            provider: options.provider,
-            providerInstanceId: options.instanceId,
-            threadId: input.threadId,
-            payload: { metadata: { providerMode: currentMode.currentModeId } },
-          });
+          yield* publishMode(input.threadId, currentMode.currentModeId);
         }
         return session;
       }).pipe(Effect.scoped),
@@ -610,16 +609,25 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
             ),
           );
         }
-        // A stale persisted mode must not block the turn; the agent keeps its
-        // current mode and reports it through `current_mode_update`.
+        // A rejected mode need not emit current_mode_update. Publish the last
+        // reported mode again so the saved picker choice cannot stay stale.
         const requestedMode = input.providerMode?.trim();
         if (requestedMode) {
           yield* context.acp.setMode(requestedMode).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning(`${options.displayName} rejected the requested provider mode.`, {
-                threadId: input.threadId,
-                providerMode: requestedMode,
-                cause,
+              Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  `${options.displayName} rejected the requested provider mode.`,
+                  {
+                    threadId: input.threadId,
+                    providerMode: requestedMode,
+                    cause,
+                  },
+                );
+                const currentMode = yield* context.acp.getModeState;
+                if (currentMode) {
+                  yield* publishMode(input.threadId, currentMode.currentModeId);
+                }
               }),
             ),
           );
