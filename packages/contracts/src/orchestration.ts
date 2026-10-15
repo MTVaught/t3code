@@ -840,9 +840,8 @@ export const OrchestrationThread = Schema.Struct({
   // Manual Active placement. Keyless threads retain their creation/re-entry
   // order above the arranged run. Settling clears this slot.
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  // Repository-relative paths the reviewer flagged in the diff panel as still
-  // needing follow-up. A flagged file cannot be staged until the flag is
-  // cleared. Optional so payloads from pre-flag servers still decode.
+  // Legacy fork review flags, retained for persisted events and thread snapshots.
+  // New commands no longer create or clear flags.
   reviewFollowUpPaths: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   // Set while the user has turned automatic settlement off for this thread.
   // Survives manual settle, un-settle, and activity: only the user clears it.
@@ -1206,22 +1205,6 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
-const ThreadReviewFileFlagCommand = Schema.Struct({
-  type: Schema.Literal("thread.review-file.flag"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  paths: Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1)),
-});
-
-const ThreadReviewFileUnflagCommand = Schema.Struct({
-  type: Schema.Literal("thread.review-file.unflag"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  // Absent clears every flag on the thread, which is what a commit that took
-  // the whole working tree along means for them.
-  paths: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1))),
-});
-
 const ThreadPinCommand = Schema.Struct({
   type: Schema.Literal("thread.pin"),
   commandId: CommandId,
@@ -1466,8 +1449,6 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
-  ThreadReviewFileFlagCommand,
-  ThreadReviewFileUnflagCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1502,8 +1483,6 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
-  ThreadReviewFileFlagCommand,
-  ThreadReviewFileUnflagCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,

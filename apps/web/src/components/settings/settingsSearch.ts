@@ -336,12 +336,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["diff ignore spaces edits default"],
   },
   {
-    id: "show-full-files-in-diffs",
-    title: "Show full files in diffs",
-    to: "/settings/general",
-    searchTerms: ["diff panel whole file context expand"],
-  },
-  {
     id: "default-diff-file-state",
     title: "Default diff file state",
     to: "/settings/general",

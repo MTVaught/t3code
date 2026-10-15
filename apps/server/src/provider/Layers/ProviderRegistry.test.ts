@@ -61,7 +61,6 @@ import {
 } from "../providerStatusCache.ts";
 import { COMPACT_SLASH_COMMAND } from "../providerSnapshot.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
-import { DEFAULT_SERVER_PROVIDER_CAPABILITIES } from "../providerSnapshot.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../Services/ProviderRegistry.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
@@ -1863,7 +1862,6 @@ it.layer(Layer.mergeAll(TestNodeServices, ServerSettingsModule.layerTest(), Test
             enabled: true,
             installed: true,
             auth: { status: "authenticated" },
-            capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
             checkedAt: "2026-04-14T00:00:00.000Z",
             version: "2026.04.09-f2b0fcd",
             models: [

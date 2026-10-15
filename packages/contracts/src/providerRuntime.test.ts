@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { classifyTaskAgentKind, ProviderRuntimeEvent } from "./providerRuntime.ts";
+import {
+  classifyTaskAgentKind,
+  ProviderRuntimeEvent,
+  ThreadTokenUsageSnapshot,
+} from "./providerRuntime.ts";
 
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
+const decodeThreadUsage = Schema.decodeUnknownSync(ThreadTokenUsageSnapshot);
+
+it("keeps spend data in historical usage snapshots readable", () => {
+  const usage = { usedTokens: 10, threadSpend: { amount: 0.04, unit: "Bobcoins" } };
+  expect(decodeThreadUsage(usage)).toEqual(usage);
+});
 
 describe("ProviderRuntimeEvent", () => {
   it("requires input and output totals for complete turn usage", () => {

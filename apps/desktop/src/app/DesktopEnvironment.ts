@@ -241,7 +241,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
       isDevelopment ? "dev.treher.t3code.dev" : "dev.treher.t3code",
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
+    linuxWmClass: isDevelopment ? "t3code-treher-dev" : "t3code-treher",
     linuxApplicationsDir,
     appImagePath: config.appImagePath,
     userDataDirName,

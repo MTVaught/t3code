@@ -22,7 +22,6 @@ import {
   isUsageLimitsCommand,
 } from "@t3tools/shared/usageLimits";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
-import { ThreadUsageSummary } from "./ThreadUsageSummary";
 import type { ReactNode } from "react";
 import {
   memo,
@@ -982,10 +981,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">
-                  <ThreadUsageSummary
-                    environmentId={props.environmentId}
-                    threadId={props.selectedThread.id}
-                  />
                   <ComposerDictationPrimaryAction
                     state={voiceInput.state}
                     presentation={voicePresentation}

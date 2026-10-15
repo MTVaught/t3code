@@ -47,6 +47,22 @@ const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPay
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
 const decodeClientOrchestrationCommand = Schema.decodeUnknownEffect(ClientOrchestrationCommand);
+const isClientOrchestrationCommand = Schema.is(ClientOrchestrationCommand);
+const isOrchestrationCommand = Schema.is(OrchestrationCommand);
+
+it.each(["thread.review-file.flag", "thread.review-file.unflag"])(
+  "rejects the retired %s command at both dispatch boundaries",
+  (type) => {
+    const command = {
+      type,
+      commandId: "retired-review-command",
+      threadId: "thread-1",
+      paths: ["src/app.ts"],
+    };
+    assert.isFalse(isClientOrchestrationCommand(command));
+    assert.isFalse(isOrchestrationCommand(command));
+  },
+);
 const decodeOrchestrationMessage = Schema.decodeUnknownEffect(OrchestrationMessage);
 const decodeThreadMessageSentPayload = Schema.decodeUnknownEffect(ThreadMessageSentPayload);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
@@ -68,6 +84,32 @@ function getOptionValue(
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+
+it.effect.each(["thread.review-file-flagged", "thread.review-file-unflagged"])(
+  "still decodes persisted %s events after retiring the commands",
+  (type) =>
+    Effect.gen(function* () {
+      const payload = {
+        threadId: ThreadId.make("thread-1"),
+        paths: ["src/app.ts"],
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const event = yield* decodeOrchestrationEvent({
+        sequence: 1,
+        eventId: "legacy-review-event",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        type,
+        occurredAt: payload.updatedAt,
+        commandId: "legacy-review-command",
+        causationEventId: null,
+        correlationId: "legacy-review-command",
+        metadata: {},
+        payload,
+      });
+      assert.deepEqual(event.payload, payload);
+    }),
+);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
 const decodeDispatchCommandError = Schema.decodeUnknownEffect(OrchestrationDispatchCommandError);
 const decodeSnapShotAccessibility = Schema.decodeUnknownEffect(SnapShotAccessibility);

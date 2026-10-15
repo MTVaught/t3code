@@ -576,8 +576,7 @@ export function ProviderInstanceCard({
     ? instance.driver
     : null;
   // Providers without a model picker (Bob) have no models section to show.
-  const showModelsSection =
-    driverOption !== undefined && liveProvider?.capabilities?.modelPicker !== false;
+  const showModelsSection = driverOption !== undefined && driverKind !== "bob";
 
   const customModels =
     instance.driver === "antigravity" ? [] : readConfigCustomModels(instance.config);

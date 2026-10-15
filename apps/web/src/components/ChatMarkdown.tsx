@@ -1128,11 +1128,13 @@ function MarkdownMermaidCodeBlock({
   fenceTitle,
   theme,
   codeView,
+  isStreaming,
 }: {
   code: string;
   fenceTitle: string | null;
   theme: "light" | "dark";
   codeView: ReactNode;
+  isStreaming: boolean;
 }) {
   const [showSource, setShowSource] = useState(false);
   const toggleLabel = showSource ? "Show diagram" : "Show mermaid source";
@@ -1140,7 +1142,7 @@ function MarkdownMermaidCodeBlock({
     <MarkdownCodeBlock
       code={code}
       language="mermaid"
-      isStreaming={false}
+      isStreaming={isStreaming}
       fenceTitle={fenceTitle}
       theme={theme}
       headerActions={
@@ -1163,7 +1165,7 @@ function MarkdownMermaidCodeBlock({
         </Tooltip>
       }
     >
-      {showSource ? (
+      {showSource || isStreaming ? (
         codeView
       ) : (
         <MarkdownMermaidDiagram code={code} theme={theme} fallback={codeView} />
@@ -3399,6 +3401,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
           fenceTitle={fenceTitle}
           theme={resolvedTheme}
           codeView={codeView}
+          isStreaming={isStreaming && !isClosedCodeFence(node, text)}
         />
       );
     }

@@ -34,6 +34,8 @@ upstream. Change this section when the maintainer changes the fork's scope.
   local resource monitoring is separate from usage analytics.
 - Preserve IBM Bob provider support alongside the upstream providers. Include Bob when
   changing provider contracts, settings, authentication, or runtime behavior.
+  Use upstream capability fields and service conventions. Add fork interfaces only for Bob
+  features that have callers.
 - Use the full upstream review experience, including loading large diffs one file at a time.
   Do not restore the retired fork staging filters, follow-up flags, file search, or J/K
   navigation. Preserve compatibility with stored fork events and database state when removing

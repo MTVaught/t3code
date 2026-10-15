@@ -715,11 +715,6 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "unsupported",
       supportsConversationRollback: false,
-      midTurnSteering: true,
-      interactiveApprovals: true,
-      structuredUserInput: false,
-      t3McpInjection: true,
-      attachments: true,
     },
     getProjectMetadata: (cwd) => {
       const cached = metadataByCwd.get(path.resolve(cwd));

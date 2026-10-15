@@ -1,5 +1,4 @@
 import type { OrchestrationThreadActivity, ThreadTokenUsageSnapshot } from "@t3tools/contracts";
-import { latestThreadUsage } from "@t3tools/shared/threadUsage";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -14,7 +13,9 @@ function asBoolean(value: unknown): boolean | null {
 }
 
 type NullableContextWindowUsage = {
-  readonly [Key in keyof ThreadTokenUsageSnapshot]: undefined extends ThreadTokenUsageSnapshot[Key]
+  readonly [
+    Key in keyof Omit<ThreadTokenUsageSnapshot, "threadSpend">
+  ]: undefined extends ThreadTokenUsageSnapshot[Key]
     ? Exclude<ThreadTokenUsageSnapshot[Key], undefined> | null
     : ThreadTokenUsageSnapshot[Key];
 };
@@ -50,7 +51,6 @@ export function deriveLatestContextWindowSnapshot(
 
     return {
       usedTokens,
-      threadSpend: latestThreadUsage([activity])?.threadSpend ?? null,
       totalProcessedTokens: asFiniteNumber(payload?.totalProcessedTokens),
       maxTokens,
       remainingTokens,

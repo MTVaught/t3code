@@ -16,14 +16,14 @@ function makeActivity(id: string, kind: string, payload: unknown): Orchestration
 }
 
 describe("contextWindow", () => {
-  it("preserves Bob context and thread spend when no capacity is reported", () => {
+  it("reads historical Bob usage without requiring a context capacity", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("bob-usage", "context-window.updated", {
         usedTokens: 11263,
         threadSpend: { amount: 0.044804, unit: "Bobcoins" },
       }),
     ]);
-    expect(snapshot?.threadSpend).toEqual({ amount: 0.044804, unit: "Bobcoins" });
+    expect(snapshot).not.toHaveProperty("threadSpend");
     expect(snapshot?.usedTokens).toBe(11263);
     expect(snapshot?.maxTokens).toBeNull();
     expect(snapshot?.usedPercentage).toBeNull();

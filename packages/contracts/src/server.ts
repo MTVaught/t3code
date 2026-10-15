@@ -165,25 +165,6 @@ export const ServerProviderContinuation = Schema.Struct({
 });
 export type ServerProviderContinuation = typeof ServerProviderContinuation.Type;
 
-export const ServerProviderSubagentProgress = Schema.Literals(["none", "summary", "live"]);
-export type ServerProviderSubagentProgress = typeof ServerProviderSubagentProgress.Type;
-
-export const ServerProviderCapabilities = Schema.Struct({
-  modelPicker: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  attachments: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  approvals: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  structuredInput: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  steering: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  rollback: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  providerModes: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  commands: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  skills: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  subagentProgress: ServerProviderSubagentProgress.pipe(
-    Schema.withDecodingDefault(Effect.succeed("live")),
-  ),
-  tokenUsage: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-}).pipe(Schema.withDecodingDefault(Effect.succeed({})));
-export type ServerProviderCapabilities = typeof ServerProviderCapabilities.Type;
 export const ServerProviderCompatibilityStatus = Schema.Literals([
   "unknown",
   "supported",
@@ -249,7 +230,6 @@ export const ServerProvider = Schema.Struct({
   accentColor: Schema.optional(TrimmedNonEmptyString),
   badgeLabel: Schema.optional(TrimmedNonEmptyString),
   continuation: Schema.optional(ServerProviderContinuation),
-  capabilities: Schema.optionalKey(ServerProviderCapabilities),
   showInteractionModeToggle: Schema.optional(Schema.Boolean),
   // The driver streams context window usage, so a started thread will have a
   // meter once its activities load. Clients reserve the meter's space on it.

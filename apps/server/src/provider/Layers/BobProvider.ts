@@ -54,19 +54,8 @@ const bobPresentation = (_settings: BobSettings) =>
     badgeLabel: "Early Access",
     showInteractionModeToggle: false,
     requiresNewThreadForModelChange: false,
-    capabilities: {
-      modelPicker: false,
-      attachments: true,
-      approvals: true,
-      structuredInput: false,
-      steering: true,
-      rollback: false,
-      providerModes: true,
-      commands: true,
-      skills: true,
-      subagentProgress: "summary",
-      tokenUsage: false,
-    },
+    supportsConversationRollback: false,
+    reportsContextWindow: false,
   }) as const;
 
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({

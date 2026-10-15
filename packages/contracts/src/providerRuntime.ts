@@ -260,11 +260,11 @@ const ThreadMetadataUpdatedPayload = Schema.Struct({
 });
 export type ThreadMetadataUpdatedPayload = typeof ThreadMetadataUpdatedPayload.Type;
 
-export const ThreadSpend = Schema.Struct({
+// Retained to decode usage snapshots recorded by older fork builds.
+const ThreadSpend = Schema.Struct({
   amount: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
   unit: TrimmedNonEmptyStringSchema,
 });
-export type ThreadSpend = typeof ThreadSpend.Type;
 
 export const ThreadTokenUsageSnapshot = Schema.Struct({
   usedTokens: NonNegativeInt,

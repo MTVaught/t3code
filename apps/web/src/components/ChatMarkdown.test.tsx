@@ -9,6 +9,13 @@ import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
 
+const mermaid = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  parse: vi.fn(async (_source: string) => true),
+  render: vi.fn(async () => ({ svg: "<svg />" })),
+}));
+vi.mock("mermaid", () => ({ default: mermaid }));
+
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
@@ -765,15 +772,63 @@ describe("ChatMarkdown artifact-template cards", () => {
 });
 
 describe("ChatMarkdown mermaid fences", () => {
-  it("renders the mermaid chrome with a source toggle and the code fallback", () => {
-    const html = renderToStaticMarkup(
-      <ChatMarkdown cwd="/tmp/project" text={"```mermaid\ngraph TD;\n  A-->B;\n```"} />,
-    );
+  it("renders a streamed diagram only after its fence closes", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mermaid.parse.mockClear();
+    mermaid.render.mockClear();
+    let renderer: ReactTestRenderer | undefined;
+    const partial = "```mermaid\ngraph TD;\n  StreamA-->StreamB;";
+    try {
+      await act(async () => {
+        renderer = create(<ChatMarkdown cwd="/tmp/project" text={partial} isStreaming />);
+      });
+      await act(async () => {
+        renderer!.update(
+          <ChatMarkdown cwd="/tmp/project" text={`${partial}\n  StreamB-->StreamC;`} isStreaming />,
+        );
+      });
+      expect(mermaid.parse).not.toHaveBeenCalled();
+      expect(mermaid.render).not.toHaveBeenCalled();
 
-    expect(html).toContain('data-language="mermaid"');
-    expect(html).toContain('aria-label="Show mermaid source"');
-    // The highlighted source stays visible until a diagram render succeeds.
-    expect(html).toContain("A--&gt;B;");
+      await act(async () => {
+        renderer!.update(
+          <ChatMarkdown cwd="/tmp/project" text={partial + "\n```\nStill streaming"} isStreaming />,
+        );
+      });
+      expect(mermaid.parse).toHaveBeenCalledTimes(1);
+      expect(mermaid.render).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("switches between the rendered diagram and its source", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await getSyntaxHighlighterPromise("mermaid");
+      await act(async () => {
+        renderer = create(
+          <ChatMarkdown
+            cwd="/tmp/project"
+            text={"```mermaid\ngraph TD;\n  ToggleA-->ToggleB;\n```"}
+          />,
+        );
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("ToggleA");
+      await act(async () => {
+        codeButton(renderer!, "Show mermaid source").onClick?.({} as never);
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("ToggleA");
+      await act(async () => {
+        codeButton(renderer!, "Show diagram").onClick?.({} as never);
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("ToggleA");
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps plain code block chrome for other languages", () => {

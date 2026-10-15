@@ -248,16 +248,6 @@ describe("ClaudeSettings auto-compaction", () => {
   });
 });
 
-describe("ClientSettings diff expansion", () => {
-  it("collapses unchanged diff regions by default", () => {
-    expect(decodeClientSettings({}).diffExpandUnchanged).toBe(false);
-  });
-
-  it("accepts an explicit preference", () => {
-    expect(decodeClientSettings({ diffExpandUnchanged: true }).diffExpandUnchanged).toBe(true);
-  });
-});
-
 describe("ClientSettings notifications", () => {
   it("requires opt-in when existing settings omit notification preferences", () => {
     expect(decodeClientSettings({}).notificationMode).toBe("off");

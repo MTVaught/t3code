@@ -1,5 +1,4 @@
 import { Button } from "../ui/button";
-import { formatThreadSpend } from "@t3tools/shared/threadUsage";
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -140,9 +139,6 @@ export function ContextWindowMeter(props: {
           ) : null}
           {!hasContextMaximum ? (
             <div className="text-2xs text-secondary-label">Context capacity unavailable</div>
-          ) : null}
-          {usage.threadSpend ? (
-            <UsageRow label="Thread spend" value={formatThreadSpend(usage.threadSpend)} />
           ) : null}
           {showTotalProcessed ? (
             <div className="flex items-center justify-between gap-3 text-2xs leading-4">

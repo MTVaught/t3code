@@ -29,16 +29,22 @@ let renderQueue: Promise<unknown> = Promise.resolve();
  * theme in module-level config, so renders are serialized to keep an
  * initialize/render pair from interleaving with one for the other theme.
  */
-function renderMermaidSvg(code: string, theme: "light" | "dark"): Promise<string | null> {
+function renderMermaidSvg(
+  code: string,
+  theme: "light" | "dark",
+  isCurrent: () => boolean,
+): Promise<string | null> {
   const result = renderQueue.then(async () => {
+    if (!isCurrent()) return null;
     const mermaid = await getMermaid();
+    if (!isCurrent()) return null;
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme: theme === "dark" ? "dark" : "default",
     });
     const parsed = await mermaid.parse(code, { suppressErrors: true });
-    if (parsed === false) {
+    if (parsed === false || !isCurrent()) {
       return null;
     }
     const { svg } = await mermaid.render(`chat-markdown-mermaid-${++renderSequence}`, code);
@@ -54,8 +60,8 @@ function createMermaidCacheKey(code: string, theme: "light" | "dark"): string {
 
 /**
  * Renders a ```mermaid fence as a diagram, showing `fallback` (the highlighted
- * code block) until a render succeeds. Invalid source keeps the fallback, so a
- * diagram streaming in stays readable as code and flips once it parses.
+ * code block) until a render succeeds. Invalid source keeps the fallback.
+ * Queued work is skipped if its component unmounts or its source changes.
  */
 export function MarkdownMermaidDiagram({
   code,
@@ -75,7 +81,7 @@ export function MarkdownMermaidDiagram({
       return;
     }
     let cancelled = false;
-    renderMermaidSvg(code, theme)
+    renderMermaidSvg(code, theme, () => !cancelled)
       .then((svg) => {
         if (svg == null) return;
         renderedMermaidCache.set(cacheKey, svg, svg.length * 2);

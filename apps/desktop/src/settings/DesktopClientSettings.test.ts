@@ -38,7 +38,6 @@ const clientSettings: ClientSettings = {
   dismissedProviderUpdateNotificationKeys: [],
   diffFilesCollapsed: true,
   diffIgnoreWhitespace: true,
-  diffExpandUnchanged: false,
   diffLayout: "stacked",
   environmentIdentificationMode: "artwork",
   favorites: [],

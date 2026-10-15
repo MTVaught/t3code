@@ -48,7 +48,7 @@ export interface ProviderRegistryShape {
   readonly refreshInstance: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
-  readonly getProjectMetadata?: (
+  readonly getProjectMetadata: (
     instanceId: ProviderInstanceId,
     cwd: string,
   ) => Effect.Effect<ServerProviderProjectMetadata>;

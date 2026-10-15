@@ -53,12 +53,6 @@ export interface ProviderAdapterCapabilities {
   readonly promptlessTurnContinuation?: boolean;
   /** False when native conversation history cannot be rewound. */
   readonly supportsConversationRollback?: boolean;
-  readonly midTurnSteering?: boolean;
-  readonly interactiveApprovals?: boolean;
-  readonly structuredUserInput?: boolean;
-  /** False when the adapter must not receive the `t3-code` MCP server. */
-  readonly t3McpInjection?: boolean;
-  readonly attachments?: boolean;
 }
 
 export interface ProviderThreadTurnSnapshot {

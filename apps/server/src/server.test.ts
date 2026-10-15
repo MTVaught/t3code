@@ -135,7 +135,6 @@ import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationE
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
-import { DEFAULT_SERVER_PROVIDER_CAPABILITIES } from "./provider/providerSnapshot.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as ProviderService from "./provider/Services/ProviderService.ts";
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
@@ -6992,7 +6991,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           version: "1.0.0",
           status: "ready" as const,
           auth: { status: "authenticated" as const },
-          capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
           checkedAt: "2026-04-11T00:00:00.000Z",
           models: [],
           slashCommands: [],
@@ -7372,7 +7370,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             models: [],
             slashCommands: [],
             skills: [],
-            capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
             ...(hasLimits
               ? {
                   usageLimits: {
@@ -7451,7 +7448,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           version: "1.0.0",
           status: "ready" as const,
           auth: { status: "authenticated" as const },
-          capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
           checkedAt: "2026-04-11T00:00:00.000Z",
           models: [],
           slashCommands: [],
@@ -7510,7 +7506,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           models: [],
           slashCommands: [],
           skills: [],
-          capabilities: DEFAULT_SERVER_PROVIDER_CAPABILITIES,
         };
         const hub = {
           id: UsageLimitSourceId.make("hub"),
