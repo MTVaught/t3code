@@ -15,12 +15,11 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
 import { MiddleTruncate } from "../ui/middle-truncate";
-import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
 
 interface WorktreeSetupCardProps {
@@ -88,20 +87,6 @@ function stageRowClassName(status: WorktreeSetupStage["status"]): string {
   }
 }
 
-/** Same shimmer treatment as the live tool rows in the timeline. */
-function ShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
-}
-
 function headerLabel(snapshot: WorktreeSetupSnapshot): string {
   switch (snapshot.phase) {
     case "running":
@@ -128,7 +113,6 @@ function SetupHeaderRow({
   snapshot: WorktreeSetupSnapshot;
   totalElapsed: number | null;
 }) {
-  const running = snapshot.phase === "running";
   const failed = snapshot.phase === "failed";
   const finishedWithFailedStage =
     snapshot.phase === "done" && snapshot.stages.some((stage) => stage.status === "failed");
@@ -146,12 +130,8 @@ function SetupHeaderRow({
           tone,
         )}
       >
-        <span
-          ref={running ? observeVisibleAnimation : undefined}
-          className="relative min-w-0 shrink overflow-hidden whitespace-nowrap"
-        >
+        <span className="relative min-w-0 shrink overflow-hidden whitespace-nowrap">
           <span className="block truncate">{text}</span>
-          {running ? <ShimmerOverlay>{text}</ShimmerOverlay> : null}
         </span>
         {totalElapsed !== null ? (
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
@@ -187,7 +167,6 @@ function StageRow({
           : stage.detail;
   return (
     <div
-      ref={running ? observeVisibleAnimation : undefined}
       className={cn(
         "relative flex min-h-6 min-w-0 items-center gap-1.5 overflow-hidden rounded-md px-0.5 py-0.5 text-sm leading-relaxed",
         stageRowClassName(stage.status),
@@ -208,16 +187,6 @@ function StageRow({
         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {formatDuration(elapsed)}
         </span>
-      ) : null}
-      {running ? (
-        <ShimmerOverlay>
-          <span className="flex min-h-6 items-center gap-1.5 px-0.5 py-0.5">
-            <span className="flex size-6 shrink-0 items-center justify-center">
-              <StageIcon status={stage.status} />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-          </span>
-        </ShimmerOverlay>
       ) : null}
     </div>
   );
