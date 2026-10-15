@@ -10,6 +10,7 @@ import * as Stream from "effect/Stream";
 import * as String from "effect/String";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { isStableReleaseVersion } from "@t3tools/shared/cliRelease";
 
 const ReleaseChannel = Schema.Literals(["stable", "nightly", "preview"]);
 type ReleaseChannel = typeof ReleaseChannel.Type;
@@ -210,6 +211,7 @@ export const resolvePreviousReleaseTag = (
       }
 
       const candidates = tags
+        .filter((tag) => isStableReleaseVersion(tag.replace(/^v/, "")))
         .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
         .filter(
           (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,

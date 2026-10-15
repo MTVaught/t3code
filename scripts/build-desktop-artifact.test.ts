@@ -336,6 +336,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "release",
+        channel: "latest",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
@@ -349,6 +350,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "MTVaught",
         repo: "t3code",
         releaseType: "release",
+        channel: "latest",
       });
     }),
   );
@@ -386,12 +388,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(preview, "publish");
       assert.notProperty(previewChannel, "publish");
+      const candidate = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.0.rc.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const final = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.notProperty(candidate, "publish");
+      assert.deepStrictEqual(final.publish, release.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
           owner: "pingdotgg",
           repo: "t3code",
           releaseType: "release",
+          channel: "latest",
         },
       ]);
     }).pipe(

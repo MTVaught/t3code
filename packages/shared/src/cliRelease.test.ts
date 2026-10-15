@@ -8,6 +8,7 @@ import {
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
   newestCliReleaseVersion,
+  isStableReleaseVersion,
   parseChecksums,
 } from "./cliRelease.ts";
 
@@ -67,7 +68,7 @@ describe("cliRelease", () => {
     expect(cliReleaseChannelOf("1.2.3")).toBe("stable");
     expect(cliReleaseChannelOf("1.2.3-nightly.20260911.4")).toBe("nightly");
     expect(cliReleaseChannelOf("1.2.3-preview.20260911.4")).toBe("preview");
-    // A prerelease that is not one of our trains is not silently a nightly.
+    // A pinned candidate follows stable for updates, but is not eligible for stable selection.
     expect(cliReleaseChannelOf("1.2.3-rc.1")).toBe("stable");
   });
 
@@ -84,6 +85,35 @@ describe("cliRelease", () => {
     expect(newestCliReleaseVersion(releases, "nightly")).toBe("1.2.4-nightly.20260912.7");
     expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3");
     expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
+  });
+
+  it("accepts final fork releases on stable while skipping candidates and other prereleases", () => {
+    const releases = [
+      { tag_name: "v0.0.46-treher.1.1", draft: true },
+      { tag_name: "v0.0.46-treher.1.0.rc.2" },
+      { tag_name: "v0.0.46-rc.1" },
+      { tag_name: "v0.0.46-nightly.20261016.1" },
+      { tag_name: "v0.0.46-preview.20261016.2" },
+      { tag_name: "v0.0.45-treher.2.1" },
+      { tag_name: "v0.0.45-treher.1.1" },
+      { tag_name: "v0.0.44" },
+    ];
+    expect(newestCliReleaseVersion(releases, "stable")).toBe("0.0.45-treher.2.1");
+    expect(newestCliReleaseVersion(releases.slice(0, 5), "stable")).toBeUndefined();
+  });
+
+  it.each([
+    ["0.0.45", true],
+    ["0.0.45-treher.1.1", true],
+    ["0.0.45-treher.12.1", true],
+    ["0.0.45-treher.1.0.rc.1", false],
+    ["0.0.45-treher.1.1.rc.1", false],
+    ["0.0.45-treher.0.1", false],
+    ["0.0.45-rc.1", false],
+    ["0.0.45-nightly.20261015.1", false],
+    ["0.0.45-preview.20261015.1", false],
+  ])("classifies stable version %s", (version, expected) => {
+    expect(isStableReleaseVersion(version)).toBe(expected);
   });
 
   it("pages through the release index at the largest page GitHub allows", () => {

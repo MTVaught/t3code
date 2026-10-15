@@ -23,7 +23,8 @@ irm https://raw.githubusercontent.com/MTVaught/t3code/main/scripts/install.ps1 |
 This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
 afterwards, that directory is not on your `PATH` yet; the installer prints the
 line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
-`T3CODE_VERSION` to pin an exact version.
+`T3CODE_VERSION` to pin an exact version. Stable installs and updates accept final Treher
+releases and exclude release candidates. To install a candidate, set `T3CODE_VERSION` explicitly.
 
 | Task                                             | Command                                                   |
 | ------------------------------------------------ | --------------------------------------------------------- |

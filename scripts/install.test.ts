@@ -51,20 +51,67 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
     }
   });
 
-  it.each([false, true])(
-    "preserves download and install behavior (HTTP failure: %s)",
-    async (fail) => {
+  it.each([
+    { fail: false, version: "1.2.3", discover: false },
+    { fail: true, version: "1.2.3", discover: false },
+    { fail: false, version: "0.0.45-treher.2.1", discover: true },
+  ])(
+    "installs $version with channel discovery $discover and HTTP failure $fail",
+    async ({ fail, version, discover }) => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-progress-"));
-      const version = "1.2.3";
+      const helpers = NodePath.join(root, "helpers");
+      await NodeFSP.mkdir(helpers);
+      const realCurl = NodeChildProcess.execFileSync("sh", ["-c", "command -v curl"], {
+        encoding: "utf8",
+      }).trim();
+      await NodeFSP.writeFile(
+        NodePath.join(root, "releases.json"),
+        JSON.stringify(
+          [
+            { tag_name: "v0.0.46-treher.1.0.rc.2" },
+            { tag_name: "v0.0.46-rc.1" },
+            { tag_name: "v0.0.46-nightly.20261016.1" },
+            { tag_name: "v0.0.46-preview.20261016.2" },
+            { tag_name: `v${version}` },
+            { tag_name: "v0.0.44" },
+          ],
+          null,
+          2,
+        ),
+      );
+      await NodeFSP.writeFile(
+        NodePath.join(helpers, "curl"),
+        `#!/bin/sh
+index_request=false
+previous=
+output=
+for argument do
+  if [ "$previous" = "-o" ]; then output="$argument"; fi
+  case "$argument" in https://api.github.com/repos/MTVaught/t3code/releases*) index_request=true ;; esac
+  previous="$argument"
+done
+if "$index_request"; then
+  cp "$TREHER_TEST_RELEASE_INDEX" "$output"
+  printf 200
+else
+  exec "$TREHER_TEST_CURL" "$@"
+fi
+`,
+        { mode: 0o755 },
+      );
       const stem = `t3-${version}-linux-${HostProcessArchitecture.defaultValue()}`;
       const archiveName = `${stem}.tar.gz`;
       let resumeDownload: (() => void) | undefined;
       let sawPartialProgress = false;
       let output = "";
       await NodeFSP.mkdir(NodePath.join(root, stem));
-      await NodeFSP.writeFile(NodePath.join(root, stem, "t3"), "#!/bin/sh\necho 't3 v1.2.3'\n", {
-        mode: 0o755,
-      });
+      await NodeFSP.writeFile(
+        NodePath.join(root, stem, "t3"),
+        `#!/bin/sh\necho 't3 v${version}'\n`,
+        {
+          mode: 0o755,
+        },
+      );
       await NodeFSP.writeFile(
         NodePath.join(root, stem, "payload"),
         NodeCrypto.randomBytes(64 * 1024),
@@ -101,7 +148,11 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
           ...process.env,
           TERM: "xterm",
           NO_COLOR: "1",
-          T3CODE_VERSION: version,
+          PATH: `${helpers}:${process.env.PATH}`,
+          TREHER_TEST_CURL: realCurl,
+          TREHER_TEST_RELEASE_INDEX: NodePath.join(root, "releases.json"),
+          T3CODE_VERSION: discover ? "" : version,
+          T3CODE_CHANNEL: "stable",
           T3CODE_HOME: NodePath.join(root, "home"),
           T3CODE_INSTALL_BIN_DIR: NodePath.join(root, "bin"),
           T3CODE_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
@@ -134,15 +185,15 @@ describe.skipIf(HostProcessPlatform.defaultValue() !== "linux")("installer termi
           expect(sawPartialProgress).toBe(true);
           expect(output).toContain("100%");
           expect(output).toContain("0.1 / 0.1 MB");
-          expect(output).toContain("Installed T3 Code 1.2.3");
+          expect(output).toContain(`Installed T3 Code ${version}`);
           expect(
             await NodeFSP.readFile(NodePath.join(versions, version, ".install-complete"), "utf8"),
-          ).toBe("1.2.3\n");
+          ).toBe(`${version}\n`);
           expect(
             NodeChildProcess.execFileSync(NodePath.join(root, "bin/t3"), ["--version"], {
               encoding: "utf8",
             }).trim(),
-          ).toBe("t3 v1.2.3");
+          ).toBe(`t3 v${version}`);
           expect(await NodeFSP.readdir(versions)).toEqual([version]);
         }
       } finally {

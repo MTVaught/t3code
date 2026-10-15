@@ -86,8 +86,11 @@ colliding with upstream tags.
   GLIBC 2.28, exercises the terminal, resource monitor, and file finder, and verifies that the
   desktop shell starts its bundled server and creates the main window.
 - Publishes one GitHub Release with all produced files.
-  - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
-  - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
+  - Plain `X.Y.Z` versions and final fork tags such as `X.Y.Z-treher.1.1` are stable releases
+    and are marked as the repository's latest release.
+  - Release candidates such as `X.Y.Z-treher.1.0.rc.1` and other prerelease tags stay GitHub
+    prereleases. They have no desktop update feed and are excluded from stable installation
+    and update selection. Use `T3CODE_VERSION` to install a candidate explicitly.
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
@@ -254,7 +257,8 @@ secrets below. Two knobs matter:
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
 `v0.0.0-test.1`, classifies the run as the stable channel and creates a real GitHub Release with
-updater manifests and CLI archives. Do not push a test tag to validate the workflow.
+CLI archives. Only stable finals and nightlies include updater manifests. Do not push a test
+tag to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable

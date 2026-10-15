@@ -81,10 +81,15 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
   "preview",
 ];
 
-/** The release train a version was published on, derived from its prerelease tag. */
+/** Default update train for an installed version. Candidates follow stable to reach a final. */
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
   const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
   return channel === "nightly" || channel === "preview" ? channel : "stable";
+}
+
+/** Stable accepts plain versions and final fork tags, never release candidates. */
+export function isStableReleaseVersion(version: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-treher\.[1-9]\d*\.1)?$/.test(version);
 }
 
 /**
@@ -113,6 +118,7 @@ export function newestCliReleaseVersion(
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
     if (version === undefined) continue;
+    if (channel === "stable" && !isStableReleaseVersion(version)) continue;
     if (cliReleaseChannelOf(version) === channel) return version;
   }
   return undefined;
