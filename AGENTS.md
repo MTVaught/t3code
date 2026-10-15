@@ -45,6 +45,9 @@ upstream. Change this section when the maintainer changes the fork's scope.
   changing provider contracts, settings, authentication, or runtime behavior.
   Use upstream capability fields and service conventions. Add fork interfaces only for Bob
   features that have callers. Bob is the default provider for text generation.
+- Disable browser cookie import on all platforms. Keep built-in browser profiles and direct
+  sign-in. Do not build or package `t3-browser-secret`, scan other browsers for cookies, or
+  request keyring or Full Disk Access permissions for cookie import.
 - Keep terminal selection actions on right-click by default. Use upstream clipboard shortcuts.
 - Use the full upstream review experience, including loading large diffs one file at a time.
   Do not restore the retired fork staging filters, follow-up flags, file search, or J/K

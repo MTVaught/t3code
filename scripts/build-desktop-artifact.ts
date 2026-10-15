@@ -135,7 +135,6 @@ export function resolveLinuxNativePrebuildPaths(directory: string) {
     nodePty: `${root}pty.node`,
     resourceMonitor: `${root}t3-resource-monitor`,
     fff: `${root}libfff_c.so`,
-    browserSecret: `${root}t3-browser-secret`,
   } as const;
 }
 
@@ -281,11 +280,6 @@ export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
   { id: "rust-target", description: "Requested Rust standard library", packages: [] },
   { id: "cc", description: "C/C++ build toolchain", packages: ["build-essential"] },
   { id: "make", description: "Make", packages: ["build-essential"] },
-  {
-    id: "libsecret",
-    description: "libsecret development headers and pkg-config",
-    packages: ["libsecret-1-dev", "pkg-config"],
-  },
   { id: "imagemagick", description: "ImageMagick", packages: ["imagemagick"] },
 ] as const;
 
@@ -419,15 +413,6 @@ const desktopIconPlatformNames = {
   linux: "Linux",
   win: "Windows",
 } satisfies Record<typeof BuildPlatform.Type, string>;
-
-export class LinuxBrowserSecretHostError extends Schema.TaggedError<LinuxBrowserSecretHostError>()(
-  "LinuxBrowserSecretHostError",
-  { hostPlatform: Schema.String },
-) {
-  override get message(): string {
-    return `Linux desktop builds must run on a Linux host: the browser secret helper links against libsecret and cannot be built on '${this.hostPlatform}'.`;
-  }
-}
 
 export class DesktopIconSourceMissingError extends Schema.TaggedError<DesktopIconSourceMissingError>()(
   "DesktopIconSourceMissingError",
@@ -714,12 +699,7 @@ export class WindowsPackagedPayloadValidationError extends Schema.TaggedError<Wi
   }
 }
 
-const LinuxNativePrebuildComponent = Schema.Literals([
-  "node-pty",
-  "resource-monitor",
-  "fff",
-  "browser-secret",
-]);
+const LinuxNativePrebuildComponent = Schema.Literals(["node-pty", "resource-monitor", "fff"]);
 
 export class LinuxNativePrebuildMissingError extends Schema.TaggedError<LinuxNativePrebuildMissingError>()(
   "LinuxNativePrebuildMissingError",
@@ -1070,10 +1050,6 @@ export const LINUX_CAPTURE_EXTRA_RESOURCES = [
     filter: gnomeCaptureBundle.files,
   },
 ] as const;
-export const LINUX_BROWSER_SECRET_EXTRA_RESOURCES = [
-  { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
-] as const;
-
 export function resolveFffNativeDependencies(
   platform: typeof BuildPlatform.Type,
   arch: typeof BuildArch.Type,
@@ -1455,10 +1431,6 @@ export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild"
       "rust-target": needsRust ? rustTargetIsInstalled(rustTarget) : Effect.succeed(true),
       cc: desktopBuildProbeSucceeds(ChildProcess.make("cc", ["--version"]), "cc"),
       make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
-      libsecret: desktopBuildProbeSucceeds(
-        ChildProcess.make("pkg-config", ["--exists", "libsecret-1"]),
-        "libsecret",
-      ),
       imagemagick: Effect.all([
         desktopBuildProbeSucceeds(ChildProcess.make("magick", ["-version"]), "magick"),
         desktopBuildProbeSucceeds(ChildProcess.make("convert", ["-version"]), "convert"),
@@ -1999,62 +1971,6 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   }
 });
 
-export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (input: {
-  readonly repoRoot: string;
-  readonly stageResourcesDir: string;
-  readonly platform: typeof BuildPlatform.Type;
-  readonly arch: typeof BuildArch.Type;
-  readonly verbose: boolean;
-  readonly linuxNativePrebuilds?: string | undefined;
-}) {
-  if (input.platform !== "linux") return;
-  // Release builds ship the helper compiled inside the RHEL 8 container with
-  // the other Linux prebuilds, so the AppImage keeps its glibc 2.28 floor.
-  // Compiling here would link against the Ubuntu runner's newer glibc.
-  if (input.linuxNativePrebuilds !== undefined) {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const prebuildPath = resolveLinuxNativePrebuildPaths(input.linuxNativePrebuilds).browserSecret;
-    if (!(yield* fs.exists(prebuildPath))) {
-      return yield* new LinuxNativePrebuildMissingError({
-        component: "browser-secret",
-        prebuildPath,
-      });
-    }
-    const destination = path.join(input.stageResourcesDir, "browser-secret", "t3-browser-secret");
-    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
-    yield* fs.copyFile(prebuildPath, destination);
-    yield* fs.chmod(destination, 0o755);
-    return;
-  }
-  // The helper links against the host's libsecret, so it can only be built on
-  // Linux; the build script is a no-op elsewhere. A Linux artifact from
-  // another host would ship without it and every v11 cookie import would
-  // report the keyring as unavailable, so refuse rather than package that
-  // silently. `universal` is a mac-only arch the option type still admits;
-  // the helper script rejects it, so it maps to the concrete x64 the Linux
-  // resource monitor uses for the same request.
-  const hostPlatform = yield* HostProcessPlatform;
-  if (hostPlatform !== "linux") {
-    return yield* new LinuxBrowserSecretHostError({ hostPlatform });
-  }
-  const path = yield* Path.Path;
-  yield* runCommand(
-    ChildProcess.make(
-      "node",
-      [
-        path.join(input.repoRoot, "apps/desktop/scripts/build-browser-secret.mjs"),
-        "--arch",
-        input.arch === "arm64" ? "arm64" : "x64",
-        "--output",
-        path.join(input.stageResourcesDir, "browser-secret", "t3-browser-secret"),
-      ],
-      { cwd: input.repoRoot },
-    ),
-    { label: "build Linux browser secret helper", verbose: input.verbose },
-  );
-});
-
 function generateMacIconSet(
   sourcePng: string,
   targetIcns: string,
@@ -2417,7 +2333,6 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
-      ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -3390,14 +3305,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         verbose: options.verbose,
       });
   }
-  yield* stageBrowserSecret({
-    repoRoot,
-    stageResourcesDir,
-    platform: options.platform,
-    arch: options.arch,
-    verbose: options.verbose,
-    linuxNativePrebuilds: options.platform === "linux" ? options.linuxNativePrebuilds : undefined,
-  });
 
   yield* assertPlatformBuildResources(
     options.platform,

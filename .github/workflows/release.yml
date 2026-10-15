@@ -182,9 +182,6 @@ jobs:
       - name: Typecheck
         run: vp run --concurrency-limit 2 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' typecheck
 
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
       # Desktop dependencies and tooling. Server tests run on the shards below.
       # Same split as ci.yml: these `test` tasks declare no `dependsOn`
       # and resolve workspace deps from source, so `--parallel` only drops idle
@@ -273,11 +270,6 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
-      # @t3tools/desktop#build compiles the Linux browser secret helper on a
-      # Linux host before packing, and that needs libsecret headers.
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
       # Runs t3#build (which depends on @t3tools/web#build) and
       # @t3tools/desktop#build, so apps/server/dist holds the server bundle
       # plus the web client and apps/desktop/dist-electron the Electron main.
@@ -311,7 +303,7 @@ jobs:
       FFF_SOURCE_VERSION: 0.9.4
     steps:
       - name: Install RHEL 8 build dependencies
-        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils libsecret-devel pkgconf-pkg-config
+        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -384,10 +376,6 @@ jobs:
             linux-native/libfff_c.so
           cp linux-native/libfff_c.so \
             .release/native-runtime/node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so
-          # The browser import helper links against libsecret; build it here so
-          # the AppImage ships a glibc 2.28 binary instead of the Ubuntu runner's.
-          node apps/desktop/scripts/build-browser-secret.mjs --arch x64 \
-            --output linux-native/t3-browser-secret
 
       - name: Verify native functionality on RHEL 8
         shell: bash
@@ -396,7 +384,7 @@ jobs:
           test "$(rpm -E '%{rhel}')" = "8"
           test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
 
-          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so linux-native/t3-browser-secret; do
+          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so; do
             required="$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -Vu | tail -1)"
             if [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
               echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
@@ -749,7 +737,6 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev pkg-config
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
               sudo apt-get install -y imagemagick
           fi

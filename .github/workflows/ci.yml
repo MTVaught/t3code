@@ -94,18 +94,6 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
-      - uses: ./.github/actions/setup-apt-mirrors
-
-      # Runs in the background while Vite+ installs; the step before the build waits for it.
-      - name: Start installing browser secret helper build libraries
-        run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/t3code-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
-
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -115,13 +103,6 @@ jobs:
 
       - name: Ensure Electron runtime is installed
         run: vp run --filter @t3tools/desktop ensure:electron
-
-      - name: Finish installing browser secret helper build libraries
-        timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
 
       - name: Build desktop pipeline
         run: vp run build:desktop
@@ -148,19 +129,6 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
 
-      - uses: ./.github/actions/setup-apt-mirrors
-
-      # The desktop tests compile the browser secret helper. The install runs in
-      # the background while Vite+ installs; the step before the tests waits for it.
-      - name: Start installing browser secret helper build libraries
-        run: |
-          sudo sed -i 's|http://|https://|g' /etc/apt/t3code-ubuntu-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
-          (
-            set +e
-            sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-            echo "$?" > "$RUNNER_TEMP/apt-status"
-          ) > "$RUNNER_TEMP/apt.log" 2>&1 < /dev/null &
-
       - name: Setup Vite+
         uses: voidzero-dev/setup-vp@v1
         with:
@@ -176,13 +144,6 @@ jobs:
 
       - name: Test nightly release checks
         run: node --test .github/scripts/check-nightly-release.test.cjs
-
-      - name: Finish installing browser secret helper build libraries
-        timeout-minutes: 5
-        run: |
-          until test -s "$RUNNER_TEMP/apt-status"; do sleep 1; done
-          cat "$RUNNER_TEMP/apt.log"
-          exit "$(cat "$RUNNER_TEMP/apt-status")"
 
       - name: Test
         run: vp run --parallel --concurrency-limit 4 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' --filter '!t3' --filter '!@t3tools/web' test

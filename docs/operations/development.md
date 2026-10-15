@@ -148,29 +148,29 @@ Packaged desktop windows load the bundled UI from the `treher-t3code://app/` roo
 
 ### Linux AppImage prerequisites
 
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
-Rust, C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
+Install Rust, C/C++ build tools, and ImageMagick for Linux AppImage builds.
+Treher disables browser cookie import and does not build its keyring helper.
 
 Ubuntu and Debian:
 
 ```sh
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential libsecret-1-dev pkg-config imagemagick
+sudo apt-get install cargo rustc build-essential imagemagick
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install rust cargo gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick
+sudo dnf install rust cargo gcc gcc-c++ make ImageMagick
 ```
 
 Arch Linux:
 
 ```sh
-sudo pacman -S rust base-devel libsecret pkgconf imagemagick
+sudo pacman -S rust base-devel imagemagick
 ```
 
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
+The C toolchain is also needed for Linux desktop development.
 
 ### macOS DMG prerequisites
 

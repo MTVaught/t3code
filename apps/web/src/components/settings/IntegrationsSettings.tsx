@@ -12,6 +12,7 @@ import { DeviceHostsSettings } from "./DeviceHostsSettings";
  * @module IntegrationsSettings
  */
 import {
+  BROWSER_COOKIE_IMPORT_ENABLED,
   BrowserImportFailureReason,
   BROWSER_PROFILE_MAX_COUNT,
   type BrowserLinkTarget,
@@ -1035,7 +1036,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
   // straight away so it doesn't reflow on open, and the source list is stable
   // (names only) since choosing what to import happens in the wizard, not here.
   const loadSources = useCallback(() => {
-    if (!previewBridge) return;
+    if (!BROWSER_COOKIE_IMPORT_ENABLED || !previewBridge) return;
     void previewBridge
       .listBrowserImportSources()
       .then(setSources)
@@ -1193,44 +1194,48 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
             {atProfileLimit ? (
               <MenuItem disabled>You&rsquo;ve reached the profile limit</MenuItem>
             ) : null}
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuGroupLabel>Import from</MenuGroupLabel>
-              {sources === null ? (
-                <MenuItem disabled>Looking for browsers…</MenuItem>
-              ) : importableSources.length === 0 ? (
-                <MenuItem disabled>No supported browsers found</MenuItem>
-              ) : (
-                // Every source is a plain row — running, needs-permission and
-                // ready all look the same here. The wizard picks up whatever
-                // state the source is in and walks the user forward from there.
-                <>
-                  {importableSources.map((source) => (
-                    <MenuItem
-                      key={source.id}
-                      disabled={!settingsHydrated || primaryEnvironment == null}
-                      onClick={() => {
-                        if (!settingsHydrated || primaryEnvironment == null) return;
-                        setImportSession({
-                          source,
-                          environmentId: primaryEnvironment.environmentId,
-                          environmentName: resolveEnvironmentOptionLabel({
-                            isPrimary: true,
-                            environmentId: primaryEnvironment.environmentId,
-                            runtimeLabel: primaryEnvironment.label,
-                          }),
-                        });
-                      }}
-                    >
-                      {source.name}
-                    </MenuItem>
-                  ))}
-                  {primaryEnvironment == null ? (
-                    <MenuItem disabled>Connect to an environment to import cookies</MenuItem>
-                  ) : null}
-                </>
-              )}
-            </MenuGroup>
+            {BROWSER_COOKIE_IMPORT_ENABLED ? (
+              <>
+                <MenuSeparator />
+                <MenuGroup>
+                  <MenuGroupLabel>Import from</MenuGroupLabel>
+                  {sources === null ? (
+                    <MenuItem disabled>Looking for browsers…</MenuItem>
+                  ) : importableSources.length === 0 ? (
+                    <MenuItem disabled>No supported browsers found</MenuItem>
+                  ) : (
+                    // Every source is a plain row — running, needs-permission and
+                    // ready all look the same here. The wizard picks up whatever
+                    // state the source is in and walks the user forward from there.
+                    <>
+                      {importableSources.map((source) => (
+                        <MenuItem
+                          key={source.id}
+                          disabled={!settingsHydrated || primaryEnvironment == null}
+                          onClick={() => {
+                            if (!settingsHydrated || primaryEnvironment == null) return;
+                            setImportSession({
+                              source,
+                              environmentId: primaryEnvironment.environmentId,
+                              environmentName: resolveEnvironmentOptionLabel({
+                                isPrimary: true,
+                                environmentId: primaryEnvironment.environmentId,
+                                runtimeLabel: primaryEnvironment.label,
+                              }),
+                            });
+                          }}
+                        >
+                          {source.name}
+                        </MenuItem>
+                      ))}
+                      {primaryEnvironment == null ? (
+                        <MenuItem disabled>Connect to an environment to import cookies</MenuItem>
+                      ) : null}
+                    </>
+                  )}
+                </MenuGroup>
+              </>
+            ) : null}
           </MenuPopup>
         </Menu>
       }
@@ -1390,7 +1395,7 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-      {importSession ? (
+      {BROWSER_COOKIE_IMPORT_ENABLED && importSession ? (
         <BrowserImportWizard
           source={importSession.source}
           destinationEnvironmentName={importSession.environmentName}
