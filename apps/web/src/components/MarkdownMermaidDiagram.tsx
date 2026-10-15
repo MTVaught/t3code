@@ -97,7 +97,7 @@ export function MarkdownMermaidDiagram({
   }
   return (
     <div
-      className="chat-markdown-mermaid flex justify-center overflow-x-auto px-3 py-2 [&_svg]:h-auto [&_svg]:max-w-full"
+      className="flex justify-center overflow-x-auto px-3 py-2 [&_svg]:h-auto [&_svg]:max-w-full"
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   );

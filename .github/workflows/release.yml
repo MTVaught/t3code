@@ -1132,7 +1132,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [preflight, build, build_linux_cli, verify_linux_rhel8]
+    needs: [preflight, quality, quality_server, build, build_linux_cli, verify_linux_rhel8]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' && needs.build_linux_cli.result == 'success' && needs.verify_linux_rhel8.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -104,9 +104,9 @@ Upstream's `release.yml` also has `resolve_commit`, `relay_public_config`, `publ
 
 - The `t3` npm launcher and `@t3code/t3-<platform>-<arch>` packages are not published. `npx t3`
   resolves upstream's packages, not this fork's; use the install scripts or a release archive.
-- `packages/shared/src/cliRelease.ts` lists five archive platforms but the fork builds three.
-  `t3 update`, the install scripts, and desktop runtime installs 404 on `linux-arm64` and
-  `win32-arm64` hosts.
+- The fork supports macOS ARM64, Linux x64, and Windows x64 release archives. Installers and
+  managed runtime downloads reject unsupported targets before downloading. Linux ARM64, Windows
+  ARM64, and macOS x64 archives are not available.
 - No hosted web app or marketing site deploys, no relay deploy, no AUR package, no Discord post,
   and no version bump commit back to `main`.
 

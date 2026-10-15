@@ -1,13 +1,12 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "./Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 
 // Each group gets its own in-memory database; `it.layer` shares one per group.
-const freshDatabase = () => it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+const freshDatabase = () => it.layer(NodeSqliteClient.layer({ filename: ":memory:" }));
 
 freshDatabase()("ForkSchemaPatches: provider mode column", (it) => {
   it.effect("adds the provider mode column after migrations run, idempotently", () =>
@@ -54,6 +53,50 @@ freshDatabase()("ForkSchemaPatches: retired migration rows", (it) => {
         PRAGMA table_info(projection_threads)
       `;
       assert.ok(columns.some((column) => column.name === "provider_mode"));
+    }),
+  );
+});
+
+freshDatabase()("ForkSchemaPatches: retired review flags", (it) => {
+  it.effect("runs upstream migration 53 and preserves stored review flags", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 52 });
+      yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name, created_at)
+        VALUES (53, 'ProjectionThreadsReviewFollowUpPaths', CURRENT_TIMESTAMP)
+      `;
+      yield* sql`
+        INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('project', 'Project', '/workspace', '[]', '2026-10-01', '2026-10-01')
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode,
+          created_at, updated_at, review_follow_up_paths_json
+        ) VALUES (
+          'thread', 'project', 'Thread', '{"instanceId":"bob","model":"bob-managed"}',
+          'full-access', 'default', '2026-10-01', '2026-10-01', '["src/app.ts"]'
+        )
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(
+        executed.map(([id]) => id),
+        [53, 54],
+      );
+      yield* runMigrations();
+
+      const tables = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master WHERE name = 'pull_request_files_viewed'
+      `;
+      assert.equal(tables.length, 1);
+      const rows = yield* sql<{ readonly paths: string }>`
+        SELECT review_follow_up_paths_json AS paths FROM projection_threads WHERE thread_id = 'thread'
+      `;
+      assert.equal(rows[0]?.paths, '["src/app.ts"]');
+      const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`;
+      assert.ok(columns.some((column) => column.name === "auto_settle_disabled_at"));
     }),
   );
 });

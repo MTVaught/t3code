@@ -88,6 +88,7 @@ function hasImportBlockingActivity(
     (thread.reviewFollowUpPaths?.length ?? 0) > 0 ||
     thread.pinnedAt != null ||
     thread.pinOrderKey != null ||
+    thread.autoSettleDisabledAt != null ||
     thread.titleRegeneration != null ||
     thread.linkedPullRequest != null ||
     thread.unsettledAt != null ||

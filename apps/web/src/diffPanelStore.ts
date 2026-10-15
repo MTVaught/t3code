@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ReviewWorkingTreeFilter, ScopedThreadRef, TurnId } from "@t3tools/contracts";
+import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -10,17 +10,13 @@ export type DiffPanelSelection =
   | { kind: "unstaged" }
   | { kind: "turn"; turnId: TurnId; filePath: string | null; revealRequestId: number };
 
-const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
-const DEFAULT_WORKING_TREE_SELECTION: DiffPanelSelection = { kind: "unstaged" };
+const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
-  /** Which working-tree files the diff shows. Kept per thread so the reader's focus survives navigation. */
-  workingTreeFilterByThreadKey: Record<string, ReviewWorkingTreeFilter>;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
-  selectWorkingTreeFilter: (ref: ScopedThreadRef, filter: ReviewWorkingTreeFilter) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
   removeThread: (ref: ScopedThreadRef) => void;
@@ -36,7 +32,6 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
-      workingTreeFilterByThreadKey: {},
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -71,17 +66,6 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
             branchBaseRefByThreadKey: {
               ...state.branchBaseRefByThreadKey,
               [threadKey]: normalizedBaseRef,
-            },
-          };
-        }),
-      selectWorkingTreeFilter: (ref, filter) =>
-        set((state) => {
-          const threadKey = scopedThreadKey(ref);
-          if (state.workingTreeFilterByThreadKey[threadKey] === filter) return state;
-          return {
-            workingTreeFilterByThreadKey: {
-              ...state.workingTreeFilterByThreadKey,
-              [threadKey]: filter,
             },
           };
         }),
@@ -123,19 +107,13 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (
-            !(threadKey in state.byThreadKey) &&
-            !(threadKey in state.branchBaseRefByThreadKey) &&
-            !(threadKey in state.workingTreeFilterByThreadKey)
-          ) {
+          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          const { [threadKey]: _removedFilter, ...workingTreeFilterByThreadKey } =
-            state.workingTreeFilterByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey, workingTreeFilterByThreadKey };
+          return { byThreadKey, branchBaseRefByThreadKey };
         }),
     }),
     {
@@ -147,7 +125,6 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
-        workingTreeFilterByThreadKey: state.workingTreeFilterByThreadKey,
       }),
     },
   ),
@@ -156,19 +133,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
 export function selectThreadDiffPanelSelection(
   byThreadKey: Record<string, DiffPanelSelection>,
   ref: ScopedThreadRef | null | undefined,
-  hasWorkingTreeChanges = false,
 ): DiffPanelSelection {
   if (!ref) return DEFAULT_SELECTION;
-  return (
-    byThreadKey[scopedThreadKey(ref)] ??
-    (hasWorkingTreeChanges ? DEFAULT_WORKING_TREE_SELECTION : DEFAULT_SELECTION)
-  );
-}
-
-export function selectThreadWorkingTreeFilter(
-  workingTreeFilterByThreadKey: Record<string, ReviewWorkingTreeFilter>,
-  ref: ScopedThreadRef | null | undefined,
-): ReviewWorkingTreeFilter {
-  if (!ref) return "all";
-  return workingTreeFilterByThreadKey[scopedThreadKey(ref)] ?? "all";
+  return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
 }

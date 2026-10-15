@@ -185,20 +185,6 @@ export const VcsSwitchRefInput = Schema.Struct({
 });
 export type VcsSwitchRefInput = typeof VcsSwitchRefInput.Type;
 
-/** Adds the files to the index (`staged: true`) or resets them to HEAD in the index (`staged: false`). */
-export const VcsStagePathsInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  paths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
-  staged: Schema.Boolean,
-});
-export type VcsStagePathsInput = typeof VcsStagePathsInput.Type;
-
-export const VcsStagePathsResult = Schema.Struct({
-  /** Server clock when the index was updated; a preview generated later reflects it. */
-  completedAt: Schema.DateTimeUtc,
-});
-export type VcsStagePathsResult = typeof VcsStagePathsResult.Type;
-
 export const VcsInitInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   kind: Schema.optional(VcsDriverKind),
