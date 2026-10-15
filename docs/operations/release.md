@@ -85,9 +85,11 @@ colliding with upstream tags.
     executables use the same Azure Trusted Signing setup as the installer.
   - Each archive is extracted and executed on its build runner (`scripts/smoke-cli-archive.ts`)
     before it is uploaded.
-  - The Linux archive's node-pty is compiled by `vp install --prod` on the Ubuntu runner, so the
-    archive's glibc floor is that runner's, not RHEL 8's. Only the AppImage carries the RHEL 8
-    guarantee.
+  - The Linux archive is built and tested on Rocky Linux 8 with the same RHEL 8 native
+    components as the AppImage. Packaging requires `--linux-native-prebuilds`. Before upload,
+    the job checks the ELF glibc requirements and runs the terminal, resource monitor, file
+    finder, and packaged server on glibc 2.28. Windows embeds this verified archive for WSL.
+    A failed check blocks both the Windows build and publication.
 - Before publishing, extracts the Linux AppImage on Rocky Linux 8, rejects any packaged ELF above
   GLIBC 2.28, exercises the terminal, resource monitor, and file finder, and verifies that the
   desktop shell starts its bundled server and creates the main window.

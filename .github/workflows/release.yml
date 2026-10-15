@@ -443,20 +443,19 @@ jobs:
           path: linux-native/*
           if-no-files-found: error
 
-  # The self-contained Linux x64 CLI archive (t3-<version>-linux-x64.tar.gz).
-  # Its own job rather than a step of the Linux matrix entry because the
-  # Windows entry embeds it as the WSL runtime, and a matrix job cannot depend
-  # on a sibling entry. The archive ships the RHEL 8-built resource monitor;
-  # its node-pty is compiled by `vp install --prod` on this runner, so the
-  # archive's glibc floor is this runner's, not RHEL 8's (the AppImage is
-  # unaffected: it stages the RHEL 8 prebuilds and is verified on Rocky 8).
+  # Windows embeds this verified Linux archive as its WSL runtime.
+  # Build and run it on Rocky 8 so SSH hosts also retain the glibc 2.28 floor.
   build_linux_cli:
     name: Build CLI archive (linux-x64)
     needs: [preflight, build_bundle, build_linux_native]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_bundle.result == 'success' && needs.build_linux_native.result == 'success' }}
     runs-on: ubuntu-24.04
+    container: rockylinux:8
     timeout-minutes: 30
     steps:
+      - name: Install RHEL 8 runtime build dependencies
+        run: dnf install -y git gcc gcc-c++ make python3.11 curl xz tar gzip binutils findutils
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -483,7 +482,9 @@ jobs:
       - name: Install CLI dependencies
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
-        run: vp install --filter=t3... --filter=@t3tools/scripts...
+        # Native components come from the Rocky 8 build. In particular, do not
+        # run node-pty's install script with newer Node headers and GCC 8.
+        run: vp install --ignore-scripts --filter=t3... --filter=@t3tools/scripts...
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
@@ -532,9 +533,54 @@ jobs:
             --arch x64 \
             --version "${{ needs.preflight.outputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --linux-native-prebuilds "$PWD/linux-native" \
             --output-dir release-cli
 
-      - name: Smoke-test CLI archive
+      - name: Verify CLI native components on RHEL 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(rpm -E '%{rhel}')" = "8"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+          mkdir cli-rhel8
+          tar -xf release-cli/* -C cli-rhel8 --strip-components=1
+          while IFS= read -r -d '' binary; do
+            if ! readelf --file-header "$binary" >/dev/null 2>&1; then
+              continue
+            fi
+            required="$(readelf --version-info "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -Vu | tail -1 || true)"
+            if [[ -n "$required" ]] && [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done < <(find cli-rhel8 -type f -print0)
+          printf '%s\n' '{"type":"shutdown","version":2}' \
+            | cli-rhel8/resource-monitor/linux-x64/t3-resource-monitor \
+            | grep '"type":"hello"'
+          node --input-type=module - <<'NODE'
+          import { createRequire } from "node:module";
+          import { pathToFileURL } from "node:url";
+          const root = `${process.cwd()}/cli-rhel8`;
+          const require = createRequire(`${root}/probe.cjs`);
+          const pty = require("node-pty").spawn("/bin/sh", ["-c", "printf cli-rhel8-pty-ok"], { cols: 80, rows: 24 });
+          let output = "";
+          pty.onData(chunk => output += chunk);
+          await new Promise((resolve, reject) => pty.onExit(({exitCode}) => {
+            if (exitCode !== 0 || !output.includes("cli-rhel8-pty-ok")) reject(new Error("CLI terminal failed"));
+            else resolve();
+          }));
+          const { FileFinder } = await import(pathToFileURL(`${root}/node_modules/@ff-labs/fff-node/dist/src/index.js`).href);
+          const created = FileFinder.create({ basePath: root, disableMmapCache: true });
+          if (!created.ok) throw new Error(created.error);
+          const finder = created.value;
+          try {
+            const ready = await finder.waitForIndexReady(15_000);
+            const search = finder.fileSearch("index.html", { pageSize: 10 });
+            if (!ready.ok || !ready.value || !search.ok || !search.value.items.length) throw new Error("CLI search failed");
+          } finally { finder.destroy(); }
+          NODE
+
+      - name: Smoke-test CLI archive on RHEL 8
         shell: bash
         run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.preflight.outputs.version }}"
 

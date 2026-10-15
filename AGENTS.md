@@ -26,9 +26,10 @@ upstream. Change this section when the maintainer changes the fork's scope.
   and managed runtime selection must report unsupported targets before a download. Do not
   advertise Linux ARM64, Windows ARM64, or macOS x64 artifacts that the workflow does not build.
 - RHEL 8 x64 is a required fork platform, even though upstream does not support it. The Linux
-  AppImage, its bundled server, and required native components must work with glibc 2.28.
-  Preserve the Rocky Linux 8 native builds and packaged AppImage verification in release and
-  Linux preview workflows. Publishing must depend on successful RHEL 8 verification. Check
+  AppImage, Linux runtime archive, bundled server, and required native components must work
+  with glibc 2.28. Preserve the Rocky Linux 8 native builds and packaged AppImage verification
+  in release and Linux preview workflows, plus the runtime archive checks before upload.
+  Publishing must depend on successful RHEL 8 verification. Check
   dependency, Electron, and build-image updates for compatibility; do not raise the required
   glibc version or remove these checks to match upstream. Verify the packaged app in a RHEL 8
   environment or its compatible Rocky Linux 8 environment. A build or typecheck on a newer
@@ -43,7 +44,8 @@ upstream. Change this section when the maintainer changes the fork's scope.
 - Preserve IBM Bob provider support alongside the upstream providers. Include Bob when
   changing provider contracts, settings, authentication, or runtime behavior.
   Use upstream capability fields and service conventions. Add fork interfaces only for Bob
-  features that have callers.
+  features that have callers. Bob is the default provider for text generation.
+- Keep terminal selection actions on right-click by default. Use upstream clipboard shortcuts.
 - Use the full upstream review experience, including loading large diffs one file at a time.
   Do not restore the retired fork staging filters, follow-up flags, file search, or J/K
   navigation. Preserve compatibility with stored fork events and database state when removing

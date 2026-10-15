@@ -2577,7 +2577,7 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   }
 });
 
-const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(function* (input: {
+export const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(function* (input: {
   readonly stageAppDir: string;
   readonly arch: typeof BuildArch.Type;
   readonly prebuildDirectory: string;
@@ -2601,6 +2601,9 @@ const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(functio
   const nodePtyBuildDirectory = path.join(nodePtyDir, "build", "Release");
   yield* fs.makeDirectory(nodePtyBuildDirectory, { recursive: true });
   yield* fs.copyFile(prebuilds.nodePty, path.join(nodePtyBuildDirectory, "pty.node"));
+  const nodePtyPrebuildDirectory = path.join(nodePtyDir, "prebuilds", `linux-${architecture}`);
+  yield* fs.makeDirectory(nodePtyPrebuildDirectory, { recursive: true });
+  yield* fs.copyFile(prebuilds.nodePty, path.join(nodePtyPrebuildDirectory, "pty.node"));
 
   const fffPackageLink = path.join(
     input.stageAppDir,

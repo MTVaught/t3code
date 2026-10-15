@@ -56,6 +56,7 @@ import {
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
+  stageLinuxNativePrebuilds,
   stageDesktopDmgBackground,
   stageResourceMonitor,
   stageLinuxCaptureHelper,
@@ -1979,6 +1980,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resourceMonitorExecutableName("mac"), "t3-resource-monitor");
     assert.equal(resourceMonitorExecutableName("win"), "t3-resource-monitor.exe");
   });
+
+  it.effect("replaces both node-pty load paths and fff with RHEL 8 prebuilds", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const stageAppDir = path.join(root, "app");
+      const prebuildDirectory = path.join(root, "native");
+      const pty = path.join(stageAppDir, "node_modules/node-pty");
+      const fff = path.join(stageAppDir, "node_modules/@ff-labs/fff-bin-linux-x64-gnu");
+      yield* fs.makeDirectory(prebuildDirectory, { recursive: true });
+      yield* fs.makeDirectory(path.join(pty, "prebuilds/linux-x64"), { recursive: true });
+      yield* fs.makeDirectory(fff, { recursive: true });
+      yield* fs.writeFileString(path.join(prebuildDirectory, "pty.node"), "rhel8-pty");
+      yield* fs.writeFileString(path.join(prebuildDirectory, "libfff_c.so"), "rhel8-fff");
+      yield* fs.writeFileString(path.join(pty, "prebuilds/linux-x64/pty.node"), "unsupported-pty");
+      yield* fs.writeFileString(path.join(fff, "libfff_c.so"), "unsupported-fff");
+      yield* stageLinuxNativePrebuilds({ stageAppDir, prebuildDirectory, arch: "x64" });
+      assert.equal(yield* fs.readFileString(path.join(pty, "build/Release/pty.node")), "rhel8-pty");
+      assert.equal(
+        yield* fs.readFileString(path.join(pty, "prebuilds/linux-x64/pty.node")),
+        "rhel8-pty",
+      );
+      assert.equal(yield* fs.readFileString(path.join(fff, "libfff_c.so")), "rhel8-fff");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 
   it("resolves the RHEL-compatible Linux native prebuild contract", () => {
     assert.deepStrictEqual(resolveLinuxNativePrebuildPaths("/tmp/linux-native"), {
