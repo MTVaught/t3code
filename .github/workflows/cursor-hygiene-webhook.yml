@@ -8,7 +8,7 @@ on:
   issues:
     types: [opened, closed, reopened]
   discussion:
-    types: [created, closed, reopened]
+    types: [created]
 
 permissions:
   contents: read

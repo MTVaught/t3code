@@ -11,7 +11,8 @@ jobs:
       vars.T3CODE_ENABLE_MOBILE == 'true' &&
       contains(github.event.pull_request.labels.*.name, '🚀 Mobile Continuous Deployment') &&
       (github.event.action != 'labeled' || github.event.label.name == '🚀 Mobile Continuous Deployment')
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     concurrency:
       group: mobile-eas-preview-${{ github.event.pull_request.number }}
       cancel-in-progress: true

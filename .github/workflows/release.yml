@@ -44,7 +44,7 @@ permissions:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
@@ -83,7 +83,6 @@ jobs:
           DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
           DISPATCH_VERSION: ${{ github.event.inputs.version }}
           REF_TYPE: ${{ github.ref_type }}
-          NIGHTLY_DATE: ${{ github.run_started_at }}
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
@@ -92,7 +91,7 @@ jobs:
           # come from a v*.*.* tag push or a workflow_dispatch with a version.
           if [[ ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) \
              || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
-            nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
+            nightly_date="$(date -u +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
               --date "$nightly_date" \
@@ -567,7 +566,7 @@ jobs:
       matrix:
         include:
           - label: macOS arm64
-            runner: macos-latest
+            runner: macos-26
             timeout_minutes: 90
             platform: mac
             target: dmg
@@ -576,7 +575,7 @@ jobs:
             resource_key: darwin-arm64
             cli_archive: true
           - label: Linux x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             timeout_minutes: 30
             platform: linux
             target: AppImage
@@ -586,7 +585,7 @@ jobs:
             # The Linux archive is built by build_linux_cli (see there).
             cli_archive: false
           - label: Windows x64
-            runner: windows-latest
+            runner: windows-2025
             timeout_minutes: 30
             platform: win
             target: nsis
@@ -1134,7 +1133,7 @@ jobs:
     name: Publish GitHub Release
     needs: [preflight, quality, quality_server, build, build_linux_cli, verify_linux_rhel8]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' && needs.build_linux_cli.result == 'success' && needs.verify_linux_rhel8.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Fork note: upstream minted a GitHub App token (RELEASE_APP_ID /
     # RELEASE_APP_PRIVATE_KEY) here. A fork can publish releases with the
