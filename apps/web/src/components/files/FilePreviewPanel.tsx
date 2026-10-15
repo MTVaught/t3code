@@ -1277,7 +1277,13 @@ export default function FilePreviewPanel({
                   </div>
                 }
               >
-                <RenderedAsciiDocSurface contents={file.data.contents} />
+                <RenderedAsciiDocSurface
+                  key={relativePath}
+                  contents={file.data.contents}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  threadRef={threadRef}
+                />
               </Suspense>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
