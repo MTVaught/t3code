@@ -180,17 +180,17 @@ jobs:
         run: vp check
 
       - name: Typecheck
-        run: vp run typecheck
+        run: vp run --concurrency-limit 2 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' typecheck
 
       - name: Install browser secret helper build libraries
         run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
 
-      # Everything except `t3` (apps/server), which `quality_server` shards
-      # below. Same split as ci.yml: these `test` tasks declare no `dependsOn`
+      # Desktop dependencies and tooling. Server tests run on the shards below.
+      # Same split as ci.yml: these `test` tasks declare no `dependsOn`
       # and resolve workspace deps from source, so `--parallel` only drops idle
       # time between dependency layers.
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' --filter '!t3' test
 
   # apps/server sets `fileParallelism: false`, so its test files run one at a
   # time and on their own take longer than the rest of the suite. Running them
@@ -232,8 +232,7 @@ jobs:
   # built exactly once here and handed to every platform job as `js-bundle`.
   # Fork note: upstream bakes the T3 Connect relay URL and Clerk client config
   # into this bundle from its relay public-config job. The fork removed that
-  # job, so T3CODE_CLERK_* / T3CODE_RELAY_URL are not set here. Set them as
-  # repo variables and export them on this job if you run your own relay.
+  # job. This desktop fork does not inject hosted relay or Clerk configuration.
   build_bundle:
     name: Build JS bundle
     needs: [preflight]
@@ -559,8 +558,7 @@ jobs:
     # Fork note: the upstream relay public-config job (which reads T3 Connect
     # public config out of Cloudflare) was removed, so these T3CODE_CLERK_* /
     # T3CODE_RELAY_URL values are not injected here. Builds are unsigned and
-    # point at no relay. Set them as repo variables/secrets and wire them back
-    # in if you run your own relay.
+    # point at no hosted relay.
     strategy:
       fail-fast: false
       matrix:

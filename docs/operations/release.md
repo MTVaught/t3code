@@ -2,10 +2,16 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This document covers the fork's unified release workflow for stable and nightly desktop
-releases and the CLI archives that ship with them. Upstream's pipeline also publishes to npm and
-AUR, deploys the hosted web app, marketing site, and relay, and announces on Discord; none of that
+This fork distributes the desktop app. Its release workflow builds stable and nightly desktop
+releases and the runtime archives used by the desktop's server and WSL support. Upstream's
+pipeline also publishes to npm and AUR, deploys the hosted web app, marketing site, and relay,
+and announces on Discord; none of that
 runs here (see [What the fork skips](#what-the-fork-skips)).
+
+Mobile builds, hosted web previews, relay deployments, and the Cursor webhook are disabled.
+Their workflow files are kept under `.github/disabled-workflows`. CI typechecks and tests the
+desktop dependency graph and contributor tooling; it excludes mobile, marketing, and relay
+workspaces. Branch protection requires the desktop CI checks, without a mobile check.
 
 ## Fork release numbering
 
