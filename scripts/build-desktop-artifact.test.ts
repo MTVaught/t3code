@@ -26,7 +26,6 @@ import {
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
-  LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
   MAC_FILE_EXCLUSIONS,
   InvalidMockUpdateServerPortError,
@@ -56,6 +55,7 @@ import {
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
+  stageLinuxNativePrebuilds,
   stageDesktopDmgBackground,
   stageResourceMonitor,
   stageLinuxCaptureHelper,
@@ -64,8 +64,6 @@ import {
   STAGE_INSTALL_ARGS,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
-  LinuxBrowserSecretHostError,
-  stageBrowserSecret,
   validateWindowsPackagedPayload,
   WindowsPrimaryNativeProbeError,
   WindowsDesktopBuildPrerequisitesMissingError,
@@ -169,6 +167,8 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
   readonly copyUnpackedNatives: boolean;
   readonly serverEntrySource?: string;
   readonly wslRuntime?: "valid" | "loose-server-tree" | "missing-pty" | "bad-digest";
+  readonly targetArch?: "x64" | "arm64";
+  readonly ptyPrebuildArch?: "x64" | "arm64";
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -206,7 +206,7 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
   yield* fs.writeFileString(path.join(packagedAppDir, "chrome_crashpad_handler.exe"), "crashpad");
 
   if (input.wslRuntime !== undefined) {
-    const stem = wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64");
+    const stem = wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, input.targetArch ?? "x64");
     const sourceArchivePath =
       input.wslRuntime === "loose-server-tree"
         ? // The old hand-rolled runtime: apps/server/dist + node_modules at the
@@ -220,8 +220,15 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
         : yield* makeLinuxCliArchiveFixture({
             root: path.join(tempDir, "wsl-runtime"),
             stem,
-            ...(input.wslRuntime === "missing-pty"
+            ...(input.wslRuntime === "missing-pty" || input.ptyPrebuildArch !== undefined
               ? { omitMembers: [`${stem}/node_modules/node-pty/build/Release/pty.node`] }
+              : {}),
+            ...(input.ptyPrebuildArch !== undefined
+              ? {
+                  extraMembers: [
+                    `${stem}/node_modules/node-pty/prebuilds/linux-${input.ptyPrebuildArch}/pty.node`,
+                  ],
+                }
               : {}),
           });
     const archivePath = path.join(resourcesDir, WSL_RUNTIME_ARCHIVE_NAME);
@@ -327,6 +334,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "release",
+        channel: "latest",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
@@ -340,6 +348,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         owner: "MTVaught",
         repo: "t3code",
         releaseType: "release",
+        channel: "latest",
       });
     }),
   );
@@ -377,12 +386,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(preview, "publish");
       assert.notProperty(previewChannel, "publish");
+      const candidate = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.0.rc.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const final = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.notProperty(candidate, "publish");
+      assert.deepStrictEqual(final.publish, release.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
           owner: "pingdotgg",
           repo: "t3code",
           releaseType: "release",
+          channel: "latest",
         },
       ]);
     }).pipe(
@@ -564,10 +594,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     // snapshot below cannot catch that on its own: adding a resource and
     // forgetting the exclusion leaves the exclusion list untouched, so it still
     // matches. Assert the invariant first, where the failure names the culprit.
-    for (const resource of [
-      ...WSL_RUNTIME_EXTRA_RESOURCES,
-      ...LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
-    ]) {
+    for (const resource of WSL_RUNTIME_EXTRA_RESOURCES) {
       assert.include(
         DESKTOP_FILE_EXCLUSIONS,
         `!${resource.from}`,
@@ -640,7 +667,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...LINUX_CAPTURE_EXTRA_RESOURCES,
-        { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
       ]);
       assert.deepStrictEqual(win.extraResources, [
         {
@@ -679,6 +705,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         iconSize: 120,
         iconTextSize: 12,
       });
+      // A Linux AppImage build also emits the .deb from the same run.
+      assert.deepStrictEqual((linux.linux as Record<string, unknown>).target, ["AppImage", "deb"]);
+      assert.deepStrictEqual((linux.linux as Record<string, unknown>).desktop, {
+        entry: { StartupWMClass: "t3code-treher" },
+      });
+      assert.equal((linux.linux as Record<string, unknown>).executableName, "t3code-treher");
       // Linux must register the renderer schemes so the generated .desktop
       // entry advertises MimeType=x-scheme-handler/treher-t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
@@ -747,7 +779,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           "@ff-labs/fff-node": "0.9.4",
           "@opencode-ai/sdk": "^1.3.15",
           "@pierre/diffs": "1.3.0",
-          "msgpackr-extract": "3.0.4",
           "node-pty": "1.1.0",
         },
         desktopDependencies: {
@@ -759,7 +790,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }),
       {
         "@ff-labs/fff-node": "0.9.4",
-        "msgpackr-extract": "3.0.4",
         "node-pty": "1.1.0",
         "@napi-rs/keyring": "1.3.0",
         "playwright-core": "1.60.0",
@@ -904,10 +934,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               readonly args: ReadonlyArray<string>;
             };
             commands.push(childProcess);
-            const fails =
-              childProcess.command === "cargo" ||
-              childProcess.command === "rustc" ||
-              childProcess.command === "pkg-config";
+            const fails = childProcess.command === "cargo" || childProcess.command === "rustc";
             return Effect.succeed(mockProcess(fails ? 1 : 0));
           }),
         );
@@ -918,13 +945,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
 
         assert.instanceOf(error, LinuxDesktopBuildPrerequisitesMissingError);
-        assert.deepStrictEqual(error.missing, ["cargo", "rust-target", "libsecret"]);
+        assert.deepStrictEqual(error.missing, ["cargo", "rust-target"]);
         assert.include(error.message, "Rust compiler and Cargo (cargo, rustc)");
         assert.include(error.message, "Requested Rust standard library");
-        assert.include(
-          error.message,
-          "sudo apt-get install cargo rustc libsecret-1-dev pkg-config",
-        );
+        assert.include(error.message, "sudo apt-get install cargo rustc");
         assert.include(error.message, "rustup target add aarch64-unknown-linux-gnu");
         assert.isTrue(
           commands.some(
@@ -1221,6 +1245,55 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ).pipe(Effect.provideService(HostProcessPlatform, "linux")),
   );
 
+  for (const targetArch of ["x64", "arm64"] as const) {
+    it.effect(`accepts an embedded archive with the Linux ${targetArch} node-pty prebuild`, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* makeWindowsPayloadFixture({
+            copyUnpackedNatives: true,
+            wslRuntime: "valid",
+            targetArch,
+            ptyPrebuildArch: targetArch,
+          });
+          const result = yield* validateWindowsPackagedPayload({
+            stageDistDir: fixture.stageDistDir,
+            appExecutableName: fixture.appExecutableName,
+            targetArch,
+            appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
+            expectWslRuntime: true,
+          });
+
+          assert.equal(result.packagedAppDir, fixture.packagedAppDir);
+        }),
+      ).pipe(Effect.provideService(HostProcessPlatform, "linux")),
+    );
+
+    it.effect(
+      `rejects a node-pty prebuild for the wrong architecture in a Linux ${targetArch} archive`,
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const fixture = yield* makeWindowsPayloadFixture({
+              copyUnpackedNatives: true,
+              wslRuntime: "valid",
+              targetArch,
+              ptyPrebuildArch: targetArch === "x64" ? "arm64" : "x64",
+            });
+            const error = yield* validateWindowsPackagedPayload({
+              stageDistDir: fixture.stageDistDir,
+              appExecutableName: fixture.appExecutableName,
+              targetArch,
+              appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
+              expectWslRuntime: true,
+            }).pipe(Effect.flip);
+
+            assert.instanceOf(error, WindowsPackagedPayloadValidationError);
+            assert.equal(error.reason, "wsl-runtime-invalid");
+          }),
+        ),
+    );
+  }
+
   it.effect("rejects an embedded archive built for a different release version", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -1300,6 +1373,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         assert.equal(error.reason, "wsl-runtime-invalid");
         assert.deepStrictEqual(error.missingFiles, [
           `${wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64")}/node_modules/node-pty/build/Release/pty.node`,
+          `${wslRuntimeArchiveStem(WINDOWS_PAYLOAD_FIXTURE_VERSION, "x64")}/node_modules/node-pty/prebuilds/linux-x64/pty.node`,
         ]);
       }),
     ),
@@ -1385,146 +1459,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           spawnerLayer,
           Layer.succeed(HostProcessPlatform, "win32"),
           Layer.succeed(HostProcessArchitecture, "x64"),
-        ),
-      ),
-    );
-  });
-
-  it.effect("stages the RHEL 8 browser secret prebuild instead of compiling", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-browser-secret-prebuild-" });
-      const prebuildDir = path.join(root, "linux-native");
-      yield* fs.makeDirectory(prebuildDir, { recursive: true });
-      yield* fs.writeFileString(path.join(prebuildDir, "t3-browser-secret"), "rhel8-helper");
-      const stageResourcesDir = path.join(root, "stage", "resources");
-      const commands: Array<string> = [];
-      const spawnerLayer = Layer.succeed(
-        ChildProcessSpawner.ChildProcessSpawner,
-        ChildProcessSpawner.make((command) => {
-          commands.push((command as unknown as { readonly command: string }).command);
-          return Effect.succeed(mockProcess(0));
-        }),
-      );
-
-      yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir,
-        platform: "linux",
-        arch: "x64",
-        verbose: false,
-        linuxNativePrebuilds: prebuildDir,
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            spawnerLayer,
-            Layer.succeed(HostProcessPlatform, "linux"),
-            Layer.succeed(HostProcessArchitecture, "x64"),
-          ),
-        ),
-      );
-
-      const staged = path.join(stageResourcesDir, "browser-secret", "t3-browser-secret");
-      assert.equal(yield* fs.readFileString(staged), "rhel8-helper");
-      assert.equal((yield* fs.stat(staged)).mode & 0o111, 0o111);
-      assert.deepStrictEqual(commands, []);
-
-      const missing = yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir,
-        platform: "linux",
-        arch: "x64",
-        verbose: false,
-        linuxNativePrebuilds: path.join(root, "empty"),
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            spawnerLayer,
-            Layer.succeed(HostProcessPlatform, "linux"),
-            Layer.succeed(HostProcessArchitecture, "x64"),
-          ),
-        ),
-        Effect.flip,
-      );
-      assert.equal(missing._tag, "LinuxNativePrebuildMissingError");
-    }).pipe(Effect.scoped),
-  );
-
-  it.effect("builds the Linux browser secret helper for a concrete architecture", () => {
-    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
-    const spawnerLayer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make((command) => {
-        commands.push(command as unknown as (typeof commands)[number]);
-        return Effect.succeed(mockProcess(0));
-      }),
-    );
-
-    return Effect.gen(function* () {
-      // `universal` is a mac-only arch the option type still admits. The helper
-      // script only knows x64 and arm64, so the request maps to x64, the same
-      // concrete target the Linux resource monitor resolves it to.
-      yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir: "/stage/resources",
-        platform: "linux",
-        arch: "universal",
-        verbose: false,
-      });
-      const helper = commands.find((command) =>
-        command.args.some((arg) => arg.endsWith("build-browser-secret.mjs")),
-      );
-      assert.isDefined(helper);
-      const path = yield* Path.Path;
-      assert.deepStrictEqual(helper.args.slice(-4), [
-        "--arch",
-        "x64",
-        "--output",
-        path.join("/stage/resources", "browser-secret", "t3-browser-secret"),
-      ]);
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          spawnerLayer,
-          Layer.succeed(HostProcessPlatform, "linux"),
-          Layer.succeed(HostProcessArchitecture, "x64"),
-        ),
-      ),
-    );
-  });
-
-  it.effect("refuses a Linux build on a host that cannot build the browser secret helper", () => {
-    const commands: Array<{ readonly command: string }> = [];
-    const spawnerLayer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make((command) => {
-        commands.push(command as unknown as (typeof commands)[number]);
-        return Effect.succeed(mockProcess(0));
-      }),
-    );
-
-    return Effect.gen(function* () {
-      // The helper links against the host's libsecret and its build script is
-      // a no-op elsewhere, so a Linux artifact built on macOS would ship
-      // without it and report the keyring as unavailable on every import.
-      const error = yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir: "/stage/resources",
-        platform: "linux",
-        arch: "x64",
-        verbose: false,
-      }).pipe(Effect.flip);
-      assert.instanceOf(error, LinuxBrowserSecretHostError);
-      assert.equal(error.hostPlatform, "darwin");
-      assert.include(error.message, "Linux host");
-      assert.lengthOf(commands, 0);
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          spawnerLayer,
-          Layer.succeed(HostProcessPlatform, "darwin"),
-          Layer.succeed(HostProcessArchitecture, "arm64"),
         ),
       ),
     );
@@ -1894,12 +1828,37 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resourceMonitorExecutableName("win"), "t3-resource-monitor.exe");
   });
 
+  it.effect("replaces both node-pty load paths and fff with RHEL 8 prebuilds", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const stageAppDir = path.join(root, "app");
+      const prebuildDirectory = path.join(root, "native");
+      const pty = path.join(stageAppDir, "node_modules/node-pty");
+      const fff = path.join(stageAppDir, "node_modules/@ff-labs/fff-bin-linux-x64-gnu");
+      yield* fs.makeDirectory(prebuildDirectory, { recursive: true });
+      yield* fs.makeDirectory(path.join(pty, "prebuilds/linux-x64"), { recursive: true });
+      yield* fs.makeDirectory(fff, { recursive: true });
+      yield* fs.writeFileString(path.join(prebuildDirectory, "pty.node"), "rhel8-pty");
+      yield* fs.writeFileString(path.join(prebuildDirectory, "libfff_c.so"), "rhel8-fff");
+      yield* fs.writeFileString(path.join(pty, "prebuilds/linux-x64/pty.node"), "unsupported-pty");
+      yield* fs.writeFileString(path.join(fff, "libfff_c.so"), "unsupported-fff");
+      yield* stageLinuxNativePrebuilds({ stageAppDir, prebuildDirectory, arch: "x64" });
+      assert.equal(yield* fs.readFileString(path.join(pty, "build/Release/pty.node")), "rhel8-pty");
+      assert.equal(
+        yield* fs.readFileString(path.join(pty, "prebuilds/linux-x64/pty.node")),
+        "rhel8-pty",
+      );
+      assert.equal(yield* fs.readFileString(path.join(fff, "libfff_c.so")), "rhel8-fff");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it("resolves the RHEL-compatible Linux native prebuild contract", () => {
     assert.deepStrictEqual(resolveLinuxNativePrebuildPaths("/tmp/linux-native"), {
       nodePty: "/tmp/linux-native/pty.node",
       resourceMonitor: "/tmp/linux-native/t3-resource-monitor",
       fff: "/tmp/linux-native/libfff_c.so",
-      browserSecret: "/tmp/linux-native/t3-browser-secret",
     });
   });
 

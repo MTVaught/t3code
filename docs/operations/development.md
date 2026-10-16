@@ -76,8 +76,7 @@ Put that value in the main checkout's gitignored `.env`:
 T3CODE_DEV_AUTH_TOKEN=<the value generated above>
 ```
 
-The `t3.json` Setup Worktree commands on Unix and Windows link that file to each worktree's
-`.env`. The dev runner reads repository env files at startup. `.env.local` and inherited process
+The `t3.json` Setup Worktree action links that file to each worktree's `.env`. The dev runner reads repository env files at startup. `.env.local` and inherited process
 environment values override `.env`, so no per-worktree export is needed after setup.
 
 For a manual worktree or launcher without that link, export the same fixed value instead:
@@ -149,29 +148,29 @@ Packaged desktop windows load the bundled UI from the `treher-t3code://app/` roo
 
 ### Linux AppImage prerequisites
 
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
-Rust, C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
+Install Rust, C/C++ build tools, and ImageMagick for Linux AppImage builds.
+Treher disables browser cookie import and does not build its keyring helper.
 
 Ubuntu and Debian:
 
 ```sh
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential libsecret-1-dev pkg-config imagemagick
+sudo apt-get install cargo rustc build-essential imagemagick
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install rust cargo gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick
+sudo dnf install rust cargo gcc gcc-c++ make ImageMagick
 ```
 
 Arch Linux:
 
 ```sh
-sudo pacman -S rust base-devel libsecret pkgconf imagemagick
+sudo pacman -S rust base-devel imagemagick
 ```
 
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
+The C toolchain is also needed for Linux desktop development.
 
 ### macOS DMG prerequisites
 

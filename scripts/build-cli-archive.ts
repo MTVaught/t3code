@@ -39,6 +39,7 @@ import {
   createStageWorkspaceConfig,
   resolveFffNativeDependencies,
   STAGE_INSTALL_ARGS,
+  stageLinuxNativePrebuilds,
 } from "./build-desktop-artifact.ts";
 import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
@@ -153,6 +154,7 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
   readonly platform: BuildPlatform;
   readonly arch: BuildArch;
   readonly version: string;
+  readonly linuxNativePrebuilds: string | undefined;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -197,7 +199,10 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
       ...createStageWorkspaceConfig({
         platform: input.platform,
         arch: input.arch,
-        ...(workspace.allowBuilds ? { allowBuilds: workspace.allowBuilds } : {}),
+        allowBuilds: {
+          ...workspace.allowBuilds,
+          ...(input.linuxNativePrebuilds ? { "node-pty": false } : {}),
+        },
         patchedDependencies,
         overrides: resolveCatalogDependencies(workspace.overrides ?? {}, catalog, "apps/server"),
       }),
@@ -218,6 +223,14 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     }),
     "vp install --prod (cli archive runtime externals)",
   );
+
+  if (input.linuxNativePrebuilds) {
+    yield* stageLinuxNativePrebuilds({
+      stageAppDir: input.stageDir,
+      arch: input.arch,
+      prebuildDirectory: input.linuxNativePrebuilds,
+    });
+  }
 
   // pnpm's bookkeeping and the manifest only matter to pnpm; the runtime
   // resolves packages by directory. node-pty ships every platform's prebuilds
@@ -283,10 +296,10 @@ const stageWebClient = Effect.fn("stageWebClient")(function* (source: string, ta
 });
 
 const MacSigningConfig = Config.all({
-  identity: Config.string("T3CODE_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
-  appleApiKey: Config.string("APPLE_API_KEY").pipe(Config.option),
-  appleApiKeyId: Config.string("APPLE_API_KEY_ID").pipe(Config.option),
-  appleApiIssuer: Config.string("APPLE_API_ISSUER").pipe(Config.option),
+  identity: Config.String("T3CODE_CLI_MAC_SIGN_IDENTITY").pipe(Config.option),
+  appleApiKey: Config.String("APPLE_API_KEY").pipe(Config.option),
+  appleApiKeyId: Config.String("APPLE_API_KEY_ID").pipe(Config.option),
+  appleApiIssuer: Config.String("APPLE_API_ISSUER").pipe(Config.option),
 });
 
 /**
@@ -370,9 +383,9 @@ const signMacArchiveContents = Effect.fn("signMacArchiveContents")(function* (in
 });
 
 const WindowsSigningConfig = Config.all({
-  endpoint: Config.string("AZURE_TRUSTED_SIGNING_ENDPOINT").pipe(Config.option),
-  accountName: Config.string("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME").pipe(Config.option),
-  certificateProfileName: Config.string("AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME").pipe(
+  endpoint: Config.String("AZURE_TRUSTED_SIGNING_ENDPOINT").pipe(Config.option),
+  accountName: Config.String("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME").pipe(Config.option),
+  certificateProfileName: Config.String("AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME").pipe(
     Config.option,
   ),
 });
@@ -462,10 +475,19 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   readonly version: string;
   readonly outputDir: string;
   readonly resourceMonitorDir: Option.Option<string>;
+  readonly linuxNativePrebuilds: Option.Option<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const repoRoot = yield* RepoRoot;
+  const linuxNativePrebuilds =
+    input.platform === "linux" ? Option.getOrUndefined(input.linuxNativePrebuilds) : undefined;
+  if (input.platform === "linux" && !linuxNativePrebuilds) {
+    return yield* new CliArchiveInputMissingError({
+      inputPath: "--linux-native-prebuilds",
+      hint: "Linux archives require the RHEL 8-compatible native components.",
+    });
+  }
   const serverDir = path.join(repoRoot, "apps/server");
   const executableName = input.platform === "win" ? "t3.exe" : "t3";
   // tsdown suffixes cross-built executables with their target (t3-darwin-x64);
@@ -515,6 +537,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     platform: input.platform,
     arch: input.arch,
     version: input.version,
+    linuxNativePrebuilds,
   });
 
   const executablePath = path.join(contentDir, executableName);
@@ -567,13 +590,19 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
 const command = Command.make(
   "build-cli-archive",
   {
-    platform: Flag.choice("platform", BuildPlatform.literals),
-    arch: Flag.choice("arch", BuildArch.literals),
-    version: Flag.string("version").pipe(
+    platform: Flag.Literals("platform", BuildPlatform.literals),
+    arch: Flag.Literals("arch", BuildArch.literals),
+    version: Flag.String("version").pipe(
       Flag.withDescription("Release version for the archive name."),
     ),
-    outputDir: Flag.string("output-dir").pipe(Flag.withDefault("release-cli")),
-    resourceMonitorDir: Flag.string("resource-monitor-dir").pipe(
+    outputDir: Flag.String("output-dir").pipe(Flag.withDefault("release-cli")),
+    linuxNativePrebuilds: Flag.String("linux-native-prebuilds").pipe(
+      Flag.withDescription(
+        "Directory containing RHEL 8-compatible pty.node and libfff_c.so (required for Linux).",
+      ),
+      Flag.optional,
+    ),
+    resourceMonitorDir: Flag.String("resource-monitor-dir").pipe(
       Flag.withDescription(
         "Directory laid out like dist/resource-monitor (defaults to apps/server/dist/resource-monitor).",
       ),

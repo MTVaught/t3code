@@ -34,7 +34,7 @@ export type AcpIncomingNotification =
     }
   | {
       readonly _tag: "ElicitationComplete";
-      readonly method: typeof CLIENT_METHODS.session_elicitation_complete;
+      readonly method: typeof CLIENT_METHODS.session_elicitation_complete | "elicitation/complete";
       readonly params: AcpSchema.ElicitationCompleteNotification;
     }
   | {
@@ -226,7 +226,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     Queue.offer(notificationQueue, notification).pipe(
       Effect.andThen(
         options.onNotification
-          ? options.onNotification(notification).pipe(Effect.catch(() => Effect.void))
+          ? options.onNotification(notification).pipe(Effect.ignore)
           : Effect.void,
       ),
       Effect.asVoid,
@@ -347,13 +347,17 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
           }),
         );
       }
-      if (message.tag === CLIENT_METHODS.session_elicitation_complete) {
+      if (
+        message.tag === CLIENT_METHODS.session_elicitation_complete ||
+        message.tag === "elicitation/complete"
+      ) {
+        const method = message.tag;
         return decodeElicitationComplete(message.payload).pipe(
           Effect.map(
             (params) =>
               ({
                 _tag: "ElicitationComplete",
-                method: CLIENT_METHODS.session_elicitation_complete,
+                method,
                 params,
               }) satisfies AcpIncomingNotification,
           ),
@@ -362,7 +366,7 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
               logNotificationDecodeFailure(
                 AcpError.AcpProtocolParseError.fromSchemaError(
                   "decode-notification-payload",
-                  CLIENT_METHODS.session_elicitation_complete,
+                  method,
                   cause,
                 ),
               ),

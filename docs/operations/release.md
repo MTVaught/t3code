@@ -2,10 +2,16 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This document covers the fork's unified release workflow for stable and nightly desktop
-releases and the CLI archives that ship with them. Upstream's pipeline also publishes to npm and
-AUR, deploys the hosted web app, marketing site, and relay, and announces on Discord; none of that
+This fork distributes the desktop app. Its release workflow builds stable and nightly desktop
+releases and the runtime archives used by the desktop's server and WSL support. Upstream's
+pipeline also publishes to npm and AUR, deploys the hosted web app, marketing site, and relay,
+and announces on Discord; none of that
 runs here (see [What the fork skips](#what-the-fork-skips)).
+
+Mobile builds, hosted web previews, relay deployments, and the Cursor webhook are disabled.
+Their workflow files are kept under `.github/disabled-workflows`. CI typechecks and tests the
+desktop dependency graph and contributor tooling; it excludes mobile, marketing, and relay
+workspaces. Branch protection requires the desktop CI checks, without a mobile check.
 
 ## Fork release numbering
 
@@ -79,15 +85,20 @@ colliding with upstream tags.
     executables use the same Azure Trusted Signing setup as the installer.
   - Each archive is extracted and executed on its build runner (`scripts/smoke-cli-archive.ts`)
     before it is uploaded.
-  - The Linux archive's node-pty is compiled by `vp install --prod` on the Ubuntu runner, so the
-    archive's glibc floor is that runner's, not RHEL 8's. Only the AppImage carries the RHEL 8
-    guarantee.
+  - The Linux archive is built and tested on Rocky Linux 8 with the same RHEL 8 native
+    components as the AppImage. Packaging requires `--linux-native-prebuilds`. Before upload,
+    the job checks the ELF glibc requirements and runs the terminal, resource monitor, file
+    finder, and packaged server on glibc 2.28. Windows embeds this verified archive for WSL.
+    A failed check blocks both the Windows build and publication.
 - Before publishing, extracts the Linux AppImage on Rocky Linux 8, rejects any packaged ELF above
   GLIBC 2.28, exercises the terminal, resource monitor, and file finder, and verifies that the
   desktop shell starts its bundled server and creates the main window.
 - Publishes one GitHub Release with all produced files.
-  - Stable tags with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
-  - Only plain stable `X.Y.Z` releases are marked as the repository's latest release.
+  - Plain `X.Y.Z` versions and final fork tags such as `X.Y.Z-treher.1.1` are stable releases
+    and are marked as the repository's latest release.
+  - Release candidates such as `X.Y.Z-treher.1.0.rc.1` and other prerelease tags stay GitHub
+    prereleases. They have no desktop update feed and are excluded from stable installation
+    and update selection. Use `T3CODE_VERSION` to install a candidate explicitly.
   - Nightly runs are always GitHub prereleases and never marked latest.
   - Automatically generated release notes are pinned to the previous tag in the same channel, so stable compares to the previous stable tag and nightly compares to the previous nightly tag.
 - Includes Electron auto-update metadata (for example `latest*.yml`, `nightly*.yml`, and `*.blockmap`) in release assets.
@@ -104,9 +115,9 @@ Upstream's `release.yml` also has `resolve_commit`, `relay_public_config`, `publ
 
 - The `t3` npm launcher and `@t3code/t3-<platform>-<arch>` packages are not published. `npx t3`
   resolves upstream's packages, not this fork's; use the install scripts or a release archive.
-- `packages/shared/src/cliRelease.ts` lists five archive platforms but the fork builds three.
-  `t3 update`, the install scripts, and desktop runtime installs 404 on `linux-arm64` and
-  `win32-arm64` hosts.
+- The fork supports macOS ARM64, Linux x64, and Windows x64 release archives. Installers and
+  managed runtime downloads reject unsupported targets before downloading. Linux ARM64, Windows
+  ARM64, and macOS x64 archives are not available.
 - No hosted web app or marketing site deploys, no relay deploy, no AUR package, no Discord post,
   and no version bump commit back to `main`.
 
@@ -254,7 +265,8 @@ secrets below. Two knobs matter:
 
 There is no dry-run tag path. Pushing any accepted non-nightly tag, including
 `v0.0.0-test.1`, classifies the run as the stable channel and creates a real GitHub Release with
-updater manifests and CLI archives. Do not push a test tag to validate the workflow.
+CLI archives. Only stable finals and nightlies include updater manifests. Do not push a test
+tag to validate the workflow.
 
 The workflow has no non-publishing `workflow_dispatch` mode. Use normal CI or local quality gates to
 validate checks and builds without shipping. To exercise the complete release graph at lower stable

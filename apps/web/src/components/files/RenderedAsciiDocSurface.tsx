@@ -1,11 +1,23 @@
 import { convert } from "@asciidoctor/core";
-import DOMPurify from "dompurify";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { FileMarkdownPreview } from "./FileMarkdownPreview";
+
 import { ScrollArea } from "~/components/ui/scroll-area";
 
-export default function RenderedAsciiDocSurface({ contents }: { contents: string }) {
+export default function RenderedAsciiDocSurface({
+  contents,
+  cwd,
+  relativePath,
+  threadRef,
+}: {
+  contents: string;
+  cwd: string;
+  relativePath: string;
+  threadRef: ScopedThreadRef;
+}) {
   const [result, setResult] = useState<{ html: string; error?: never } | { error: string } | null>(
     null,
   );
@@ -15,10 +27,13 @@ export default function RenderedAsciiDocSurface({ contents }: { contents: string
     setResult(null);
     void convert(contents, {
       safe: "secure",
-      attributes: { showtitle: true },
+      attributes: {
+        showtitle: true,
+        relfilesuffix: relativePath.endsWith(".asciidoc") ? ".asciidoc" : ".adoc",
+      },
     })
       .then((converted) => {
-        if (current) setResult({ html: DOMPurify.sanitize(String(converted)) });
+        if (current) setResult({ html: String(converted) });
       })
       .catch(() => {
         if (current) setResult({ error: "Unable to render this AsciiDoc file." });
@@ -26,7 +41,7 @@ export default function RenderedAsciiDocSurface({ contents }: { contents: string
     return () => {
       current = false;
     };
-  }, [contents]);
+  }, [contents, relativePath]);
 
   if (result === null) {
     return (
@@ -46,10 +61,11 @@ export default function RenderedAsciiDocSurface({ contents }: { contents: string
 
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <div
-        className="chat-markdown mx-auto w-full max-w-4xl px-6 py-5 text-sm leading-relaxed text-foreground/80"
-        // Asciidoctor output is sanitized above before it reaches the DOM.
-        dangerouslySetInnerHTML={{ __html: result.html }}
+      <FileMarkdownPreview
+        cwd={cwd}
+        relativePath={relativePath}
+        threadRef={threadRef}
+        text={result.html}
       />
     </ScrollArea>
   );

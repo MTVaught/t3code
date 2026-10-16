@@ -16,6 +16,9 @@ import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 
+// Treher keeps browser profiles but does not read cookies from other browsers.
+export const BROWSER_COOKIE_IMPORT_ENABLED = false;
+
 const BROWSER_IMPORT_SOURCE_IDS = [
   "chrome",
   "edge",
@@ -58,6 +61,7 @@ export type BrowserImportUnavailableReason = typeof BrowserImportUnavailableReas
  */
 export const BrowserImportFailureReason = Schema.Literals([
   ...BrowserImportUnavailableReason.literals,
+  "disabled",
   /** The operating system's keyring or its bundled reader is unavailable. */
   "keychainUnavailable",
   /** No source registered under the requested id. */
@@ -153,6 +157,8 @@ const BROWSER_IMPORT_UNAVAILABLE_COPY: Readonly<Record<BrowserImportUnavailableR
 /** What to tell the user when an attempted import fails. */
 export const BROWSER_IMPORT_FAILURE_COPY: Readonly<Record<BrowserImportFailureReason, string>> = {
   ...BROWSER_IMPORT_UNAVAILABLE_COPY,
+  disabled:
+    "Browser cookie import is disabled in this fork. Sign in directly in the built-in browser.",
   keychainUnavailable:
     "The system keyring could not be accessed. Make sure your desktop keyring is running and unlocked, then retry.",
   unknownSource: "That browser is no longer available to import from.",

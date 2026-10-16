@@ -11,7 +11,6 @@ import type {
   ReviewDiffFileContentsInput,
   ReviewDiffFileContentsResult,
   ReviewDiffPreviewSourceKind,
-  ReviewWorkingTreeFilter,
 } from "@t3tools/contracts";
 
 import { resolveFileDiffPath } from "./diffRendering";
@@ -22,7 +21,6 @@ interface GitDiffFileContentsSource {
   readonly sourceKind: ReviewDiffPreviewSourceKind;
   readonly baseRef: string | null;
   readonly headRef: string | null;
-  readonly workingTreeFilter?: ReviewWorkingTreeFilter;
   /** The comparison identity Pierre carries into its hydrated render cache. */
   readonly cacheKey: string;
 }
@@ -93,7 +91,6 @@ export function createGitDiffFileContentsLoader<E>(
         headRef: source.headRef,
         oldPath,
         newPath,
-        ...(source.workingTreeFilter ? { workingTreeFilter: source.workingTreeFilter } : {}),
       },
     });
     if (result._tag !== "Success") {

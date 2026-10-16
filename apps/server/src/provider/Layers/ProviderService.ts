@@ -356,6 +356,14 @@ function readPersistedCwd(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** Stopped rows with no active turn are settled; shutdown leaves them untouched. */
+function isSettledBinding(binding: ProviderSessionDirectory.ProviderRuntimeBinding): boolean {
+  if (binding.status !== "stopped") return false;
+  const payload = binding.runtimePayload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return true;
+  return !("activeTurnId" in payload) || payload.activeTurnId == null;
+}
+
 const dieOnMissingBindingInstanceId = (
   operation: string,
   payload: {
@@ -510,14 +518,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     } satisfies Record<string, string>;
   });
 
-  const prepareMcpSession = (
-    adapter: ProviderAdapterShape<ProviderAdapterError>,
-    threadId: ThreadId,
-    providerInstanceId: ProviderInstanceId,
-  ) =>
+  const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      // Adapters that opt out of the `t3-code` MCP server never hold a credential.
-      if (adapter.capabilities.t3McpInjection === false) return undefined;
       const capabilities = yield* agentAccessCapabilities(threadId);
       const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
@@ -533,15 +535,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       return credential;
     });
-  const clearMcpSession = (
-    adapter: ProviderAdapterShape<ProviderAdapterError>,
-    threadId: ThreadId,
-  ) =>
-    adapter.capabilities.t3McpInjection === false
-      ? Effect.void
-      : McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
-          Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
-        );
+  const clearMcpSession = (threadId: ThreadId) =>
+    McpSessionRegistry.revokeActiveMcpThread(threadId).pipe(
+      Effect.tap(() => Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId))),
+    );
 
   const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Effect.succeed(event).pipe(
@@ -843,7 +840,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
 
-      yield* prepareMcpSession(adapter, input.binding.threadId, bindingInstanceId);
+      yield* prepareMcpSession(input.binding.threadId, bindingInstanceId);
       const resumed = yield* adapter
         .startSession({
           threadId: input.binding.threadId,
@@ -854,9 +851,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         })
-        .pipe(Effect.onError(() => clearMcpSession(adapter, input.binding.threadId)));
+        .pipe(Effect.onError(() => clearMcpSession(input.binding.threadId)));
       if (resumed.provider !== adapter.provider) {
-        yield* clearMcpSession(adapter, input.binding.threadId);
+        yield* clearMcpSession(input.binding.threadId);
         return yield* toValidationError(
           input.operation,
           `Adapter/provider mismatch while recovering thread '${input.binding.threadId}'. Expected '${adapter.provider}', received '${resumed.provider}'.`,
@@ -1063,7 +1060,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           }
         }
         const adapter = yield* registry.getByInstance(resolvedInstanceId);
-        yield* prepareMcpSession(adapter, threadId, resolvedInstanceId);
+        yield* prepareMcpSession(threadId, resolvedInstanceId);
         const session = yield* adapter
           .startSession({
             ...input,
@@ -1071,10 +1068,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ...(effectiveCwd !== undefined ? { cwd: effectiveCwd } : {}),
             ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
           })
-          .pipe(Effect.onError(() => clearMcpSession(adapter, threadId)));
+          .pipe(Effect.onError(() => clearMcpSession(threadId)));
 
         if (session.provider !== adapter.provider) {
-          yield* clearMcpSession(adapter, threadId);
+          yield* clearMcpSession(threadId);
           return yield* toValidationError(
             "ProviderService.startSession",
             `Adapter/provider mismatch: requested '${adapter.provider}', received '${session.provider}'.`,
@@ -1167,10 +1164,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             ? `[Pasted text "${attachment.name}" is saved at: ${attachmentPath}. Inspect it as needed.]`
             : `[Attached ${attachment.type} "${attachment.name}" is saved at: ${attachmentPath}]`,
       );
-      if (isPastedText && !appended) {
+      // Most adapters see generic files only through this path line, so a file
+      // without one would be silently dropped. Images still go natively.
+      if (!appended && attachment.type === "file") {
         return yield* toValidationError(
           "ProviderService.sendTurn",
-          `Input plus pasted-text attachment context exceeds the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS} character limit`,
+          `Input plus attachment context exceeds the ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS} character limit`,
         );
       }
     }
@@ -1259,9 +1258,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       // an already-spawned agent process, so we keep the existing token valid
       // rather than issuing a new one: sessions that go a long time between
       // browser tool calls used to lose the toolkit outright.
-      if (routed.adapter.capabilities.t3McpInjection !== false) {
-        yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
-      }
+      yield* McpSessionRegistry.touchActiveMcpThread(input.threadId);
       const turn = yield* routed.adapter.sendTurn(input);
       yield* directory.upsert({
         threadId: input.threadId,
@@ -1560,7 +1557,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           yield* settleCompaction(input.threadId, pendingCompaction, "turn.aborted");
         }
         timedOutNativeCompactions.delete(input.threadId);
-        yield* clearMcpSession(routed.adapter, input.threadId);
+        yield* clearMcpSession(input.threadId);
         yield* directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,
@@ -1673,17 +1670,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const getCapabilities: ProviderServiceMethod<"getCapabilities"> = (instanceId) =>
     registry.getByInstance(instanceId).pipe(Effect.map((adapter) => adapter.capabilities));
-
-  const getProjectMetadata: ProviderServiceMethod<"getProjectMetadata"> = (instanceId, cwd) =>
-    registry
-      .getByInstance(instanceId)
-      .pipe(
-        Effect.flatMap((adapter) =>
-          adapter.getProjectMetadata
-            ? adapter.getProjectMetadata(cwd)
-            : Effect.succeed({ workspaceTrusted: true, modes: [], slashCommands: [], skills: [] }),
-        ),
-      );
 
   const getInstanceInfo: ProviderServiceMethod<"getInstanceInfo"> = (instanceId) =>
     registry.getInstanceInfo(instanceId);
@@ -1823,7 +1809,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           ),
         );
       }
-      yield* clearMcpSession(adapter, threadId);
+      yield* clearMcpSession(threadId);
       yield* directory.upsert({
         threadId,
         provider: binding.provider,
@@ -1848,7 +1834,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     // Continuation is project-scopable, so decide it per session's project;
     // without orchestration the environment value is all there is.
     const stopSettings = yield* serverSettings.getSettings.pipe(
-      Effect.map(Option.some),
+      Effect.asSome,
       Effect.orElseSucceed(() => Option.none<ServerSettingsValue>()),
     );
     const continueAfterRestartFor = Effect.fn("continueAfterRestartFor")(function* (
@@ -1899,7 +1885,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     yield* Effect.forEach(currentAdapters, ([, adapter]) => adapter.stopAll()).pipe(Effect.asVoid);
     yield* McpSessionRegistry.revokeAllActiveMcpCredentials();
     McpProviderSession.clearAllMcpProviderSessions();
-    const bindings = yield* directory.listBindings().pipe(Effect.orElseSucceed(() => []));
+    // Stopped rows stay for their resume cursors, so long-lived installs hold
+    // thousands. Only rewrite the ones this shutdown actually stops.
+    const bindings = yield* directory.listBindings().pipe(
+      Effect.map((all) => all.filter((binding) => !isSettledBinding(binding))),
+      Effect.orElseSucceed(() => []),
+    );
     yield* Effect.forEach(bindings, (binding) =>
       Effect.gen(function* () {
         const providerInstanceId = dieOnMissingBindingInstanceId(
@@ -1942,7 +1933,6 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     resetContext,
     listSessions,
     getCapabilities,
-    getProjectMetadata,
     getInstanceInfo,
     assertConversationRollbackSupported,
     rollbackConversation,

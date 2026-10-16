@@ -9,6 +9,13 @@ import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { setMarkdownTaskChecked } from "./files/filePreviewMode";
 
+const mermaid = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  parse: vi.fn(async (_source: string) => true),
+  render: vi.fn(async () => ({ svg: "<svg />" })),
+}));
+vi.mock("mermaid", () => ({ default: mermaid }));
+
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
@@ -55,6 +62,7 @@ vi.mock("../editorPreferences", () => ({
 vi.mock("~/lib/openPullRequestLink", () => ({
   findProjectOnChangeRequestHost: () => undefined,
   parseChangeRequestUrl: () => null,
+  resolvePullRequestPreviewTarget: () => null,
   useOpenChangeRequestLink: () => vi.fn(),
 }));
 
@@ -178,6 +186,75 @@ describe("ChatMarkdown favicon privacy", () => {
 });
 
 describe("ChatMarkdown streaming", () => {
+  it("runs only a complete single-line shell block after a click", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const onRunShellCommand = vi.fn();
+    let renderer: ReactTestRenderer | undefined;
+    const message = (text: string, isStreaming = false) => (
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={text}
+        isStreaming={isStreaming}
+        onRunShellCommand={onRunShellCommand}
+      />
+    );
+    try {
+      await act(async () => {
+        renderer = create(message("```bash\necho hello\n```", true));
+      });
+      const mounted = renderer!;
+      expect(
+        mounted.root
+          .findAllByType(Button)
+          .some((button) => button.props["aria-label"] === "Run in terminal"),
+      ).toBe(false);
+
+      await act(async () => {
+        mounted.update(message("```bash\necho hello\n```"));
+      });
+      await act(async () => {
+        codeButton(mounted, "Run in terminal").onClick?.({} as never);
+      });
+      expect(onRunShellCommand).toHaveBeenCalledExactlyOnceWith("echo hello");
+
+      for (const text of [
+        "~~~bash\necho tilde\n~~~",
+        "> ```bash\n> echo quote\n> ```",
+        "````bash\necho four\n````",
+      ]) {
+        await act(async () => {
+          mounted.update(message(text));
+        });
+        expect(codeButton(mounted, "Run in terminal")).toBeDefined();
+      }
+
+      for (const text of [
+        "```bash\necho one\necho two\n```",
+        "```typescript\necho hello\n```",
+        "```bash\n\n```",
+        "```bash\necho hello\n\n```",
+        "```bash\necho hello\\\n```",
+        "```bash\necho safe \u202e#\n```",
+        "```bash\necho incomplete",
+        "~~~bash\necho incomplete",
+        "````bash\necho incomplete\n```",
+        '<pre><code class="language-bash">echo html</code></pre>',
+      ]) {
+        await act(async () => {
+          mounted.update(message(text));
+        });
+        expect(
+          mounted.root
+            .findAllByType(Button)
+            .some((button) => button.props["aria-label"] === "Run in terminal"),
+        ).toBe(false);
+      }
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not retokenize completed lines when streaming finishes", async () => {
     const highlighter = await getSyntaxHighlighterPromise("typescript");
     const highlight = vi.spyOn(highlighter, "codeToHast");
@@ -638,7 +715,7 @@ describe("ChatMarkdown artifact-template cards", () => {
     );
 
     expect(html).not.toContain("::artifact-template");
-    expect(html).toContain("chat-markdown-artifact-template");
+    expect(html).toContain("data-chat-markdown-artifact-template");
     expect(html).toContain('data-artifact-kind="document"');
     expect(html).toContain('data-markdown-copy="Hello World (Document template)\n\n"');
     expect(html).toContain('data-skill-name="artifact-template-hello-world"');
@@ -653,7 +730,7 @@ describe("ChatMarkdown artifact-template cards", () => {
       <ChatMarkdown cwd="/tmp/project" text={ARTIFACT_TEMPLATE_DIRECTIVE} />,
     );
 
-    expect(html).toContain("chat-markdown-artifact-template");
+    expect(html).toContain("data-chat-markdown-artifact-template");
     expect(html).not.toContain("Use template");
   });
 
@@ -665,7 +742,7 @@ describe("ChatMarkdown artifact-template cards", () => {
     for (const text of [malformed, unfinished]) {
       const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
       expect(html).toContain("::artifact-template");
-      expect(html).not.toContain("chat-markdown-artifact-template");
+      expect(html).not.toContain("data-chat-markdown-artifact-template");
     }
   });
 
@@ -677,7 +754,7 @@ describe("ChatMarkdown artifact-template cards", () => {
       const html = renderToStaticMarkup(<ChatMarkdown cwd="/tmp/project" text={text} />);
 
       expect(html).toContain("::artifact-template");
-      expect(html).not.toContain("chat-markdown-artifact-template");
+      expect(html).not.toContain("data-chat-markdown-artifact-template");
     }
   });
 
@@ -690,20 +767,68 @@ describe("ChatMarkdown artifact-template cards", () => {
     );
 
     expect(html.match(/::artifact-template/g)).toHaveLength(2);
-    expect(html).not.toContain("chat-markdown-artifact-template");
+    expect(html).not.toContain("data-chat-markdown-artifact-template");
   });
 });
 
 describe("ChatMarkdown mermaid fences", () => {
-  it("renders the mermaid chrome with a source toggle and the code fallback", () => {
-    const html = renderToStaticMarkup(
-      <ChatMarkdown cwd="/tmp/project" text={"```mermaid\ngraph TD;\n  A-->B;\n```"} />,
-    );
+  it("renders a streamed diagram only after its fence closes", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    mermaid.parse.mockClear();
+    mermaid.render.mockClear();
+    let renderer: ReactTestRenderer | undefined;
+    const partial = "```mermaid\ngraph TD;\n  StreamA-->StreamB;";
+    try {
+      await act(async () => {
+        renderer = create(<ChatMarkdown cwd="/tmp/project" text={partial} isStreaming />);
+      });
+      await act(async () => {
+        renderer!.update(
+          <ChatMarkdown cwd="/tmp/project" text={`${partial}\n  StreamB-->StreamC;`} isStreaming />,
+        );
+      });
+      expect(mermaid.parse).not.toHaveBeenCalled();
+      expect(mermaid.render).not.toHaveBeenCalled();
 
-    expect(html).toContain('data-language="mermaid"');
-    expect(html).toContain('aria-label="Show mermaid source"');
-    // The highlighted source stays visible until a diagram render succeeds.
-    expect(html).toContain("A--&gt;B;");
+      await act(async () => {
+        renderer!.update(
+          <ChatMarkdown cwd="/tmp/project" text={partial + "\n```\nStill streaming"} isStreaming />,
+        );
+      });
+      expect(mermaid.parse).toHaveBeenCalledTimes(1);
+      expect(mermaid.render).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("switches between the rendered diagram and its source", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let renderer: ReactTestRenderer | undefined;
+    try {
+      await getSyntaxHighlighterPromise("mermaid");
+      await act(async () => {
+        renderer = create(
+          <ChatMarkdown
+            cwd="/tmp/project"
+            text={"```mermaid\ngraph TD;\n  ToggleA-->ToggleB;\n```"}
+          />,
+        );
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("ToggleA");
+      await act(async () => {
+        codeButton(renderer!, "Show mermaid source").onClick?.({} as never);
+      });
+      expect(JSON.stringify(renderer!.toJSON())).toContain("ToggleA");
+      await act(async () => {
+        codeButton(renderer!, "Show diagram").onClick?.({} as never);
+      });
+      expect(JSON.stringify(renderer!.toJSON())).not.toContain("ToggleA");
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
   });
 
   it("keeps plain code block chrome for other languages", () => {

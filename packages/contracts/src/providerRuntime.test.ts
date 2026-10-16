@@ -1,19 +1,21 @@
-import { describe, expect, expectTypeOf, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import {
   classifyTaskAgentKind,
   ProviderRuntimeEvent,
-  type ProviderRuntimeEventType,
+  ThreadTokenUsageSnapshot,
 } from "./providerRuntime.ts";
 
 const decodeRuntimeEvent = Schema.decodeUnknownSync(ProviderRuntimeEvent);
+const decodeThreadUsage = Schema.decodeUnknownSync(ThreadTokenUsageSnapshot);
+
+it("keeps spend data in historical usage snapshots readable", () => {
+  const usage = { usedTokens: 10, threadSpend: { amount: 0.04, unit: "Bobcoins" } };
+  expect(decodeThreadUsage(usage)).toEqual(usage);
+});
 
 describe("ProviderRuntimeEvent", () => {
-  it("includes every runtime event in the public event type", () => {
-    expectTypeOf<ProviderRuntimeEvent["type"]>().toEqualTypeOf<ProviderRuntimeEventType>();
-  });
-
   it("requires input and output totals for complete turn usage", () => {
     const completeEvent = {
       type: "turn.completed",

@@ -14,7 +14,10 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 /** Names this fork previously registered in the migration manifest. */
-const RETIRED_FORK_MIGRATION_NAMES = ["ProjectionThreadsProviderMode"] as const;
+const RETIRED_FORK_MIGRATION_NAMES = [
+  "ProjectionThreadsProviderMode",
+  "ProjectionThreadsReviewFollowUpPaths",
+] as const;
 
 export const removeStaleForkMigrationRows = Effect.fn("removeStaleForkMigrationRows")(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -47,4 +50,13 @@ const ensureProviderModeColumn = Effect.fn("ensureProviderModeColumn")(function*
 
 export const applyForkSchemaPatches = Effect.fn("applyForkSchemaPatches")(function* () {
   yield* ensureProviderModeColumn();
+  // Keep historical review events readable after adopting upstream's review UI.
+  const sql = yield* SqlClient.SqlClient;
+  const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(projection_threads)`;
+  if (
+    columns.length > 0 &&
+    !columns.some((column) => column.name === "review_follow_up_paths_json")
+  ) {
+    yield* sql`ALTER TABLE projection_threads ADD COLUMN review_follow_up_paths_json TEXT`;
+  }
 });

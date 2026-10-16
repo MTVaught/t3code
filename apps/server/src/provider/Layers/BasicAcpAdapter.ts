@@ -62,6 +62,7 @@ interface SessionContext {
   readonly threadId: ThreadId;
   readonly cwd: string;
   session: ProviderSession;
+  metadata: ServerProviderProjectMetadata;
   readonly scope: Scope.Closeable;
   readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
   readonly startInput: Parameters<ProviderAdapterShape<ProviderAdapterError>["startSession"]>[0];
@@ -138,7 +139,6 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
   const sessions = new Map<ThreadId, SessionContext>();
-  const metadataByCwd = new Map<string, ServerProviderProjectMetadata>();
   const locks = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
   const events = yield* PubSub.unbounded<ProviderRuntimeEvent>();
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -157,6 +157,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     Effect.all({ eventId: Effect.map(randomId, EventId.make), createdAt: nowIso });
   const publish = (event: ProviderRuntimeEvent) =>
     PubSub.publish(events, event).pipe(Effect.asVoid);
+  const publishMode = Effect.fn("BasicAcpAdapter.publishMode")(function* (
+    threadId: ThreadId,
+    providerMode: string,
+  ) {
+    yield* publish({
+      type: "thread.metadata.updated",
+      ...(yield* stamp()),
+      provider: options.provider,
+      providerInstanceId: options.instanceId,
+      threadId,
+      payload: { metadata: { providerMode } },
+    });
+  });
 
   const getLock = (threadId: string) =>
     SynchronizedRef.modifyEffect(locks, (current) => {
@@ -334,19 +347,6 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
               ),
             );
         }
-        if (modeState) {
-          metadataByCwd.set(cwd, {
-            workspaceTrusted: true,
-            modes: modeState.availableModes.map((mode) => ({
-              slug: mode.id,
-              name: mode.name,
-              ...(mode.description ? { description: mode.description } : {}),
-              scope: "workspace" as const,
-            })),
-            slashCommands: [],
-            skills: [],
-          });
-        }
         const now = yield* nowIso;
         const session: ProviderSession = {
           provider: options.provider,
@@ -364,6 +364,19 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           threadId: input.threadId,
           cwd,
           session,
+          metadata: {
+            workspaceTrusted: true,
+            modes: modeState
+              ? modeState.availableModes.map((mode) => ({
+                  slug: mode.id,
+                  name: mode.name,
+                  ...(mode.description ? { description: mode.description } : {}),
+                  scope: "workspace" as const,
+                }))
+              : [...options.builtInModes],
+            slashCommands: [],
+            skills: [],
+          },
           scope: sessionScope,
           acp,
           startInput: input,
@@ -385,24 +398,11 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                   yield* Deferred.succeed(event.acknowledge, undefined);
                   return;
                 case "ModeChanged":
-                  yield* publish({
-                    type: "thread.metadata.updated",
-                    ...(yield* stamp()),
-                    provider: options.provider,
-                    providerInstanceId: options.instanceId,
-                    threadId: context.threadId,
-                    payload: { metadata: { providerMode: event.modeId } },
-                  });
+                  yield* publishMode(context.threadId, event.modeId);
                   return;
                 case "AvailableCommandsUpdated": {
-                  const existing = metadataByCwd.get(cwd) ?? {
-                    workspaceTrusted: true,
-                    modes: [...options.builtInModes],
-                    slashCommands: [],
-                    skills: [],
-                  };
-                  metadataByCwd.set(cwd, {
-                    ...existing,
+                  context.metadata = {
+                    ...context.metadata,
                     slashCommands: event.availableCommands.flatMap((command) => {
                       const name = command.name.trim();
                       if (!name) return [];
@@ -416,7 +416,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
                         },
                       ];
                     }),
-                  });
+                  };
                   return;
                 }
                 case "AssistantItemStarted":
@@ -529,6 +529,10 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
           threadId: input.threadId,
           payload: { providerThreadId: started.sessionId },
         });
+        const currentMode = yield* acp.getModeState;
+        if (currentMode) {
+          yield* publishMode(input.threadId, currentMode.currentModeId);
+        }
         return session;
       }).pipe(Effect.scoped),
     );
@@ -545,7 +549,7 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
         ? yield* options.splitPromptPreludes({
             cwd: context.cwd,
             text: input.input?.trim() ?? "",
-            slashCommands: metadataByCwd.get(context.cwd)?.slashCommands ?? [],
+            slashCommands: context.metadata.slashCommands,
           })
         : { preludes: [], text: input.input?.trim() ?? "" };
       const preludes = split.preludes.map((text): ReadonlyArray<EffectAcpSchema.ContentBlock> => [
@@ -605,16 +609,25 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
             ),
           );
         }
-        // A stale persisted mode must not block the turn; the agent keeps its
-        // current mode and reports it through `current_mode_update`.
+        // A rejected mode need not emit current_mode_update. Publish the last
+        // reported mode again so the saved picker choice cannot stay stale.
         const requestedMode = input.providerMode?.trim();
         if (requestedMode) {
           yield* context.acp.setMode(requestedMode).pipe(
             Effect.catchCause((cause) =>
-              Effect.logWarning(`${options.displayName} rejected the requested provider mode.`, {
-                threadId: input.threadId,
-                providerMode: requestedMode,
-                cause,
+              Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  `${options.displayName} rejected the requested provider mode.`,
+                  {
+                    threadId: input.threadId,
+                    providerMode: requestedMode,
+                    cause,
+                  },
+                );
+                const currentMode = yield* context.acp.getModeState;
+                if (currentMode) {
+                  yield* publishMode(input.threadId, currentMode.currentModeId);
+                }
               }),
             ),
           );
@@ -715,15 +728,12 @@ export const makeBasicAcpAdapter = Effect.fn("makeBasicAcpAdapter")(function* (
     capabilities: {
       sessionModelSwitch: "unsupported",
       supportsConversationRollback: false,
-      midTurnSteering: true,
-      interactiveApprovals: true,
-      structuredUserInput: false,
-      t3McpInjection: true,
-      attachments: true,
     },
-    getProjectMetadata: (cwd) => {
-      const cached = metadataByCwd.get(path.resolve(cwd));
-      if (cached) return Effect.succeed(cached);
+    getProjectMetadata: (cwd, threadId) => {
+      const context = threadId ? sessions.get(threadId) : undefined;
+      if (context && !context.stopped && context.cwd === path.resolve(cwd)) {
+        return Effect.succeed(context.metadata);
+      }
       return Effect.map(
         options.discoverModes?.(cwd) ?? Effect.succeed(options.builtInModes),
         (modes) => ({

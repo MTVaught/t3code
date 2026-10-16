@@ -4,7 +4,6 @@ import type {
   ModelCapabilities,
   ServerProvider,
   ServerProviderAuth,
-  ServerProviderCapabilities,
   ServerProviderSkill,
   ServerProviderSlashCommand,
   ServerProviderModel,
@@ -24,20 +23,6 @@ import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 export const DEFAULT_TIMEOUT_MS = 4_000;
 // Auth status checks involve disk/network lookups and can be slow on first run (especially Windows)
 export const AUTH_PROBE_TIMEOUT_MS = 10_000;
-export const DEFAULT_SERVER_PROVIDER_CAPABILITIES = {
-  modelPicker: true,
-  attachments: true,
-  approvals: true,
-  structuredInput: true,
-  steering: true,
-  rollback: true,
-  providerModes: false,
-  commands: true,
-  skills: true,
-  subagentProgress: "live",
-  tokenUsage: true,
-} as const satisfies ServerProviderCapabilities;
-
 export const COMPACT_SLASH_COMMAND = {
   name: "compact",
   description: "Summarize the conversation and reduce context usage",
@@ -81,7 +66,6 @@ export interface ServerProviderPresentation {
   readonly reportsContextWindow?: boolean;
   readonly requiresNewThreadForModelChange?: boolean;
   readonly supportsConversationRollback?: boolean;
-  readonly capabilities?: ServerProviderCapabilities;
 }
 
 export type ServerProviderDraft = Omit<ServerProvider, "instanceId" | "driver">;
@@ -244,7 +228,6 @@ export function buildServerProvider(input: {
     ...(typeof input.presentation.requiresNewThreadForModelChange === "boolean"
       ? { requiresNewThreadForModelChange: input.presentation.requiresNewThreadForModelChange }
       : {}),
-    capabilities: input.presentation.capabilities ?? DEFAULT_SERVER_PROVIDER_CAPABILITIES,
     enabled: input.enabled,
     installed: input.probe.installed,
     version: input.probe.version,

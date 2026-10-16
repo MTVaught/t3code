@@ -14,6 +14,7 @@ import {
 } from "@electron/asar";
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
+import { isStableReleaseVersion } from "@t3tools/shared/cliRelease";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -134,7 +135,6 @@ export function resolveLinuxNativePrebuildPaths(directory: string) {
     nodePty: `${root}pty.node`,
     resourceMonitor: `${root}t3-resource-monitor`,
     fff: `${root}libfff_c.so`,
-    browserSecret: `${root}t3-browser-secret`,
   } as const;
 }
 
@@ -280,11 +280,6 @@ export const LINUX_DESKTOP_BUILD_PREREQUISITES = [
   { id: "rust-target", description: "Requested Rust standard library", packages: [] },
   { id: "cc", description: "C/C++ build toolchain", packages: ["build-essential"] },
   { id: "make", description: "Make", packages: ["build-essential"] },
-  {
-    id: "libsecret",
-    description: "libsecret development headers and pkg-config",
-    packages: ["libsecret-1-dev", "pkg-config"],
-  },
   { id: "imagemagick", description: "ImageMagick", packages: ["imagemagick"] },
 ] as const;
 
@@ -418,15 +413,6 @@ const desktopIconPlatformNames = {
   linux: "Linux",
   win: "Windows",
 } satisfies Record<typeof BuildPlatform.Type, string>;
-
-export class LinuxBrowserSecretHostError extends Schema.TaggedError<LinuxBrowserSecretHostError>()(
-  "LinuxBrowserSecretHostError",
-  { hostPlatform: Schema.String },
-) {
-  override get message(): string {
-    return `Linux desktop builds must run on a Linux host: the browser secret helper links against libsecret and cannot be built on '${this.hostPlatform}'.`;
-  }
-}
 
 export class DesktopIconSourceMissingError extends Schema.TaggedError<DesktopIconSourceMissingError>()(
   "DesktopIconSourceMissingError",
@@ -713,12 +699,7 @@ export class WindowsPackagedPayloadValidationError extends Schema.TaggedError<Wi
   }
 }
 
-const LinuxNativePrebuildComponent = Schema.Literals([
-  "node-pty",
-  "resource-monitor",
-  "fff",
-  "browser-secret",
-]);
+const LinuxNativePrebuildComponent = Schema.Literals(["node-pty", "resource-monitor", "fff"]);
 
 export class LinuxNativePrebuildMissingError extends Schema.TaggedError<LinuxNativePrebuildMissingError>()(
   "LinuxNativePrebuildMissingError",
@@ -832,11 +813,11 @@ const resolvePythonForNodeGyp = Effect.fn("resolvePythonForNodeGyp")(function* (
   const path = yield* Path.Path;
   const hostPlatform = yield* HostProcessPlatform;
   const env = yield* Config.all({
-    configuredPython: Config.string("npm_config_python").pipe(
-      Config.orElse(() => Config.string("PYTHON")),
+    configuredPython: Config.String("npm_config_python").pipe(
+      Config.orElse(() => Config.String("PYTHON")),
       Config.option,
     ),
-    localAppData: Config.string("LOCALAPPDATA").pipe(Config.option),
+    localAppData: Config.String("LOCALAPPDATA").pipe(Config.option),
   });
   const isPython3 = (candidate: string) =>
     spawnAndCollectOutput(
@@ -912,6 +893,7 @@ interface StagePackageJson {
   readonly private: true;
   readonly packageManager: string;
   readonly description: string;
+  readonly homepage: string;
   readonly author: string;
   readonly main: string;
   readonly build: Record<string, unknown>;
@@ -1068,10 +1050,6 @@ export const LINUX_CAPTURE_EXTRA_RESOURCES = [
     filter: gnomeCaptureBundle.files,
   },
 ] as const;
-export const LINUX_BROWSER_SECRET_EXTRA_RESOURCES = [
-  { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
-] as const;
-
 export function resolveFffNativeDependencies(
   platform: typeof BuildPlatform.Type,
   arch: typeof BuildArch.Type,
@@ -1234,39 +1212,39 @@ function getPatchedDependencyPackageName(patchKey: string): string {
 }
 
 const AzureTrustedSigningOptionsConfig = Config.all({
-  publisherName: Config.string("AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"),
-  endpoint: Config.string("AZURE_TRUSTED_SIGNING_ENDPOINT"),
-  certificateProfileName: Config.string("AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME"),
-  codeSigningAccountName: Config.string("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME"),
-  fileDigest: Config.string("AZURE_TRUSTED_SIGNING_FILE_DIGEST").pipe(Config.withDefault("SHA256")),
-  timestampDigest: Config.string("AZURE_TRUSTED_SIGNING_TIMESTAMP_DIGEST").pipe(
+  publisherName: Config.String("AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"),
+  endpoint: Config.String("AZURE_TRUSTED_SIGNING_ENDPOINT"),
+  certificateProfileName: Config.String("AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME"),
+  codeSigningAccountName: Config.String("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME"),
+  fileDigest: Config.String("AZURE_TRUSTED_SIGNING_FILE_DIGEST").pipe(Config.withDefault("SHA256")),
+  timestampDigest: Config.String("AZURE_TRUSTED_SIGNING_TIMESTAMP_DIGEST").pipe(
     Config.withDefault("SHA256"),
   ),
-  timestampRfc3161: Config.string("AZURE_TRUSTED_SIGNING_TIMESTAMP_RFC3161").pipe(
+  timestampRfc3161: Config.String("AZURE_TRUSTED_SIGNING_TIMESTAMP_RFC3161").pipe(
     Config.withDefault("http://timestamp.acs.microsoft.com"),
   ),
 });
 
 const BuildEnvConfig = Config.all({
   platform: Config.schema(BuildPlatform, "T3CODE_DESKTOP_PLATFORM").pipe(Config.option),
-  target: Config.string("T3CODE_DESKTOP_TARGET").pipe(Config.option),
+  target: Config.String("T3CODE_DESKTOP_TARGET").pipe(Config.option),
   arch: Config.schema(BuildArch, "T3CODE_DESKTOP_ARCH").pipe(Config.option),
-  version: Config.string("T3CODE_DESKTOP_VERSION").pipe(Config.option),
-  outputDir: Config.string("T3CODE_DESKTOP_OUTPUT_DIR").pipe(Config.option),
-  skipBuild: Config.boolean("T3CODE_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
-  keepStage: Config.boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
-  signed: Config.boolean("T3CODE_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
-  verbose: Config.boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
-  mockUpdates: Config.boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
-  mockUpdateServerPort: Config.string("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
+  version: Config.String("T3CODE_DESKTOP_VERSION").pipe(Config.option),
+  outputDir: Config.String("T3CODE_DESKTOP_OUTPUT_DIR").pipe(Config.option),
+  skipBuild: Config.Boolean("T3CODE_DESKTOP_SKIP_BUILD").pipe(Config.withDefault(false)),
+  keepStage: Config.Boolean("T3CODE_DESKTOP_KEEP_STAGE").pipe(Config.withDefault(false)),
+  signed: Config.Boolean("T3CODE_DESKTOP_SIGNED").pipe(Config.withDefault(false)),
+  verbose: Config.Boolean("T3CODE_DESKTOP_VERBOSE").pipe(Config.withDefault(false)),
+  mockUpdates: Config.Boolean("T3CODE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
+  mockUpdateServerPort: Config.String("T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
   // Native Linux release binaries are built in a RHEL 8-compatible userspace
   // and handed to the Ubuntu packaging job. Packaging on a newer distro must
   // not silently raise the shipped app's glibc floor.
-  linuxNativePrebuilds: Config.string("T3CODE_DESKTOP_LINUX_NATIVE_PREBUILDS").pipe(Config.option),
+  linuxNativePrebuilds: Config.String("T3CODE_DESKTOP_LINUX_NATIVE_PREBUILDS").pipe(Config.option),
   // Path to the Linux CLI release archive (t3-<version>-linux-x64.tar.gz) built
   // by the build_linux_cli CI job. The Windows build embeds it verbatim as the
   // WSL runtime.
-  wslRuntime: Config.string("T3CODE_DESKTOP_WSL_RUNTIME").pipe(Config.option),
+  wslRuntime: Config.String("T3CODE_DESKTOP_WSL_RUNTIME").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1435,10 +1413,10 @@ const rustTargetIsInstalled = Effect.fn("rustTargetIsInstalled")(function* (targ
 export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild")(function* (
   arch: typeof BuildArch.Type = "x64",
 ) {
-  const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
+  const reuseResourceMonitor = yield* Config.Boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
     Config.withDefault(false),
   );
-  const reuseCaptureHelpers = yield* Config.boolean(
+  const reuseCaptureHelpers = yield* Config.Boolean(
     "T3CODE_DESKTOP_REUSE_LINUX_CAPTURE_HELPERS",
   ).pipe(Config.withDefault(false));
   // Rust is only optional when every Linux Rust artifact comes from a cache.
@@ -1453,10 +1431,6 @@ export const preflightLinuxDesktopBuild = Effect.fn("preflightLinuxDesktopBuild"
       "rust-target": needsRust ? rustTargetIsInstalled(rustTarget) : Effect.succeed(true),
       cc: desktopBuildProbeSucceeds(ChildProcess.make("cc", ["--version"]), "cc"),
       make: desktopBuildProbeSucceeds(ChildProcess.make("make", ["--version"]), "make"),
-      libsecret: desktopBuildProbeSucceeds(
-        ChildProcess.make("pkg-config", ["--exists", "libsecret-1"]),
-        "libsecret",
-      ),
       imagemagick: Effect.all([
         desktopBuildProbeSucceeds(ChildProcess.make("magick", ["-version"]), "magick"),
         desktopBuildProbeSucceeds(ChildProcess.make("convert", ["-version"]), "convert"),
@@ -1477,7 +1451,7 @@ export const preflightMacDesktopBuild = Effect.fn("preflightMacDesktopBuild")(fu
   arch: typeof BuildArch.Type,
 ) {
   const rustTargets = resolveResourceMonitorRustTargets("mac", arch);
-  const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
+  const reuseResourceMonitor = yield* Config.Boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
     Config.withDefault(false),
   );
   const checks = yield* Effect.all(
@@ -1534,7 +1508,7 @@ function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
 export const preflightWindowsDesktopBuild = Effect.fn("preflightWindowsDesktopBuild")(
   function* (input: { readonly arch: typeof BuildArch.Type; readonly bundlesWslRuntime: boolean }) {
     const rustTarget = resolveResourceMonitorRustTargets("win", input.arch)[0]!;
-    const reuseResourceMonitor = yield* Config.boolean(
+    const reuseResourceMonitor = yield* Config.Boolean(
       "T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR",
     ).pipe(Config.withDefault(false));
     const python = yield* resolvePythonForNodeGyp();
@@ -1852,7 +1826,7 @@ export const stageLinuxCaptureHelper = Effect.fn("stageLinuxCaptureHelper")(func
   const [rustTarget] = resolveResourceMonitorRustTargets("linux", input.arch);
   // Release CI restores these binaries from a cache keyed on the crate sources and
   // skips the Rust toolchain on a hit, so the build must be skippable too.
-  const reuseHelpers = yield* Config.boolean("T3CODE_DESKTOP_REUSE_LINUX_CAPTURE_HELPERS").pipe(
+  const reuseHelpers = yield* Config.Boolean("T3CODE_DESKTOP_REUSE_LINUX_CAPTURE_HELPERS").pipe(
     Config.withDefault(false),
   );
   const binaryPath = path.join(
@@ -1916,7 +1890,7 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   const manifestPath = path.join(input.repoRoot, "native/resource-monitor/Cargo.toml");
   const executableName = resourceMonitorExecutableName(input.platform);
   const rustTargets = resolveResourceMonitorRustTargets(input.platform, input.arch);
-  const reuseResourceMonitor = yield* Config.boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
+  const reuseResourceMonitor = yield* Config.Boolean("T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR").pipe(
     Config.withDefault(false),
   );
   const builtBinaries: string[] = [];
@@ -1995,62 +1969,6 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   if (input.platform !== "win") {
     yield* fs.chmod(destinationPath, 0o755);
   }
-});
-
-export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (input: {
-  readonly repoRoot: string;
-  readonly stageResourcesDir: string;
-  readonly platform: typeof BuildPlatform.Type;
-  readonly arch: typeof BuildArch.Type;
-  readonly verbose: boolean;
-  readonly linuxNativePrebuilds?: string | undefined;
-}) {
-  if (input.platform !== "linux") return;
-  // Release builds ship the helper compiled inside the RHEL 8 container with
-  // the other Linux prebuilds, so the AppImage keeps its glibc 2.28 floor.
-  // Compiling here would link against the Ubuntu runner's newer glibc.
-  if (input.linuxNativePrebuilds !== undefined) {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const prebuildPath = resolveLinuxNativePrebuildPaths(input.linuxNativePrebuilds).browserSecret;
-    if (!(yield* fs.exists(prebuildPath))) {
-      return yield* new LinuxNativePrebuildMissingError({
-        component: "browser-secret",
-        prebuildPath,
-      });
-    }
-    const destination = path.join(input.stageResourcesDir, "browser-secret", "t3-browser-secret");
-    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
-    yield* fs.copyFile(prebuildPath, destination);
-    yield* fs.chmod(destination, 0o755);
-    return;
-  }
-  // The helper links against the host's libsecret, so it can only be built on
-  // Linux; the build script is a no-op elsewhere. A Linux artifact from
-  // another host would ship without it and every v11 cookie import would
-  // report the keyring as unavailable, so refuse rather than package that
-  // silently. `universal` is a mac-only arch the option type still admits;
-  // the helper script rejects it, so it maps to the concrete x64 the Linux
-  // resource monitor uses for the same request.
-  const hostPlatform = yield* HostProcessPlatform;
-  if (hostPlatform !== "linux") {
-    return yield* new LinuxBrowserSecretHostError({ hostPlatform });
-  }
-  const path = yield* Path.Path;
-  yield* runCommand(
-    ChildProcess.make(
-      "node",
-      [
-        path.join(input.repoRoot, "apps/desktop/scripts/build-browser-secret.mjs"),
-        "--arch",
-        input.arch === "arm64" ? "arm64" : "x64",
-        "--output",
-        path.join(input.stageResourcesDir, "browser-secret", "t3-browser-secret"),
-      ],
-      { cwd: input.repoRoot },
-    ),
-    { label: "build Linux browser secret helper", verbose: input.verbose },
-  );
 });
 
 function generateMacIconSet(
@@ -2287,8 +2205,8 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
   updateChannel: "latest" | "nightly",
 ) {
   const env = yield* Config.all({
-    updateRepository: Config.string("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
-    githubRepository: Config.string("GITHUB_REPOSITORY").pipe(Config.option),
+    updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
+    githubRepository: Config.String("GITHUB_REPOSITORY").pipe(Config.option),
   });
   const rawRepo = (
     Option.getOrUndefined(env.updateRepository)?.trim() ||
@@ -2305,7 +2223,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     owner,
     repo,
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
-    ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
+    channel: updateChannel,
   };
 });
 
@@ -2313,15 +2231,14 @@ export function resolveDesktopUpdateChannel(version: string): "latest" | "nightl
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
 }
 
-// Pull request builds (`-pr.<n>.`) and the maintainers' preview train
-// (`-preview.<date>.<run>`) are downloaded by hand and never through an
-// updater. Building them without a publish config means electron-builder
+// Pull request builds, preview builds, and release candidates are downloaded
+// by hand, never through an updater. Building them without a publish config means electron-builder
 // emits no `latest*.yml`/`nightly*.yml` manifests or blockmaps for them and
 // the app ships without `app-update.yml`, so neither a stable nor a nightly
 // install can be pointed at one of these releases, and the build itself
 // reports that no update feed is configured instead of polling.
 export function isDesktopPreviewVersion(version: string): boolean {
-  return /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);
+  return !isStableReleaseVersion(version) && resolveDesktopUpdateChannel(version) !== "nightly";
 }
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
@@ -2416,7 +2333,6 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     extraResources: [
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
-      ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -2487,10 +2403,17 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       buildConfig.npmRebuild = false;
     }
     buildConfig.linux = {
-      target: [target],
-      executableName: "t3code",
+      // The .deb is built from the same unpacked app after the AppImage.
+      // electron-builder lists both in latest-linux.yml and writes
+      // resources/package-type into the .deb only, so electron-updater updates
+      // each install in its own format.
+      target: target === "AppImage" ? [target, "deb"] : [target],
+      executableName: "t3code-treher",
       icon: "icons",
       category: "Development",
+      synopsis: "Desktop GUI for coding agents",
+      // Required by the .deb control file.
+      maintainer: "T3 Tools <hello@t3.codes>",
       // electron-builder turns these into MimeType=x-scheme-handler/<scheme>;
       // in the .desktop entry (Exec already gets %U), so browsers can hand
       // treher-t3code:// OAuth callbacks to the app.
@@ -2502,9 +2425,26 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ],
       desktop: {
         entry: {
-          StartupWMClass: "t3code",
+          StartupWMClass: "t3code-treher",
         },
       },
+    };
+    buildConfig.deb = {
+      // Electron's runtime libraries. Debian 13 and Ubuntu 24.04 renamed some
+      // for 64-bit time; the old name is the fallback for older releases.
+      depends: [
+        "libasound2t64 | libasound2",
+        "libatspi2.0-0t64 | libatspi2.0-0",
+        "libgbm1",
+        "libgtk-3-0t64 | libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libsecret-1-0",
+        "libuuid1",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+      ],
     };
   }
 
@@ -2552,7 +2492,7 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   }
 });
 
-const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(function* (input: {
+export const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(function* (input: {
   readonly stageAppDir: string;
   readonly arch: typeof BuildArch.Type;
   readonly prebuildDirectory: string;
@@ -2576,6 +2516,9 @@ const stageLinuxNativePrebuilds = Effect.fn("stageLinuxNativePrebuilds")(functio
   const nodePtyBuildDirectory = path.join(nodePtyDir, "build", "Release");
   yield* fs.makeDirectory(nodePtyBuildDirectory, { recursive: true });
   yield* fs.copyFile(prebuilds.nodePty, path.join(nodePtyBuildDirectory, "pty.node"));
+  const nodePtyPrebuildDirectory = path.join(nodePtyDir, "prebuilds", `linux-${architecture}`);
+  yield* fs.makeDirectory(nodePtyPrebuildDirectory, { recursive: true });
+  yield* fs.copyFile(prebuilds.nodePty, path.join(nodePtyPrebuildDirectory, "pty.node"));
 
   const fffPackageLink = path.join(
     input.stageAppDir,
@@ -2645,27 +2588,17 @@ export const packWindowsServerAsar = Effect.fn("packWindowsServerAsar")(function
   readonly arch: typeof BuildArch.Type;
 }) {
   const fs = yield* FileSystem.FileSystem;
-  const archiveStream = yield* Effect.tryPromise({
+  yield* Effect.tryPromise({
     try: () =>
       createPackageWithOptions(input.sourceDir, input.asarPath, {
         dot: true,
         unpack: WINDOWS_NATIVE_ASAR_UNPACK_GLOB,
-        globOptions: { ignore: resolveWindowsServerAsarIgnoreGlobs(input.arch) },
-      }),
-    catch: (cause) => new WindowsServerSidecarPackError({ asarPath: input.asarPath, cause }),
-  });
-  yield* Effect.tryPromise({
-    try: () =>
-      new Promise<void>((resolve, reject) => {
-        const stream = archiveStream as NodeJS.WritableStream & {
-          readonly writableFinished?: boolean;
-        };
-        if (stream.writableFinished === true) {
-          resolve();
-          return;
-        }
-        stream.once("finish", resolve);
-        stream.once("error", reject);
+        // glob 13 (via @electron/asar 4) matches `ignore` relative to `cwd`,
+        // not against the absolute paths it crawls, so anchor it at the source.
+        globOptions: {
+          cwd: input.sourceDir,
+          ignore: resolveWindowsServerAsarIgnoreGlobs(input.arch),
+        },
       }),
     catch: (cause) => new WindowsServerSidecarPackError({ asarPath: input.asarPath, cause }),
   });
@@ -3070,13 +3003,16 @@ export const validateWindowsPackagedPayload = Effect.fn(
         ),
       );
     }
-    const requiredMembers = [
-      `${stem}/t3`,
-      `${stem}/client`,
-      `${stem}/node_modules`,
-      `${stem}/node_modules/node-pty/build/Release/pty.node`,
-    ];
+    const requiredMembers = [`${stem}/t3`, `${stem}/client`, `${stem}/node_modules`];
     const missingMembers = requiredMembers.filter((member) => !members.includes(member));
+    // node-pty can load a source build or the prebuild for the WSL target.
+    const ptyCandidates = [
+      `${stem}/node_modules/node-pty/build/Release/pty.node`,
+      `${stem}/node_modules/node-pty/prebuilds/linux-${input.targetArch}/pty.node`,
+    ];
+    if (!ptyCandidates.some((member) => members.includes(member))) {
+      missingMembers.push(...ptyCandidates);
+    }
     if (missingMembers.length > 0) {
       return yield* new WindowsPackagedPayloadValidationError({
         reason: "wsl-runtime-invalid",
@@ -3245,10 +3181,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // Assert against the emitted bundle, not the bundler config. `alwaysBundle`
   // only forces packages IN, so a transitive dependency of an external package
   // is bundled by default however the predicate is written — that silently
-  // inlined msgpackr-extract and its native loader while every list-based test
-  // still passed. An inlined native loader resolves its prebuilds relative to
-  // the bundle and quietly falls back to a slower pure-JS path, so this fails
-  // the build rather than shipping a silent regression.
+  // inlined a native loader (node-gyp-build-optional-packages) while every
+  // list-based test still passed. An inlined native loader resolves its
+  // prebuilds relative to the bundle and quietly falls back to a slower
+  // pure-JS path, so this fails the build rather than shipping a silent
+  // regression.
   {
     const chunkNames = (yield* fs.readDirectory(distDirs.serverDist)).filter((entry) =>
       entry.endsWith(".mjs"),
@@ -3368,14 +3305,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         verbose: options.verbose,
       });
   }
-  yield* stageBrowserSecret({
-    repoRoot,
-    stageResourcesDir,
-    platform: options.platform,
-    arch: options.arch,
-    verbose: options.verbose,
-    linuxNativePrebuilds: options.platform === "linux" ? options.linuxNativePrebuilds : undefined,
-  });
 
   yield* assertPlatformBuildResources(
     options.platform,
@@ -3422,8 +3351,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     packageManager: rootPackageJson.packageManager,
     description: "T3 Code desktop build",
+    // Required by the .deb control file.
+    homepage: "https://t3.codes",
     author: "Matthew Vaught",
-    main: "apps/desktop/dist-electron/main.cjs",
+    main: "apps/desktop/dist-electron/boot.cjs",
     build: yield* createBuildConfig(
       options.platform,
       options.target,
@@ -3518,6 +3449,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     if (value === "") {
       delete buildEnv[key];
     }
+  }
+  if (options.platform === "linux") {
+    // fpm compresses the .deb with the system xz through tar. Threaded mode
+    // takes seconds on a many-core runner instead of about two minutes.
+    buildEnv.XZ_DEFAULTS = "-T0";
   }
   if (!options.signed) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";
@@ -3638,64 +3574,64 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 });
 
 const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
-  platform: Flag.choice("platform", BuildPlatform.literals).pipe(
+  platform: Flag.Literals("platform", BuildPlatform.literals).pipe(
     Flag.withDescription("Build platform (env: T3CODE_DESKTOP_PLATFORM)."),
     Flag.optional,
   ),
-  target: Flag.string("target").pipe(
+  target: Flag.String("target").pipe(
     Flag.withDescription(
       "Artifact target, for example dmg/AppImage/nsis (env: T3CODE_DESKTOP_TARGET).",
     ),
     Flag.optional,
   ),
-  arch: Flag.choice("arch", BuildArch.literals).pipe(
+  arch: Flag.Literals("arch", BuildArch.literals).pipe(
     Flag.withDescription("Build arch, for example arm64/x64/universal (env: T3CODE_DESKTOP_ARCH)."),
     Flag.optional,
   ),
-  buildVersion: Flag.string("build-version").pipe(
+  buildVersion: Flag.String("build-version").pipe(
     Flag.withDescription("Artifact version metadata (env: T3CODE_DESKTOP_VERSION)."),
     Flag.optional,
   ),
-  outputDir: Flag.string("output-dir").pipe(
+  outputDir: Flag.String("output-dir").pipe(
     Flag.withDescription("Output directory for artifacts (env: T3CODE_DESKTOP_OUTPUT_DIR)."),
     Flag.optional,
   ),
-  skipBuild: Flag.boolean("skip-build").pipe(
+  skipBuild: Flag.Boolean("skip-build").pipe(
     Flag.withDescription(
       "Skip `vp run build:desktop` and use existing dist artifacts (env: T3CODE_DESKTOP_SKIP_BUILD).",
     ),
     Flag.optional,
   ),
-  keepStage: Flag.boolean("keep-stage").pipe(
+  keepStage: Flag.Boolean("keep-stage").pipe(
     Flag.withDescription("Keep temporary staging files (env: T3CODE_DESKTOP_KEEP_STAGE)."),
     Flag.optional,
   ),
-  signed: Flag.boolean("signed").pipe(
+  signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(
       "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: T3CODE_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
-  verbose: Flag.boolean("verbose").pipe(
+  verbose: Flag.Boolean("verbose").pipe(
     Flag.withDescription("Stream subprocess stdout (env: T3CODE_DESKTOP_VERBOSE)."),
     Flag.optional,
   ),
-  mockUpdates: Flag.boolean("mock-updates").pipe(
+  mockUpdates: Flag.Boolean("mock-updates").pipe(
     Flag.withDescription("Enable mock updates (env: T3CODE_DESKTOP_MOCK_UPDATES)."),
     Flag.optional,
   ),
-  mockUpdateServerPort: Flag.integer("mock-update-server-port").pipe(
+  mockUpdateServerPort: Flag.Int("mock-update-server-port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
     Flag.withDescription("Mock update server port (env: T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
     Flag.optional,
   ),
-  linuxNativePrebuilds: Flag.string("linux-native-prebuilds").pipe(
+  linuxNativePrebuilds: Flag.String("linux-native-prebuilds").pipe(
     Flag.withDescription(
       "Directory containing RHEL 8-compatible pty.node, t3-resource-monitor, and libfff_c.so binaries (env: T3CODE_DESKTOP_LINUX_NATIVE_PREBUILDS).",
     ),
     Flag.optional,
   ),
-  wslRuntime: Flag.string("wsl-runtime").pipe(
+  wslRuntime: Flag.String("wsl-runtime").pipe(
     Flag.withDescription(
       "Path to the Linux CLI release archive (t3-<version>-linux-x64.tar.gz) to embed as the WSL runtime of a Windows build (env: T3CODE_DESKTOP_WSL_RUNTIME).",
     ),

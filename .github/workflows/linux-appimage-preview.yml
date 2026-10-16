@@ -189,6 +189,15 @@ jobs:
           "$app_image" --appimage-extract >/dev/null
 
           while IFS= read -r -d '' binary; do
+            # Match the release gate: these optional helpers only run on newer
+            # Wayland compositors. RHEL 8's required runtime remains checked.
+            case "$binary" in
+              *"/@crowecawcaw/xa11y-"* | \
+              squashfs-root/resources/hyprland-capture/* | \
+              squashfs-root/resources/kde-capture/*)
+                continue
+                ;;
+            esac
             if ! readelf --file-header "$binary" >/dev/null 2>&1; then
               continue
             fi
@@ -210,7 +219,7 @@ jobs:
             | squashfs-root/resources/resource-monitor/t3-resource-monitor \
             | grep '"type":"hello"'
 
-          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code - <<'NODE'
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code-treher - <<'NODE'
           const nodePty = require(`${process.cwd()}/squashfs-root/resources/app.asar/node_modules/node-pty`);
           const terminal = nodePty.spawn("/bin/sh", ["-c", "printf packaged-rhel8-pty-ok"], {
             name: "xterm",
@@ -225,7 +234,7 @@ jobs:
           NODE
 
           touch rhel8-fff-probe.txt
-          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code --input-type=module - <<'NODE'
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code-treher --input-type=module - <<'NODE'
           import { pathToFileURL } from "node:url";
           const entry = pathToFileURL(
             `${process.cwd()}/squashfs-root/resources/app.asar/node_modules/@ff-labs/fff-node/dist/src/index.js`,
@@ -244,7 +253,7 @@ jobs:
 
           set +e
           timeout --signal=TERM --kill-after=5s 20s \
-            xvfb-run -a squashfs-root/t3code --no-sandbox --disable-gpu \
+            xvfb-run -a squashfs-root/t3code-treher --no-sandbox --disable-gpu \
             >rhel8-desktop.log 2>&1
           desktop_status=$?
           set -e

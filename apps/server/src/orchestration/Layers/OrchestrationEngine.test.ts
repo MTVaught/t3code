@@ -434,6 +434,8 @@ describe("OrchestrationEngine", () => {
               threads: [],
               updatedAt: projectionSnapshot.updatedAt,
             }),
+          getDeletedWorktreeThreads: () => Effect.die("unused"),
+          listThreadsWithPullRequests: () => Effect.die("unused"),
           getArchivedShellSnapshot: () =>
             Effect.succeed({
               snapshotSequence: projectionSnapshot.snapshotSequence,
@@ -445,18 +447,18 @@ describe("OrchestrationEngine", () => {
             Effect.succeed({ snapshotSequence: projectionSnapshot.snapshotSequence }),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getEventReplayStats: () => Effect.die("unused"),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
-          getProjectShellById: () => Effect.succeed(Option.none()),
+          getActiveProjectByWorkspaceRoot: () => Effect.succeedNone,
+          getProjectShellById: () => Effect.succeedNone,
           getProjectShells: () => Effect.succeed([]),
-          getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+          getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
           getImportedAgentSessionSources: () => Effect.die("unused"),
-          getThreadCheckpointContext: () => Effect.succeed(Option.none()),
-          getFullThreadDiffContext: () => Effect.succeed(Option.none()),
+          getThreadCheckpointContext: () => Effect.succeedNone,
+          getFullThreadDiffContext: () => Effect.succeedNone,
           getThreadRuntimeContext: () => Effect.die("unused"),
           getTurnStartMessage: () => Effect.die("unused"),
-          getThreadShellById: () => Effect.succeed(Option.none()),
-          getThreadDetailById: () => Effect.succeed(Option.none()),
-          getThreadDetailSnapshot: () => Effect.succeed(Option.none()),
+          getThreadShellById: () => Effect.succeedNone,
+          getThreadDetailById: () => Effect.succeedNone,
+          getThreadDetailSnapshot: () => Effect.succeedNone,
           searchThreads: () => Effect.succeed({ matches: [] }),
         }),
       ),
@@ -756,73 +758,6 @@ describe("OrchestrationEngine", () => {
     const readModelA = await system.readModel();
     const readModelB = await system.readModel();
     expect(readModelB).toEqual(readModelA);
-    await system.dispose();
-  });
-
-  it("flags review files on a thread and reads them back from the detail snapshot", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-    const threadId = ThreadId.make("thread-review-flags");
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("cmd-project-review-flags-create"),
-        projectId: asProjectId("project-review-flags"),
-        title: "Project Review Flags",
-        workspaceRoot: "/tmp/project-review-flags",
-        defaultModelSelection: {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.make("cmd-thread-review-flags-create"),
-        threadId,
-        projectId: asProjectId("project-review-flags"),
-        title: "Flag me",
-        modelSelection: {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: "gpt-5-codex",
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "full-access",
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      }),
-    );
-
-    await system.run(
-      engine.dispatch({
-        type: "thread.review-file.flag",
-        commandId: CommandId.make("cmd-review-flag"),
-        threadId,
-        paths: ["src/app.ts"],
-      }),
-    );
-    expect(Option.getOrNull(await system.readThread(threadId))?.reviewFollowUpPaths).toEqual([
-      "src/app.ts",
-    ]);
-    expect(
-      (await system.readModel()).threads.find((thread) => thread.id === threadId)
-        ?.reviewFollowUpPaths,
-    ).toEqual(["src/app.ts"]);
-
-    await system.run(
-      engine.dispatch({
-        type: "thread.review-file.unflag",
-        commandId: CommandId.make("cmd-review-unflag"),
-        threadId,
-      }),
-    );
-    expect(Option.getOrNull(await system.readThread(threadId))?.reviewFollowUpPaths).toEqual([]);
-
     await system.dispose();
   });
 

@@ -127,13 +127,18 @@ describe("normalizeDesktopUpdateReleaseNotes", () => {
     const result = normalizeDesktopUpdateReleaseNotes(
       [
         { version: "0.0.42", note: "- Stable change" },
+        { version: "0.0.43-treher.1.1", note: "- Final fork change" },
+        { version: "0.0.44-treher.1.0.rc.1", note: "- Candidate change" },
         { version: "0.0.42-nightly.20260915.1710", note: "- Nightly change" },
       ],
       "0.0.42",
       "latest",
     );
 
-    expect(result.releaseNotes.map(({ version }) => version)).toEqual(["0.0.42"]);
+    expect(result.releaseNotes.map(({ version }) => version)).toEqual([
+      "0.0.42",
+      "0.0.43-treher.1.1",
+    ]);
   });
 
   it("counts valid groups before applying the six-release limit", () => {

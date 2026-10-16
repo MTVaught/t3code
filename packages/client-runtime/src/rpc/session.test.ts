@@ -6,7 +6,6 @@ import {
   ServerConfig,
   type ServerConfig as ServerConfigType,
   ServerConfigStreamEvent,
-  ServerProviderCapabilities,
   type ServerConfigStreamEvent as ServerConfigStreamEventType,
   WS_METHODS,
   UsageLimitSourceId,
@@ -103,9 +102,6 @@ class TestWebSocket {
   }
 }
 
-// Decoding fills the fork's provider capability defaults.
-const DEFAULT_PROVIDER_CAPABILITIES = Schema.decodeUnknownSync(ServerProviderCapabilities)({});
-
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
   label: "Test environment",
@@ -153,6 +149,7 @@ const SERVER_CONFIG: ServerConfigType = {
     localTracingEnabled: false,
     otlpTracesEnabled: false,
     otlpMetricsEnabled: false,
+    otlpLogsEnabled: false,
   },
   settings: DEFAULT_SERVER_SETTINGS,
 };
@@ -164,7 +161,7 @@ const RpcRequest = Schema.TaggedStruct("Request", {
 });
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const isRpcRequest = Schema.is(RpcRequest);
-const isPing = Schema.is(Schema.Struct({ _tag: Schema.Literal("Ping") }));
+const isPing = Schema.is(Schema.TaggedStruct("Ping", {}));
 const encodeJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const encodeServerConfig = Schema.encodeSync(ServerConfig);
 const encodeServerConfigStreamEvent = Schema.encodeSync(ServerConfigStreamEvent);
@@ -826,14 +823,14 @@ describe("RpcSessionFactory", () => {
             retryNow: Effect.void,
           } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
           const cache = Persistence.EnvironmentCacheStore.of({
-            loadShell: () => Effect.succeed(Option.none()),
+            loadShell: () => Effect.succeedNone,
             saveShell: () => Effect.void,
-            loadThread: () => Effect.succeed(Option.none()),
+            loadThread: () => Effect.succeedNone,
             saveThread: () => Effect.void,
             removeThread: () => Effect.void,
-            loadServerConfig: () => Effect.succeed(Option.none()),
+            loadServerConfig: () => Effect.succeedNone,
             saveServerConfig: () => Effect.void,
-            loadVcsRefs: () => Effect.succeed(Option.none()),
+            loadVcsRefs: () => Effect.succeedNone,
             saveVcsRefs: () => Effect.void,
             removeVcsRefs: () => Effect.void,
             clearVcsRefs: () => Effect.void,
@@ -979,9 +976,6 @@ describe("RpcSessionFactory", () => {
               models: [],
               slashCommands: [],
               skills: [],
-              // Decoding fills the fork's capability defaults, so the fixture
-              // carries them for the round-trip equality check.
-              capabilities: DEFAULT_PROVIDER_CAPABILITIES,
             },
           ],
         },

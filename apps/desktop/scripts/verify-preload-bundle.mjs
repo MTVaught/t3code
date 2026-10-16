@@ -9,6 +9,7 @@ import { parse } from "acorn";
 const expectedDesktopBridgeApis = [
   "getClientPlatform",
   "getLocalEnvironmentBootstraps",
+  "getPathForFile",
   "pickFolder",
 ];
 const preloadExecutionTimeoutMs = 1_000;
@@ -67,6 +68,9 @@ const createSandboxModules = (exposedGlobals) => {
       exposeInMainWorld: (name, api) => exposedGlobals.set(name, api),
     },
     ipcRenderer,
+    webUtils: {
+      getPathForFile: () => "",
+    },
   };
 
   return new Map([

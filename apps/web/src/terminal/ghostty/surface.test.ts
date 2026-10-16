@@ -655,10 +655,6 @@ describe("isTerminalCopyShortcut", () => {
     expect(isTerminalCopyShortcut(event({}), "Linux x86_64")).toBe(false);
   });
 
-  it("recognizes Command+C when platform reporting is unavailable", () => {
-    expect(isTerminalCopyShortcut(event({ metaKey: true }), "Linux x86_64")).toBe(true);
-  });
-
   it("uses the produced character instead of the physical key position", () => {
     expect(isTerminalCopyShortcut(event({ key: "C", metaKey: true }), "MacIntel")).toBe(true);
     expect(isTerminalCopyShortcut(event({ key: "j", metaKey: true }), "MacIntel")).toBe(false);
@@ -771,10 +767,6 @@ describe("isTerminalPasteShortcut", () => {
     expect(isTerminalPasteShortcut(event({ ctrlKey: true, shiftKey: true }), "Linux x86_64")).toBe(
       true,
     );
-  });
-
-  it("recognizes Command+V when platform reporting is unavailable", () => {
-    expect(isTerminalPasteShortcut(event({ metaKey: true }), "Linux x86_64")).toBe(true);
   });
 
   it("supports the conventional Shift+Insert paste shortcut", () => {

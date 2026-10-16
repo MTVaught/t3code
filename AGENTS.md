@@ -4,9 +4,63 @@ T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provid
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
+## Fork differences and upstream merges
+
+This is the Treher desktop fork, `MTVaught/t3code`. The rules in this section take precedence
+over the upstream product and multi-surface guidance below. Keep these decisions when merging
+upstream. Change this section when the maintainer changes the fork's scope.
+
+- Distribute the desktop app. Its bundled web client, server, shared packages, and runtime
+  archives remain required, including support for SSH environments and Windows WSL. Do not
+  remove them because this fork does not distribute a separate web or mobile app.
+- Do not enable mobile builds, hosted web or marketing deployments, T3 Connect relay
+  deployments, or external service webhooks. Keep those workflows under
+  `.github/disabled-workflows`. Do not add their jobs or required checks to CI or branch
+  protection. Remote connections use servers controlled by the user. Do not inject upstream
+  Clerk credentials or hosted relay configuration into builds or development templates.
+- Use standard GitHub-hosted runners for all active workflows. Do not restore Blacksmith,
+  paid runner labels, or self-hosted runner requirements during upstream merges. Typecheck
+  and test the desktop dependency graph and contributor tooling. General repository lint
+  and unused-code checks may still cover retained upstream source.
+- Release only macOS ARM64, Linux x64, and Windows x64 artifacts. Installers, download links,
+  and managed runtime selection must report unsupported targets before a download. Do not
+  advertise Linux ARM64, Windows ARM64, or macOS x64 artifacts that the workflow does not build.
+- RHEL 8 x64 is a required fork platform, even though upstream does not support it. The Linux
+  AppImage, Linux runtime archive, bundled server, and required native components must work
+  with glibc 2.28. Preserve the Rocky Linux 8 native builds and packaged AppImage verification
+  in release and Linux preview workflows, plus the runtime archive checks before upload.
+  Publishing must depend on successful RHEL 8 verification. Check
+  dependency, Electron, and build-image updates for compatibility; do not raise the required
+  glibc version or remove these checks to match upstream. Verify the packaged app in a RHEL 8
+  environment or its compatible Rocky Linux 8 environment. A build or typecheck on a newer
+  Linux distribution does not prove RHEL 8 support.
+- Installers and updaters must use this fork's releases. Stable accepts plain upstream version
+  tags and final Treher tags such as `v0.0.45-treher.1.1`. It excludes candidates such as
+  `v0.0.45-treher.1.0.rc.1` and nightlies. See the [release guide](docs/operations/release.md)
+  for tag numbering and publishing procedures.
+- Preserve Treher app identity, URL schemes, and the separate `.t3-treher` state directory.
+  Fork builds must not share upstream's live state. Do not restore upstream usage analytics;
+  local resource monitoring is separate from usage analytics.
+- Preserve IBM Bob provider support alongside the upstream providers. Include Bob when
+  changing provider contracts, settings, authentication, or runtime behavior.
+  Use upstream capability fields and service conventions. Add fork interfaces only for Bob
+  features that have callers. Bob is the default provider for text generation.
+- Disable browser cookie import on all platforms. Keep built-in browser profiles and direct
+  sign-in. Do not build or package `t3-browser-secret`, scan other browsers for cookies, or
+  request keyring or Full Disk Access permissions for cookie import.
+- Keep terminal selection actions on right-click by default. Use upstream clipboard shortcuts.
+- Use the full upstream review experience, including loading large diffs one file at a time.
+  Do not restore the retired fork staging filters, follow-up flags, file search, or J/K
+  navigation. Preserve compatibility with stored fork events and database state when removing
+  their UI or handlers.
+
+Resolve routine merge conflicts within these decisions. If redundant or broken fork code needs
+a new product decision, identify the affected behavior and ask the maintainer before choosing
+its replacement. Do not preserve old fork code only because it differs from upstream.
+
 ## What makes T3 Code special?
 
-We have over 200,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
+We have over 400,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
 
 ### 1. Open at the core
 
@@ -69,6 +123,7 @@ The most common defect in this repo is a change that works on the path you teste
 - **Entry points.** A behavior reachable from the chat view is usually also reachable from Settings, the command palette, and a keybinding. Fixing one is not fixing the feature.
 - **Clients.** Web, desktop (wraps web, adds Electron shell/IPC), and mobile (React Native, separate navigation). Shared logic lives in `packages/client-runtime`
 - **Providers.** Codex, Claude, Cursor, Grok, OpenCode, and Antigravity each have an adapter. Provider-shaped features need a decision per adapter, even if the decision is "not supported here".
+- **Agents.** A capability a user can trigger is usually one an agent should reach through MCP tools, and scheduled tasks run the same paths. That only works when it is a service method, not handler code.
 - **Contracts.** Anything crossing the wire is typed in `packages/contracts`. Change the schema and the server, web, mobile, and desktop all follow.
 - **Reverse states.** If you added a way in, add the way out and the way to see it. Snooze needs unsnooze. Close needs reopen. A one-way door is a bug.
 - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
@@ -150,7 +205,7 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 ## Where code lives
 
-- `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read `.repos/effect-smol/LLMS.md` before writing Effect code.
+- `apps/server` - WebSocket, orchestration, providers, checkpointing. Effect-heavy: read [Effect services](docs/internals/effect-services.md) before adding server code, and `.repos/effect-smol/LLMS.md` for the Effect library itself.
 - `apps/web` - React/Vite UI. `apps/desktop` wraps it, `apps/mobile` is React Native, `apps/marketing` is the site.
 - `packages/contracts` - Effect/Schema contracts plus small derived helpers. No heavy runtime logic.
 - `packages/shared` - shared runtime utils, subpath exports, no barrel.
@@ -160,6 +215,8 @@ Full glossary with file links: `docs/internals/glossary.md`
 ## Taste
 
 - Complexity belongs at the adapter boundary. Orchestration stays pure, UI stays dumb.
+- Server features are services; transports stay thin. A `ws.ts` RPC handler, HTTP route, or MCP tool decodes input, calls one service method, and maps errors. See [Effect services](docs/internals/effect-services.md).
+- `apps/web/src/components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
 - Our users drive agents all day and notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.

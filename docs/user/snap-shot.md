@@ -69,6 +69,9 @@ SnapShots work on Wayland sessions. Each desktop provides capture differently, a
 current desktop and shows only what it needs. Preferences carry across desktops, but each desktop's
 helper and shortcut approval are separate.
 
+Treher uses a separate Linux app identity from upstream T3 Code. If you configured a capture
+shortcut with an older fork build, run SnapShot setup again to bind the shortcut to Treher.
+
 **GNOME.** Install the bundled **T3 Code SnapShots** extension during setup. It is installed
 per-user, offline, and needs no administrator password. Sign out and back in after the first
 install so GNOME discovers it, then enable it from setup or from GNOME's Extensions app. If GNOME

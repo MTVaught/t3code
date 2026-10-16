@@ -52,9 +52,9 @@ const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
 );
 export function makeRelayUrlConfig(fallback = buildTimeRelayUrl) {
-  const runtimeConfig = Config.nonEmptyString("T3CODE_RELAY_URL");
+  const runtimeConfig = Config.NonEmptyString("T3CODE_RELAY_URL");
   return (fallback ? runtimeConfig.pipe(Config.withDefault(fallback)) : runtimeConfig).pipe(
-    Config.mapOrFail(validateRelayUrl),
+    Config.mapEffect(validateRelayUrl),
   );
 }
 
@@ -68,7 +68,7 @@ export const relayUrlConfig = makeRelayUrlConfig();
 export const hostedAppUrlConfig = makePublicValueConfig(
   "T3CODE_HOSTED_APP_URL",
   DEFAULT_HOSTED_APP_URL,
-).pipe(Config.mapOrFail(validateHostedAppUrl));
+).pipe(Config.mapEffect(validateHostedAppUrl));
 
 function validateHostedAppUrl(value: string) {
   try {
@@ -99,7 +99,7 @@ function validateHostedAppUrl(value: string) {
 }
 
 function makePublicValueConfig(name: string, fallback: string) {
-  const runtimeConfig = Config.nonEmptyString(name);
+  const runtimeConfig = Config.NonEmptyString(name);
   return (fallback ? runtimeConfig.pipe(Config.withDefault(fallback)) : runtimeConfig).pipe(
     Config.map((value) => value.trim()),
   );
@@ -138,7 +138,7 @@ export function makeCloudCliOAuthConfig({
       clerkCliOAuthClientIdFallback,
     ),
   }).pipe(
-    Config.mapOrFail(({ clerkPublishableKey, clientId }) =>
+    Config.mapEffect(({ clerkPublishableKey, clientId }) =>
       Effect.try({
         try: () => clerkFrontendApiUrlFromPublishableKey(clerkPublishableKey),
         catch: (cause) =>

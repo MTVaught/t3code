@@ -47,22 +47,28 @@ glab auth login
 
 ### Bitbucket
 
-Set an access token in the server's environment:
+Open **Settings → Source Control**, expand **Bitbucket**, and choose how to sign in:
+
+- **Access token**: a token created for one repository, project, or workspace. It can only reach
+  what it was created for.
+- **API token**: an Atlassian API token for your account, used with your account email. It can
+  reach every repository you can. Give it read/write access to repositories and pull requests, plus
+  user read access (`read:user:bitbucket`).
+
+Choose **Save**; the change applies right away, and replaces any credential saved with the other
+method. Credentials are saved on the environment's server, so select a remote environment to
+configure it. Saved tokens can't be viewed again; enter a new one to replace it, or choose
+**Remove**.
+
+If no credentials are saved, T3 Code falls back to these variables in the server's environment.
+Restart the server after changing them:
 
 ```bash
 export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
-```
-
-Or use an Atlassian account email and API token with read/write access to repositories and pull
-requests, plus user read access (`read:user:bitbucket`):
-
-```bash
+# or
 export T3CODE_BITBUCKET_EMAIL="you@example.com"
 export T3CODE_BITBUCKET_API_TOKEN="your-token"
 ```
-
-The access token takes precedence if both are configured. Restart the server after changing these
-variables.
 
 ### Azure DevOps
 
@@ -73,7 +79,15 @@ az extension add --name azure-devops
 az login
 ```
 
-## Clone or publish a project
+## Start, clone, or publish a project
+
+To start from nothing, choose **New project** in the command palette (`Cmd/Ctrl+K`), or
+**New project** under **Add Project** on any client, and type a name. T3 Code makes a Git
+repository in `~/.t3/projects` (the `projects` folder of your T3 data directory) with a README,
+an icon, and a first commit, then opens a new thread in it. The folder is named after the project,
+like `pinball-stats` for "Pinball Stats". Turn on **Create private repository on GitHub** to also
+publish it. If Git has no name or email on that machine, the project is created without the
+first commit.
 
 Use **Add Project** in the command palette (`Cmd/Ctrl+K`) to clone a repository. Choose a hosting
 provider or paste a Git URL, then choose where to save it. The project opens right away while the
@@ -92,27 +106,6 @@ messages, review titles, and descriptions from your changes.
 
 Choose the writing style and model in **Settings → Source Control**. **Repository conventions**
 uses the project's instructions and recent commit subjects.
-
-## Review agent changes
-
-- Open the diff panel from a changed-files card or with `Cmd/Ctrl + D`.
-- Use the arrows beside the current path to move through every changed file, or click the path to
-  search and jump to a changed file.
-- With focus in the diff, press `J` for the previous file or `K` for the next file.
-- Narrow panels start with a unified diff; wider panels start with a side-by-side diff.
-- Unchanged sections are collapsed by default. Use the unfold button in the diff toolbar to show
-  full files for the current review, or turn on **Show full files in diffs** in
-  **Settings → General** to make that the default.
-- In the **Working tree** scope, stage a file once you have reviewed it with the plus button in
-  its header, and unstage it with the minus button. **Stage all** and **Unstage all** act on every
-  file currently shown.
-- Switch the working tree between **All**, **Unstaged**, and **Staged** to focus the review.
-  **Unstaged** shows only what changed since you staged, so after the agent's next turn it lists
-  just the new edits, including new edits to files you had already staged.
-- Flag a file for follow-up with the flag button in its header when it still needs more work or
-  a comment from you. A flagged file cannot be staged, on its own or by **Stage all**, until you
-  clear the flag. Flags belong to the thread, so they show on every device and are cleared for
-  the files a commit takes along.
 
 ## Review and merge
 
@@ -139,13 +132,28 @@ for ten minutes during a GitHub outage; new credentials must be verified first. 
 an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
 PR creation from Git actions continue to use the project's environment.
 
-For Azure DevOps, use the host website to view diffs or change comments. Bitbucket does not support
-reopening a declined pull request.
+For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
+declined pull request.
+
+### Mark files as viewed
+
+Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a
+running count. A tick belongs to the pull request rather than to a commit, so scoping the tab to a
+single commit keeps them. A file pushed to after you cleared it comes back marked **Changed**.
+
+On GitHub these are GitHub's own viewed marks, so a review carries between T3 Code and github.com
+in either direction. Forgejo, GitLab, Bitbucket, and Azure DevOps expose no record T3 Code can read, so the
+server you are connected to keeps them instead: they follow you across the apps connected to that
+server, but the host's own site will not show them, and the count reads **viewed in T3 Code**.
+
+The **Code** tab is a web and desktop surface. The mobile app reports a pull request's status but
+does not show its diff, so marks are made and read on web and desktop.
 
 ## Troubleshooting
 
 - **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,
-  confirm the running server received the environment variables.
+  check the credentials saved in Settings → Source Control, or confirm the running server received
+  the environment variables.
 - **GitHub sign-in cannot be verified:** update GitHub CLI to at least 2.81.0.
 - **Push fails despite a connected account:** check the Git remote's credentials. SSH and HTTPS
   remotes can require separate setup from the hosting provider's API access.
@@ -164,7 +172,7 @@ on the Pull Requests page, **Link to thread** lets you search for an active thre
 also lists the threads that link to it, including archived threads, so you can return to their context.
 
 Thread badges show a stack's layer count or the current review number with a count of additional
-links. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
+links. Clicking a badge with more than one review opens the **Linked pull requests** panel. On mobile, the Git overview lists linked reviews and their stacks; tap a review to open it.
 Linking and unlinking are available in the web and desktop clients.
 
 The **Linked pull requests** panel lists every review and groups stacks. Unlink a review from its

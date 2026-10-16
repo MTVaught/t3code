@@ -44,7 +44,7 @@ permissions:
 jobs:
   preflight:
     name: Preflight
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       release_channel: ${{ steps.release_meta.outputs.release_channel }}
@@ -83,7 +83,6 @@ jobs:
           DISPATCH_CHANNEL: ${{ github.event.inputs.channel }}
           DISPATCH_VERSION: ${{ github.event.inputs.version }}
           REF_TYPE: ${{ github.ref_type }}
-          NIGHTLY_DATE: ${{ github.run_started_at }}
           NIGHTLY_SHA: ${{ github.sha }}
           NIGHTLY_RUN_NUMBER: ${{ github.run_number }}
         run: |
@@ -92,7 +91,7 @@ jobs:
           # come from a v*.*.* tag push or a workflow_dispatch with a version.
           if [[ ( "${GITHUB_EVENT_NAME}" == "push" && "${REF_TYPE}" == "branch" ) \
              || ( "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${DISPATCH_CHANNEL:-stable}" == "nightly" ) ]]; then
-            nightly_date="$(date -u -d "$NIGHTLY_DATE" +%Y%m%d)"
+            nightly_date="$(date -u +%Y%m%d)"
 
             node scripts/resolve-nightly-release.ts \
               --date "$nightly_date" \
@@ -126,7 +125,7 @@ jobs:
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
             echo "name=T3 Code v$version" >> "$GITHUB_OUTPUT"
             echo "cli_dist_tag=latest" >> "$GITHUB_OUTPUT"
-            if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if node --input-type=module -e 'import { isStableReleaseVersion } from "./packages/shared/src/cliRelease.ts"; process.exit(isStableReleaseVersion(process.argv[1]) ? 0 : 1)' "$version"; then
               echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
               echo "make_latest=true" >> "$GITHUB_OUTPUT"
             else
@@ -181,17 +180,14 @@ jobs:
         run: vp check
 
       - name: Typecheck
-        run: vp run typecheck
+        run: vp run --concurrency-limit 2 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' typecheck
 
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
-      # Everything except `t3` (apps/server), which `quality_server` shards
-      # below. Same split as ci.yml: these `test` tasks declare no `dependsOn`
+      # Desktop dependencies and tooling. Server tests run on the shards below.
+      # Same split as ci.yml: these `test` tasks declare no `dependsOn`
       # and resolve workspace deps from source, so `--parallel` only drops idle
       # time between dependency layers.
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' test
+        run: vp run --parallel --concurrency-limit 4 --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts...' --filter '@t3tools/oxlint-plugin-t3code' --filter '!t3' test
 
   # apps/server sets `fileParallelism: false`, so its test files run one at a
   # time and on their own take longer than the rest of the suite. Running them
@@ -233,8 +229,7 @@ jobs:
   # built exactly once here and handed to every platform job as `js-bundle`.
   # Fork note: upstream bakes the T3 Connect relay URL and Clerk client config
   # into this bundle from its relay public-config job. The fork removed that
-  # job, so T3CODE_CLERK_* / T3CODE_RELAY_URL are not set here. Set them as
-  # repo variables and export them on this job if you run your own relay.
+  # job. This desktop fork does not inject hosted relay or Clerk configuration.
   build_bundle:
     name: Build JS bundle
     needs: [preflight]
@@ -275,11 +270,6 @@ jobs:
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
 
-      # @t3tools/desktop#build compiles the Linux browser secret helper on a
-      # Linux host before packing, and that needs libsecret headers.
-      - name: Install browser secret helper build libraries
-        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
-
       # Runs t3#build (which depends on @t3tools/web#build) and
       # @t3tools/desktop#build, so apps/server/dist holds the server bundle
       # plus the web client and apps/desktop/dist-electron the Electron main.
@@ -313,7 +303,7 @@ jobs:
       FFF_SOURCE_VERSION: 0.9.4
     steps:
       - name: Install RHEL 8 build dependencies
-        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils libsecret-devel pkgconf-pkg-config
+        run: dnf install -y git gcc gcc-c++ make python3.11 perl-core cmake curl xz tar gzip binutils
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -386,10 +376,6 @@ jobs:
             linux-native/libfff_c.so
           cp linux-native/libfff_c.so \
             .release/native-runtime/node_modules/@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so
-          # The browser import helper links against libsecret; build it here so
-          # the AppImage ships a glibc 2.28 binary instead of the Ubuntu runner's.
-          node apps/desktop/scripts/build-browser-secret.mjs --arch x64 \
-            --output linux-native/t3-browser-secret
 
       - name: Verify native functionality on RHEL 8
         shell: bash
@@ -398,7 +384,7 @@ jobs:
           test "$(rpm -E '%{rhel}')" = "8"
           test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
 
-          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so linux-native/t3-browser-secret; do
+          for binary in linux-native/pty.node linux-native/t3-resource-monitor linux-native/libfff_c.so; do
             required="$(readelf --version-info "$binary" | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -Vu | tail -1)"
             if [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
               echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
@@ -445,20 +431,19 @@ jobs:
           path: linux-native/*
           if-no-files-found: error
 
-  # The self-contained Linux x64 CLI archive (t3-<version>-linux-x64.tar.gz).
-  # Its own job rather than a step of the Linux matrix entry because the
-  # Windows entry embeds it as the WSL runtime, and a matrix job cannot depend
-  # on a sibling entry. The archive ships the RHEL 8-built resource monitor;
-  # its node-pty is compiled by `vp install --prod` on this runner, so the
-  # archive's glibc floor is this runner's, not RHEL 8's (the AppImage is
-  # unaffected: it stages the RHEL 8 prebuilds and is verified on Rocky 8).
+  # Windows embeds this verified Linux archive as its WSL runtime.
+  # Build and run it on Rocky 8 so SSH hosts also retain the glibc 2.28 floor.
   build_linux_cli:
     name: Build CLI archive (linux-x64)
     needs: [preflight, build_bundle, build_linux_native]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build_bundle.result == 'success' && needs.build_linux_native.result == 'success' }}
     runs-on: ubuntu-24.04
+    container: rockylinux:8
     timeout-minutes: 30
     steps:
+      - name: Install RHEL 8 runtime build dependencies
+        run: dnf install -y git gcc gcc-c++ make python3.11 curl xz tar gzip binutils findutils
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -485,7 +470,9 @@ jobs:
       - name: Install CLI dependencies
         env:
           pnpm_config_cache_dir: ${{ runner.temp }}/pnpm-metadata
-        run: vp install --filter=t3... --filter=@t3tools/scripts...
+        # Native components come from the Rocky 8 build. In particular, do not
+        # run node-pty's install script with newer Node headers and GCC 8.
+        run: vp install --ignore-scripts --filter=t3... --filter=@t3tools/scripts...
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
@@ -534,9 +521,54 @@ jobs:
             --arch x64 \
             --version "${{ needs.preflight.outputs.version }}" \
             --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --linux-native-prebuilds "$PWD/linux-native" \
             --output-dir release-cli
 
-      - name: Smoke-test CLI archive
+      - name: Verify CLI native components on RHEL 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(rpm -E '%{rhel}')" = "8"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.28"
+          mkdir cli-rhel8
+          tar -xf release-cli/* -C cli-rhel8 --strip-components=1
+          while IFS= read -r -d '' binary; do
+            if ! readelf --file-header "$binary" >/dev/null 2>&1; then
+              continue
+            fi
+            required="$(readelf --version-info "$binary" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -Vu | tail -1 || true)"
+            if [[ -n "$required" ]] && [[ "$(printf '%s\n' "$required" GLIBC_2.28 | sort -V | tail -1)" != "GLIBC_2.28" ]]; then
+              echo "$binary requires $required; RHEL 8 provides GLIBC_2.28." >&2
+              exit 1
+            fi
+          done < <(find cli-rhel8 -type f -print0)
+          printf '%s\n' '{"type":"shutdown","version":2}' \
+            | cli-rhel8/resource-monitor/linux-x64/t3-resource-monitor \
+            | grep '"type":"hello"'
+          node --input-type=module - <<'NODE'
+          import { createRequire } from "node:module";
+          import { pathToFileURL } from "node:url";
+          const root = `${process.cwd()}/cli-rhel8`;
+          const require = createRequire(`${root}/probe.cjs`);
+          const pty = require("node-pty").spawn("/bin/sh", ["-c", "printf cli-rhel8-pty-ok"], { cols: 80, rows: 24 });
+          let output = "";
+          pty.onData(chunk => output += chunk);
+          await new Promise((resolve, reject) => pty.onExit(({exitCode}) => {
+            if (exitCode !== 0 || !output.includes("cli-rhel8-pty-ok")) reject(new Error("CLI terminal failed"));
+            else resolve();
+          }));
+          const { FileFinder } = await import(pathToFileURL(`${root}/node_modules/@ff-labs/fff-node/dist/src/index.js`).href);
+          const created = FileFinder.create({ basePath: root, disableMmapCache: true });
+          if (!created.ok) throw new Error(created.error);
+          const finder = created.value;
+          try {
+            const ready = await finder.waitForIndexReady(15_000);
+            const search = finder.fileSearch("index.html", { pageSize: 10 });
+            if (!ready.ok || !ready.value || !search.ok || !search.value.items.length) throw new Error("CLI search failed");
+          } finally { finder.destroy(); }
+          NODE
+
+      - name: Smoke-test CLI archive on RHEL 8
         shell: bash
         run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ needs.preflight.outputs.version }}"
 
@@ -560,14 +592,13 @@ jobs:
     # Fork note: the upstream relay public-config job (which reads T3 Connect
     # public config out of Cloudflare) was removed, so these T3CODE_CLERK_* /
     # T3CODE_RELAY_URL values are not injected here. Builds are unsigned and
-    # point at no relay. Set them as repo variables/secrets and wire them back
-    # in if you run your own relay.
+    # point at no hosted relay.
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: macOS arm64
-            runner: macos-latest
+            runner: macos-26
             timeout_minutes: 90
             platform: mac
             target: dmg
@@ -576,7 +607,7 @@ jobs:
             resource_key: darwin-arm64
             cli_archive: true
           - label: Linux x64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             timeout_minutes: 30
             platform: linux
             target: AppImage
@@ -586,7 +617,7 @@ jobs:
             # The Linux archive is built by build_linux_cli (see there).
             cli_archive: false
           - label: Windows x64
-            runner: windows-latest
+            runner: windows-2025
             timeout_minutes: 30
             platform: win
             target: nsis
@@ -706,7 +737,6 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsecret-1-dev pkg-config
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
               sudo apt-get install -y imagemagick
           fi
@@ -1079,7 +1109,7 @@ jobs:
             | squashfs-root/resources/resource-monitor/t3-resource-monitor \
             | grep '"type":"hello"'
 
-          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code - <<'NODE'
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code-treher - <<'NODE'
           const nodePty = require(`${process.cwd()}/squashfs-root/resources/app.asar/node_modules/node-pty`);
           const terminal = nodePty.spawn("/bin/sh", ["-c", "printf packaged-rhel8-pty-ok"], {
             name: "xterm",
@@ -1094,7 +1124,7 @@ jobs:
           NODE
 
           touch rhel8-fff-probe.txt
-          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code --input-type=module - <<'NODE'
+          ELECTRON_RUN_AS_NODE=1 squashfs-root/t3code-treher --input-type=module - <<'NODE'
           import { pathToFileURL } from "node:url";
           const entry = pathToFileURL(
             `${process.cwd()}/squashfs-root/resources/app.asar/node_modules/@ff-labs/fff-node/dist/src/index.js`,
@@ -1113,7 +1143,7 @@ jobs:
 
           set +e
           timeout --signal=TERM --kill-after=5s 20s \
-            xvfb-run -a squashfs-root/t3code --no-sandbox --disable-gpu \
+            xvfb-run -a squashfs-root/t3code-treher --no-sandbox --disable-gpu \
             >rhel8-desktop.log 2>&1
           desktop_status=$?
           set -e
@@ -1132,9 +1162,9 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: [preflight, build, build_linux_cli, verify_linux_rhel8]
+    needs: [preflight, quality, quality_server, build, build_linux_cli, verify_linux_rhel8]
     if: ${{ !failure() && !cancelled() && needs.preflight.result == 'success' && needs.build.result == 'success' && needs.build_linux_cli.result == 'success' && needs.verify_linux_rhel8.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Fork note: upstream minted a GitHub App token (RELEASE_APP_ID /
     # RELEASE_APP_PRIVATE_KEY) here. A fork can publish releases with the

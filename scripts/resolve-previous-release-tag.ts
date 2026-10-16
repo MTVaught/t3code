@@ -10,6 +10,7 @@ import * as Stream from "effect/Stream";
 import * as String from "effect/String";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { isStableReleaseVersion } from "@t3tools/shared/cliRelease";
 
 const ReleaseChannel = Schema.Literals(["stable", "nightly", "preview"]);
 type ReleaseChannel = typeof ReleaseChannel.Type;
@@ -210,6 +211,7 @@ export const resolvePreviousReleaseTag = (
       }
 
       const candidates = tags
+        .filter((tag) => isStableReleaseVersion(tag.replace(/^v/, "")))
         .map((tag) => ({ tag, parsed: parseStableTag(tag) }))
         .filter(
           (entry): entry is { tag: string; parsed: StableVersion } => entry.parsed !== undefined,
@@ -320,7 +322,7 @@ export const writePreviousReleaseTagOutput = Effect.fn("writePreviousReleaseTagO
 
   if (writeGithubOutput) {
     const fs = yield* FileSystem.FileSystem;
-    const githubOutputPath = yield* Config.nonEmptyString("GITHUB_OUTPUT").pipe(
+    const githubOutputPath = yield* Config.NonEmptyString("GITHUB_OUTPUT").pipe(
       Effect.mapError(
         (cause) =>
           new PreviousReleaseTagGitHubOutputConfigError({
@@ -346,13 +348,13 @@ export const writePreviousReleaseTagOutput = Effect.fn("writePreviousReleaseTagO
 const command = Command.make(
   "resolve-previous-release-tag",
   {
-    channel: Flag.choice("channel", ReleaseChannel.literals).pipe(
+    channel: Flag.Literals("channel", ReleaseChannel.literals).pipe(
       Flag.withDescription("Release channel whose previous tag should be resolved."),
     ),
-    currentTag: Flag.string("current-tag").pipe(
+    currentTag: Flag.String("current-tag").pipe(
       Flag.withDescription("Current release tag to compare against."),
     ),
-    githubOutput: Flag.boolean("github-output").pipe(
+    githubOutput: Flag.Boolean("github-output").pipe(
       Flag.withDescription("Write values to GITHUB_OUTPUT instead of stdout."),
       Flag.withDefault(false),
     ),

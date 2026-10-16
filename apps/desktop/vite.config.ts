@@ -24,20 +24,18 @@ export default defineConfig({
   run: {
     tasks: {
       build: {
-        command:
-          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && vp pack",
+        command: "node scripts/build-preview-annotation-css.mjs && vp pack",
         dependsOn: ["t3#build"],
         cache: false,
       },
       dev: {
         command:
-          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
+          "node scripts/build-preview-annotation-css.mjs && cross-env T3CODE_DESKTOP_DEV=1 vp pack --watch",
         dependsOn: ["t3#build"],
         cache: false,
       },
       "dev:bundle": {
-        command:
-          "node scripts/build-browser-secret.mjs && node scripts/build-preview-annotation-css.mjs && vp pack --watch",
+        command: "node scripts/build-preview-annotation-css.mjs && vp pack --watch",
         cache: false,
       },
       "dev:electron": {
@@ -83,6 +81,19 @@ export default defineConfig({
         alwaysBundle: (id) => !id.startsWith("node:") && !isMainProcessExternal(id),
         neverBundle: isMainProcessExternal,
         onlyBundle: false,
+      },
+    },
+    {
+      // boot.cjs requires the other two at runtime, so all three stay separate files.
+      format: "cjs",
+      outDir: "dist-electron",
+      dts: false,
+      sourcemap: true,
+      outExtensions: () => ({ js: ".cjs" }),
+      entry: ["src/boot.ts", "src/compileCache.ts"],
+      clean: false,
+      deps: {
+        neverBundle: (id) => id === "./main.cjs" || id === "./compileCache.cjs",
       },
     },
     {

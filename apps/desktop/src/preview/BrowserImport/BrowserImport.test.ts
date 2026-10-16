@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as Ref from "effect/Ref";
 
 import * as BrowserSession from "../BrowserSession.ts";
@@ -66,7 +67,7 @@ const withImporter = Effect.fnUntraced(function* () {
 
   const importer = yield* BrowserImport.BrowserImport.pipe(
     Effect.provide(
-      BrowserImport.layer.pipe(
+      Layer.effect(BrowserImport.BrowserImport, BrowserImport.make).pipe(
         Layer.provide(rejectedBeforeSession),
         Layer.provide(environment),
         Layer.provide(Layer.succeed(HostProcessPlatform, "darwin")),
@@ -76,6 +77,38 @@ const withImporter = Effect.fnUntraced(function* () {
     ),
   );
   return { importer, home, root };
+});
+
+describe("BrowserImport fork policy", () => {
+  it.effect("lists no browser sources and rejects imports before accessing a browser session", () =>
+    Effect.gen(function* () {
+      const importer = yield* BrowserImport.BrowserImport;
+      assert.deepStrictEqual(yield* importer.listSources, []);
+      const error = yield* importer
+        .importCookies({
+          input: {
+            sourceId: "chrome",
+            sourceProfileDirectory: "Default",
+            targetProfileId: "default",
+          },
+          scope: "persist:disabled-import",
+          persistent: true,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(error, BrowserImport.BrowserImportFailedError);
+      assert.equal(error.reason, "disabled");
+    }).pipe(
+      Effect.provide(
+        BrowserImport.layer.pipe(
+          Layer.provide(rejectedBeforeSession),
+          Layer.provide(FileSystem.layerNoop({})),
+          Layer.provide(Layer.mock(ChildProcessSpawner.ChildProcessSpawner, {})),
+          Layer.provide(NodeServices.layer),
+        ),
+      ),
+      Effect.scoped,
+    ),
+  );
 });
 
 describe("BrowserImport.importCookies", () => {

@@ -339,7 +339,7 @@ export function isTerminalCopyShortcut(
     return event.ctrlKey && !event.shiftKey && !event.metaKey;
   }
   if (key !== "c") return false;
-  return isMacPlatform(platform) ? event.metaKey : event.metaKey || event.ctrlKey;
+  return isMacPlatform(platform) ? event.metaKey : event.ctrlKey;
 }
 
 /**
@@ -392,9 +392,7 @@ export function isTerminalPasteShortcut(
     return event.shiftKey && !event.ctrlKey && !event.metaKey;
   }
   if (key !== "v") return false;
-  return isMacPlatform(platform)
-    ? event.metaKey
-    : event.metaKey || (event.ctrlKey && event.shiftKey);
+  return isMacPlatform(platform) ? event.metaKey : event.ctrlKey && event.shiftKey;
 }
 
 /**

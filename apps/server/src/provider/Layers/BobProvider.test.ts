@@ -23,16 +23,14 @@ describe("BobProvider", () => {
     });
   });
 
-  it.effect("publishes ACP-native metadata capabilities", () =>
+  it.effect("uses the upstream capability flags for unsupported Bob features", () =>
     Effect.gen(function* () {
       const settings = decodeBobSettings({ enabled: true });
       const snapshot = yield* buildInitialBobProviderSnapshot(settings);
 
-      assert.equal(snapshot.capabilities?.commands, true);
-      assert.equal(snapshot.capabilities?.skills, true);
-      assert.equal(snapshot.capabilities?.providerModes, true);
-      assert.equal(snapshot.capabilities?.approvals, true);
-      assert.equal(snapshot.capabilities?.tokenUsage, false);
+      assert.equal(snapshot.supportsConversationRollback, false);
+      assert.equal(snapshot.reportsContextWindow, false);
+      assert.equal(snapshot.showInteractionModeToggle, false);
     }),
   );
 

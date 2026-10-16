@@ -12,6 +12,7 @@ import type {
   ServerProvider,
   ServerProviderUpdateState,
   ServerProviderProjectMetadata,
+  ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -48,14 +49,22 @@ export interface ProviderRegistryShape {
   readonly refreshInstance: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
-  readonly getProjectMetadata?: (
+  readonly getProjectMetadata: (
     instanceId: ProviderInstanceId,
     cwd: string,
+    threadId?: ThreadId,
   ) => Effect.Effect<ServerProviderProjectMetadata>;
 
+  /**
+   * Fill the skills and slash commands snapshot for one cwd. A cwd that
+   * already has a snapshot is left alone unless `fresh` is set. A fresh scan
+   * also refreshes the instance's machine snapshot and drops other
+   * instances' snapshots for the cwd.
+   */
   readonly refreshWorkspaceSnapshot: (input: {
     readonly instanceId: ProviderInstanceId;
     readonly cwd: string;
+    readonly fresh?: boolean;
   }) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
   /**

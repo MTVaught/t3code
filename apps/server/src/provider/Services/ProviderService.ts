@@ -26,7 +26,6 @@ import type {
   MessageId,
   ThreadId,
   ProviderTurnStartResult,
-  ServerProviderProjectMetadata,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
@@ -111,11 +110,6 @@ export interface ProviderServiceShape {
   readonly resetContext: (
     threadId: ThreadId,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
-
-  readonly getProjectMetadata?: (
-    instanceId: ProviderInstanceId,
-    cwd: string,
-  ) => Effect.Effect<ServerProviderProjectMetadata, ProviderServiceError>;
 
   readonly getInstanceInfo: (
     instanceId: ProviderInstanceId,

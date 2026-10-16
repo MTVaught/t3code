@@ -5,50 +5,61 @@ desktop, web, or mobile app. Set up the machine where the agents will work first
 
 ## Requirements
 
-`npx t3` needs Node.js only to run npm itself; the CLI it installs is a
-self-contained executable. SSH hosts and WSL backends need Node.js 22.16+
-(22.x), 23.11+ (23.x), or 24.10 and later. The native desktop app includes its
-server runtime.
-
 You need an installed, authenticated provider before starting a thread. You can
 launch T3 Code and configure providers afterwards.
 
-## Run without installing
+## Command line
 
 ```bash
-npx t3@latest
+curl -fsSL https://raw.githubusercontent.com/MTVaught/t3code/main/scripts/install.sh | sh
 ```
 
-This starts the server and opens the local web app. Run
-`npx t3@latest --help` for command-line options.
+On Windows, in PowerShell:
 
-The executable is built for Apple Silicon Macs, Linux, and Windows. There is
-no Intel Mac build of it, because Node cannot produce a single executable for
-that platform; the Intel desktop app is unaffected. To run a standalone server
-on an Intel Mac, build it from source. You need Node.js 24 and `vp` (see
-[Install vp](https://github.com/pingdotgg/t3code#install-vp)):
+```powershell
+irm https://raw.githubusercontent.com/MTVaught/t3code/main/scripts/install.ps1 | iex
+```
+
+This puts `t3` in `~/.local/bin`. If your shell reports `command not found`
+afterwards, that directory is not on your `PATH` yet; the installer prints the
+line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
+`T3CODE_VERSION` to pin an exact version. Stable installs and updates accept final Treher
+releases and exclude release candidates. To install a candidate, set `T3CODE_VERSION` explicitly.
+
+| Task                                             | Command                                                   |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| Start the server and open the web app            | `t3`                                                      |
+| Start the server without a browser               | `t3 serve`                                                |
+| Keep it running in the background (macOS, Linux) | `t3 service install` ([details](./background-service.md)) |
+| Move to the newest release                       | `t3 update`                                               |
+| Remove it again                                  | `t3 uninstall`                                            |
+
+Run `t3 --help` for the full reference.
+
+The fork provides macOS ARM64, Linux x64, and Windows x64 downloads. Linux ARM64,
+Windows ARM64, and Intel Mac archives are not available. The installer stores runtimes
+in `~/.t3-treher`. `npx t3@latest` installs upstream T3 Code.
+
+### Intel Macs
+
+There is no `t3` executable for Intel Macs (the desktop app is available). To
+run a server there, build it from source with Node.js 24 and `vp`
+([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/pingdotgg/t3code
+git clone https://github.com/MTVaught/t3code
 cd t3code && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
 
-A server run this way is a plain Node program: `t3 update` and the background
-service do not apply, so update it with `git pull` and a rebuild, and start it
-however you run other Node processes.
+`t3 update` and the background service do not apply to a server run this way;
+update it with `git pull` and a rebuild.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/MTVaught/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                         |
-| ------------------ | ------------------------------- |
-| Windows            | `winget install T3Tools.T3Code` |
-| macOS              | `brew install --cask t3-code`   |
-| Arch Linux         | `yay -S t3code-bin`             |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`     |
+Download a release from [GitHub Releases](https://github.com/MTVaught/t3code/releases).
+The fork builds an Apple Silicon DMG, a Linux x64 AppImage, and a Windows x64 installer.
+Package managers such as Homebrew, winget, and AUR install upstream T3 Code.
 
 ### RHEL 8 and compatible distributions
 
@@ -82,20 +93,20 @@ cookies and encrypted connection data. Treher does not automatically import upst
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
-there. Install Node.js and provider CLIs inside that distro. T3 Code installs its
-matching server runtime there automatically; the first launch after an app
-update can take longer.
+there. Install the provider CLIs inside that distro. T3 Code installs its own
+server runtime there automatically; the first launch after an app update can
+take longer.
 
 ### Open a project from a terminal
 
 With the desktop app already running on the same machine:
 
 ```bash
-npx t3 app
+t3 app
 ```
 
 This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `npx t3 app ../my-project`, to open another directory. It requires
+Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
 the desktop app, so a standalone server or an SSH session is not enough. If the
 command cannot reach the app, start or update the desktop app and try again.
 
@@ -120,20 +131,27 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-| Provider    | Install and authenticate                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------- |
-| Codex       | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.        |
-| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`. |
-| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                        |
-| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                           |
-| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                     |
-| Antigravity | Install and sign in with Google from T3 Code's provider settings.                            |
-| IBM Bob     | Install [Bob Shell](https://bob.ibm.com/docs/shell/) 2.x, then complete its sign-in flow.    |
+| Provider    | Install and authenticate                                                                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex       | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
+| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
+| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
+| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
+| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
+| Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
+| IBM Bob     | Install [Bob Shell](https://bob.ibm.com/docs/shell/) 2.x, then complete its sign-in flow.                                                                 |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is
-`agent login`. Antigravity can use its managed runtime without a `PATH` entry.
+`agent login`. Codex connected through ChatGPT and Antigravity can use their
+managed runtimes without a `PATH` entry.
+
+T3 Code warns when a provider version has known compatibility problems with your
+release. Check **Settings → Providers** on that environment for the recommended
+version or range. When its package manager supports installing a specific version,
+you can install the recommendation there. Otherwise use the provider's installer
+on the environment's machine. An unlisted version is unverified.
 
 When a provider CLI is behind its latest release, its provider card shows the
 available version. **Update now** appears only when T3 Code can tell which
