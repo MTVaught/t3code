@@ -442,7 +442,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Install RHEL 8 runtime build dependencies
-        run: dnf install -y git gcc gcc-c++ make python3.11 curl xz tar gzip binutils findutils
+        # The Node runtime used for the single-executable links to libatomic.so.1.
+        run: dnf install -y git gcc gcc-c++ make python3.11 curl xz tar gzip binutils findutils libatomic
 
       - name: Checkout
         uses: actions/checkout@v6
