@@ -81,6 +81,10 @@ chmod +x T3-Code-*-x86_64.AppImage
 Use the AppImage on RHEL 8. The direct `npx t3@latest` installation is not supported there because
 some npm-distributed native dependencies require a newer system ABI.
 
+For an SSH environment on RHEL 8 or a compatible distribution, run
+`sudo dnf install libatomic` on the remote machine before connecting. The managed server runtime
+requires this library.
+
 Provider CLIs run as separate programs and must independently support RHEL 8.
 
 ### Data location
