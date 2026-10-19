@@ -21,7 +21,10 @@ const PROFILE_PARTITION_MARKER = "profile-";
 
 export type BrowserSessionPartitionNamespace = "profile";
 
-// Permissions granted to preview web content. `clipboard-sanitized-write` is the
+// Preview pages have no per-origin consent flow. Deny clipboard reads,
+// location access, and system notifications for all origins, frames, and workers.
+// Only allow sanitized clipboard writes for page Copy buttons.
+// `clipboard-sanitized-write` is the
 // Electron permission behind `navigator.clipboard.writeText()` — note it is NOT
 // `clipboard-write`, which is not a valid Electron permission name. Async
 // clipboard writes are gated by the permission *check* handler (not only the
@@ -29,10 +32,7 @@ export type BrowserSessionPartitionNamespace = "profile";
 // buttons — e.g. the Next.js / Vercel error overlay — fail with
 // `Failed to execute 'writeText' on 'Clipboard': Write permission denied`.
 const ALLOWED_PREVIEW_PERMISSIONS: ReadonlySet<string> = new Set([
-  "clipboard-read",
   "clipboard-sanitized-write",
-  "notifications",
-  "geolocation",
   // Deliberately NOT local-fonts: preview sessions run untrusted web content,
   // and silently granting it would hand every page the user's installed-font
   // fingerprint (and font file bytes via FontData.blob()). The app's own font
