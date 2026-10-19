@@ -129,29 +129,6 @@ const EnvServerConfig = Config.all({
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
   t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  httpsOrigin: Config.URL("T3CODE_HTTPS_ORIGIN").pipe(
-    Config.mapEffect((url) =>
-      url.protocol === "https:" &&
-      url.username === "" &&
-      url.password === "" &&
-      url.pathname === "/" &&
-      url.search === "" &&
-      url.hash === ""
-        ? Effect.succeed(url)
-        : Effect.fail(
-            new Config.ConfigError(
-              new Schema.SchemaError(
-                new SchemaIssue.InvalidValue({
-                  message:
-                    "T3CODE_HTTPS_ORIGIN must be an HTTPS origin without credentials, path, query, or fragment.",
-                }),
-              ),
-            ),
-          ),
-    ),
-    Config.option,
-    Config.map(Option.getOrUndefined),
-  ),
   devAllowedOrigins: Config.String("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
     Config.withDefault(""),
     Config.map((value) =>
@@ -471,7 +448,6 @@ export const resolveServerConfig = (
       devUrl,
       ...(devAuthToken === undefined ? {} : { devAuthToken }),
       devAllowedOrigins: env.devAllowedOrigins,
-      ...(env.httpsOrigin ? { httpsOrigin: env.httpsOrigin } : {}),
       noBrowser,
       startupPresentation,
       desktopBootstrapToken,

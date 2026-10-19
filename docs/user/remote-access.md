@@ -108,22 +108,6 @@ tailscale serve --https=443 off
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
 
-### HTTPS reverse proxies
-
-For an HTTPS proxy, including Tailscale Serve, set the server environment variable
-`T3CODE_HTTPS_ORIGIN` to the browser origin, such as
-`https://machine.tailnet.ts.net`. Restart the server after you change it. The
-proxy must preserve the browser's `Host` header. This makes browser session
-cookies for that hostname HTTPS-only, including cookies issued during legacy
-session migration. Forwarding headers alone do not enable this protection.
-
-Use a different hostname for plain HTTP access. Cookies are shared across ports,
-so HTTP access on the configured HTTPS hostname cannot use these session cookies.
-Loopback HTTP access for the desktop app and SSH connections remains available
-when the configured HTTPS hostname is different.
-After you enable this setting on an existing deployment, pair browser clients
-again to replace cookies issued before the change.
-
 ### Hosted web app
 
 [app.t3.codes](https://app.t3.codes) needs an HTTPS endpoint. It connects directly

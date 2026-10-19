@@ -80,47 +80,6 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     );
   });
 
-  it.effect.each([
-    { origin: "https://proxy.example.test:8443", valid: true },
-    { origin: "http://proxy.example.test", valid: false },
-    { origin: "https://user:pass@proxy.example.test", valid: false },
-    { origin: "https://proxy.example.test/path", valid: false },
-    { origin: "https://proxy.example.test/?query=1", valid: false },
-    { origin: "invalid", valid: false },
-  ])("validates HTTPS cookie origin $origin", ({ origin, valid }) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-https-origin-test-" });
-      const result = yield* resolveServerConfig(
-        {
-          mode: Option.none(),
-          port: Option.some(8788),
-          host: Option.none(),
-          baseDir: Option.some(baseDir),
-          cwd: Option.none(),
-          devUrl: Option.none(),
-          noBrowser: Option.some(true),
-          bootstrapFd: Option.none(),
-          autoBootstrapProjectFromCwd: Option.none(),
-          logWebSocketEvents: Option.none(),
-          tailscaleServeEnabled: Option.none(),
-          tailscaleServePort: Option.none(),
-        },
-        Option.none(),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_HTTPS_ORIGIN: origin } })),
-            NetService.layer,
-          ),
-        ),
-        Effect.result,
-      );
-      expect(result._tag).toBe(valid ? "Success" : "Failure");
-      if (result._tag === "Success") expect(result.success.httpsOrigin?.origin).toBe(origin);
-    }),
-  );
-
   it.effect("enables a trimmed reusable auth token only for web dev mode", () =>
     Effect.gen(function* () {
       const baseDir = yield* FileSystem.FileSystem.pipe(
