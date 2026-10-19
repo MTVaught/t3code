@@ -1263,7 +1263,11 @@ const parseSessionCookieFromWsUrl = (
   };
 };
 
-const wsRpcProtocolLayer = (wsUrl: string, onMessage?: (message: string) => void) => {
+const wsRpcProtocolLayer = (
+  wsUrl: string,
+  onMessage?: (message: string) => void,
+  onSocket?: (socket: NodeSocket.NodeWS.WebSocket) => void,
+) => {
   const { cookie, url } = parseSessionCookieFromWsUrl(wsUrl);
   const webSocketConstructorLayer = Layer.succeed(
     Socket.WebSocketConstructor,
@@ -1275,6 +1279,7 @@ const wsRpcProtocolLayer = (wsUrl: string, onMessage?: (message: string) => void
         cookie ? { headers: { cookie } } : undefined,
       );
       if (onMessage) socket.on("message", (data) => onMessage(data.toString()));
+      onSocket?.(socket);
       return socket as unknown as globalThis.WebSocket;
     },
   );
@@ -1737,6 +1742,67 @@ const EMPTY_DEVICE_STATE: DeviceServiceState = {
 };
 
 it.layer(NodeServices.layer)("server router seam", (it) => {
+  it.effect.each(["revoke", "revoke-others"] as const)(
+    "closes every open WebSocket for revoked sessions via %s and keeps the administrator active",
+    (operation) =>
+      Effect.gen(function* () {
+        yield* buildAppUnderTest();
+        const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+        const clientCookie = yield* getAuthenticatedSessionCookieHeader();
+        const clientsResponse = yield* HttpClient.get("/api/auth/clients", {
+          headers: { cookie: ownerCookie },
+        });
+        const clients = (yield* clientsResponse.json) as ReadonlyArray<{
+          sessionId: string;
+          current: boolean;
+        }>;
+        const clientId = clients.find((entry) => !entry.current)?.sessionId;
+        assert.isDefined(clientId);
+        const url = yield* getWsServerUrl("/ws", { authenticated: false });
+        const clientUrl = appendSessionCookieToWsUrl(url, clientCookie);
+        const openClient = Effect.gen(function* () {
+          const closed = yield* Deferred.make<void>();
+          let socket: NodeSocket.NodeWS.WebSocket | undefined;
+          const context = yield* Layer.build(
+            wsRpcProtocolLayer(clientUrl, undefined, (opened) => {
+              socket ??= opened;
+              opened.once("close", () => Deferred.doneUnsafe(closed, Effect.void));
+            }),
+          );
+          const client = yield* makeWsRpcClient.pipe(Effect.provideContext(context));
+          assert.isDefined(yield* client[WS_METHODS.serverGetConfig]({}));
+          return { closed, getSocket: () => socket };
+        });
+        yield* withWsRpcClient(appendSessionCookieToWsUrl(url, ownerCookie), (owner) =>
+          Effect.gen(function* () {
+            assert.isDefined(yield* owner[WS_METHODS.serverGetConfig]({}));
+            const first = yield* openClient;
+            const second = yield* openClient;
+            const response = yield* HttpClient.post(`/api/auth/clients/${operation}`, {
+              headers: { cookie: ownerCookie },
+              ...(operation === "revoke"
+                ? { body: yield* HttpBody.json({ sessionId: clientId }) }
+                : {}),
+            });
+            assert.equal(response.status, 200);
+            // The close events prove both transports have stopped, without sleeps.
+            yield* Deferred.await(first.closed);
+            yield* Deferred.await(second.closed);
+            for (const connection of [first, second]) {
+              const socket = connection.getSocket();
+              assert.isDefined(socket);
+              assert.equal(socket?.readyState, NodeSocket.NodeWS.WebSocket.CLOSED);
+            }
+            const denied = yield* HttpClient.get("/api/auth/clients", {
+              headers: { cookie: clientCookie },
+            });
+            assert.equal(denied.status, 401);
+            assert.isDefined(yield* owner[WS_METHODS.serverGetConfig]({}));
+          }),
+        );
+      }).pipe(Effect.scoped, Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
+  );
+
   it.effect("parks HTTP ingress until command readiness", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
