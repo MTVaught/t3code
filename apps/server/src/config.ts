@@ -91,8 +91,6 @@ export class ServerConfig extends Context.Service<
     readonly devUrl: URL | undefined;
     readonly devAuthToken?: Redacted.Redacted<string> | undefined;
     readonly devAllowedOrigins: ReadonlyArray<string>;
-    /** HTTPS browser origin served by a reverse proxy that preserves Host. */
-    readonly httpsOrigin?: URL;
     readonly noBrowser: boolean;
     readonly startupPresentation: StartupPresentation;
     readonly desktopBootstrapToken: string | undefined;
