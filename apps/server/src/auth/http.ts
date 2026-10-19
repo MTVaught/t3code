@@ -34,6 +34,9 @@ import * as HttpEffect from "effect/unstable/http/HttpEffect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
+import * as ServerConfig from "../config.ts";
+import { sessionCookieOptions } from "./sessionCookie.ts";
+
 import * as EnvironmentAuth from "./EnvironmentAuth.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { traceAuthenticatedRelayRequest, traceRelayRequest } from "../cloud/traceRelayRequest.ts";
@@ -171,22 +174,22 @@ export function failEnvironmentInternal(reason: EnvironmentInternalErrorReason, 
   });
 }
 
-const appendSessionCookie = (cookieName: string, token: string, expiresAt: DateTime.DateTime) =>
-  Effect.fromResult(
+const appendSessionCookie = Effect.fnUntraced(function* (
+  cookieName: string,
+  token: string,
+  expiresAt: DateTime.DateTime,
+  options: ReturnType<typeof sessionCookieOptions>,
+) {
+  const cookies = yield* Effect.fromResult(
     Cookies.set(Cookies.empty, cookieName, token, {
+      ...options,
       expires: DateTime.toDate(expiresAt),
-      httpOnly: true,
-      path: "/",
-      sameSite: "lax",
     }),
-  ).pipe(
-    Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")),
-    Effect.flatMap((cookies) =>
-      HttpEffect.appendPreResponseHandler((_request, response) =>
-        Effect.succeed(HttpServerResponse.mergeCookies(response, cookies)),
-      ),
-    ),
+  ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
+  yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+    Effect.succeed(HttpServerResponse.mergeCookies(response, cookies)),
   );
+});
 
 export const requireEnvironmentScope = Effect.fn("environment.auth.requireScope")(function* (
   scope: AuthEnvironmentScope,
@@ -233,6 +236,7 @@ export const authHttpApiLayer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
     const sessions = yield* SessionStore.SessionStore;
+    const config = yield* ServerConfig.ServerConfig;
 
     return handlers
       .handle(
@@ -253,7 +257,12 @@ export const authHttpApiLayer = HttpApiBuilder.group(
               result.sessionMethod === "browser-session-cookie" &&
               result.expiresAt
             ) {
-              yield* appendSessionCookie(sessions.cookieName, credential.token, result.expiresAt);
+              yield* appendSessionCookie(
+                sessions.cookieName,
+                credential.token,
+                result.expiresAt,
+                sessionCookieOptions(request, config.httpsOrigin),
+              );
               yield* appendCredentialResponseHeaders;
             }
             return result;
@@ -277,17 +286,13 @@ export const authHttpApiLayer = HttpApiBuilder.group(
             const selectedCookie = yield* Effect.fromResult(
               Cookies.set(Cookies.empty, cookieName, result.sessionToken, {
                 expires: DateTime.toDate(result.response.expiresAt),
-                httpOnly: true,
-                path: "/",
-                sameSite: "lax",
+                ...sessionCookieOptions(request, config.httpsOrigin),
               }),
             ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")));
             const sessionCookies = result.expireNormalCookie
               ? yield* Effect.fromResult(
                   Cookies.expireCookie(selectedCookie, sessions.cookieName, {
-                    httpOnly: true,
-                    path: "/",
-                    sameSite: "lax",
+                    ...sessionCookieOptions(request, config.httpsOrigin),
                   }),
                 ).pipe(Effect.catch(() => failEnvironmentInternal("browser_session_cookie_failed")))
               : selectedCookie;
