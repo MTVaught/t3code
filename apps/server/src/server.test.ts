@@ -1267,6 +1267,7 @@ const wsRpcProtocolLayer = (
   wsUrl: string,
   onMessage?: (message: string) => void,
   onSocket?: (socket: NodeSocket.NodeWS.WebSocket) => void,
+  headers?: Record<string, string>,
 ) => {
   const { cookie, url } = parseSessionCookieFromWsUrl(wsUrl);
   const webSocketConstructorLayer = Layer.succeed(
@@ -1276,7 +1277,7 @@ const wsRpcProtocolLayer = (
       const socket = new NodeSocket.NodeWS.WebSocket(
         socketUrl,
         protocols as string | string[] | undefined,
-        cookie ? { headers: { cookie } } : undefined,
+        { headers: { ...(cookie ? { cookie } : {}), ...headers } },
       );
       if (onMessage) socket.on("message", (data) => onMessage(data.toString()));
       onSocket?.(socket);
@@ -1298,7 +1299,12 @@ const withWsRpcClient = <A, E, R>(
   wsUrl: string,
   f: (client: WsRpcClient) => Effect.Effect<A, E, R>,
   onMessage?: (message: string) => void,
-) => makeWsRpcClient.pipe(Effect.flatMap(f), Effect.provide(wsRpcProtocolLayer(wsUrl, onMessage)));
+  headers?: Record<string, string>,
+) =>
+  makeWsRpcClient.pipe(
+    Effect.flatMap(f),
+    Effect.provide(wsRpcProtocolLayer(wsUrl, onMessage, undefined, headers)),
+  );
 
 const withFirstWsAckHeld = (
   wsUrl: string,
@@ -4558,6 +4564,84 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 401);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects foreign-origin cookie WebSocket upgrades and allows supported clients", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+      const cookie = yield* getAuthenticatedSessionCookieHeader();
+      const url = yield* getWsServerUrl("/ws", { authenticated: false });
+      const ownOrigin = new URL(url);
+      ownOrigin.protocol = "http:";
+      const rejectedUpgrade = (headers: Record<string, string>) =>
+        Effect.callback<number, Error>((resume) => {
+          const socket = new NodeSocket.NodeWS.WebSocket(url, { headers: { cookie, ...headers } });
+          socket.on("unexpected-response", (_request, response) => {
+            response.destroy();
+            socket.terminate();
+            resume(Effect.succeed(response.statusCode ?? 0));
+          });
+          socket.on("open", () => {
+            socket.close();
+            resume(Effect.sync(() => assert.fail("Foreign-origin cookie upgrade was accepted")));
+          });
+          socket.on("error", (error) => resume(Effect.fail(error)));
+          return Effect.sync(() => socket.terminate());
+        });
+
+      const rejectedHeaders: ReadonlyArray<Record<string, string>> = [
+        { origin: "http://127.0.0.1:39999", "sec-fetch-site": "same-site" },
+        { origin: "https://sibling.example.test" },
+        { origin: "null" },
+        { origin: "https://attacker.test", "x-forwarded-host": "attacker.test" },
+      ];
+      for (const headers of rejectedHeaders) {
+        assert.equal(yield* rejectedUpgrade(headers), 401);
+      }
+
+      const cookieUrl = appendSessionCookieToWsUrl(url, cookie);
+      for (const origin of [ownOrigin.origin, "treher-t3code://app", "treher-t3code-dev://app"]) {
+        yield* Effect.scoped(
+          withWsRpcClient(
+            cookieUrl,
+            (client) =>
+              client[WS_METHODS.serverGetConfig]({}).pipe(
+                Effect.map((result) => assert.isDefined(result)),
+              ),
+            undefined,
+            { origin },
+          ),
+        );
+      }
+      const bearer = yield* getAuthenticatedBearerSessionToken();
+      yield* Effect.scoped(
+        withWsRpcClient(
+          url,
+          (client) =>
+            client[WS_METHODS.serverGetConfig]({}).pipe(
+              Effect.map((result) => assert.isDefined(result)),
+            ),
+          undefined,
+          { origin: "http://127.0.0.1:39999", authorization: `Bearer ${bearer}` },
+        ),
+      );
+      const ticketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+        headers: { authorization: `Bearer ${bearer}` },
+      });
+      assert.equal(ticketResponse.status, 200);
+      const { ticket } = (yield* ticketResponse.json) as { readonly ticket: string };
+      yield* Effect.scoped(
+        withWsRpcClient(
+          `${url}?wsTicket=${encodeURIComponent(ticket)}`,
+          (client) =>
+            client[WS_METHODS.serverGetConfig]({}).pipe(
+              Effect.map((result) => assert.isDefined(result)),
+            ),
+          undefined,
+          { origin: "null" },
+        ),
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
   it.effect("negotiates permessage-deflate with clients that offer it", () =>

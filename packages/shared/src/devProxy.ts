@@ -10,6 +10,18 @@
  */
 export const DEV_PROXIED_PATH_PREFIXES = ["/api", "/oauth", "/.well-known", "/ws"] as const;
 
+/**
+ * Preserve the browser Host for OAuth metadata and cookie-authenticated sockets.
+ * The server checks the socket Origin against this Host, including its port.
+ */
+export const DEV_PROXIED_ORIGIN_PRESERVING_PREFIXES: ReadonlySet<string> = new Set([
+  // Device hub stream upgrades use the same cookie origin check as /ws.
+  "/api",
+  "/oauth",
+  "/.well-known",
+  "/ws",
+]);
+
 export function isDevProxiedPath(pathname: string): boolean {
   return DEV_PROXIED_PATH_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),

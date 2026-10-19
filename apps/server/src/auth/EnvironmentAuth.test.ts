@@ -572,4 +572,171 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         ),
       ),
   );
+
+  it.effect("checks origins for legacy cookies on HTTP and WebSocket requests", () =>
+    Effect.gen(function* () {
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairing = yield* auth.issuePairingCredential();
+      const session = yield* auth.createBrowserSession(pairing.credential, requestMetadata);
+      expect(sessions.legacyCookieName).toBeDefined();
+      for (const authenticate of [
+        auth.authenticateHttpRequest,
+        auth.authenticateWebSocketUpgrade,
+      ]) {
+        const request = (origin: string) =>
+          ({
+            url: "/ws",
+            cookies: { [sessions.legacyCookieName!]: session.sessionToken },
+            headers: { host: "192.168.1.50:3773", origin },
+          }) as never;
+        yield* authenticate(request("http://192.168.1.50:3773"));
+        const error = yield* Effect.flip(authenticate(request("http://192.168.1.50:8080")));
+        expect(error._tag).toBe("ServerAuthInvalidCredentialError");
+      }
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
+  );
+
+  it.effect(
+    "checks origins for normal and reusable dev cookies on HTTP and WebSocket requests",
+    () =>
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const dev = yield* auth.createBrowserSession(
+          "reusable-dev-auth-token-that-is-long-enough",
+          requestMetadata,
+        );
+        const pairing = yield* auth.issuePairingCredential();
+        const normal = yield* auth.createBrowserSession(pairing.credential, requestMetadata);
+        expect(dev.cookieName).toBeDefined();
+        for (const [cookieName, token] of [
+          [sessions.cookieName, normal.sessionToken],
+          [dev.cookieName!, dev.sessionToken],
+        ]) {
+          for (const authenticate of [
+            auth.authenticateHttpRequest,
+            auth.authenticateWebSocketUpgrade,
+          ]) {
+            const request = (origin: string) =>
+              ({
+                url: "/ws",
+                cookies: { [cookieName!]: token },
+                headers: { host: "192.168.1.50:3773", origin },
+              }) as never;
+            yield* authenticate(request("http://localhost:5733"));
+            const error = yield* Effect.flip(authenticate(request("http://192.168.1.50:8080")));
+            expect(error._tag).toBe("ServerAuthInvalidCredentialError");
+          }
+        }
+      }).pipe(
+        Effect.provide(
+          makeEnvironmentAuthLayer({
+            mode: "web",
+            host: "192.168.1.50",
+            devUrl: new URL("http://localhost:5733"),
+            devAuthToken: Redacted.make("reusable-dev-auth-token-that-is-long-enough"),
+          }),
+        ),
+      ),
+  );
+
+  it.effect("accepts cookie sessions on socket upgrades only from the app's own origins", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairing = yield* serverAuth.issuePairingCredential();
+      const exchanged = yield* serverAuth.createBrowserSession(pairing.credential, requestMetadata);
+      const upgrade = (headers: Record<string, string>) =>
+        serverAuth.authenticateWebSocketUpgrade({
+          url: "/ws",
+          cookies: { [sessions.cookieName]: exchanged.sessionToken },
+          headers: { host: "192.168.1.50:3773", ...headers },
+        } as never);
+
+      // Direct, Host-preserving proxy, trusted app, or non-browser requests.
+      yield* upgrade({ origin: "http://192.168.1.50:3773" });
+      yield* upgrade({
+        origin: "https://box.tail1234.ts.net",
+        host: "box.tail1234.ts.net",
+      });
+      yield* upgrade({ origin: "treher-t3code://app" });
+      yield* upgrade({ origin: "treher-t3code-dev://app" });
+      yield* upgrade({ origin: "https://configured.example.test" });
+      yield* upgrade({ origin: "http://localhost:5733" });
+      yield* upgrade({});
+
+      // Same-site ports, sibling hosts, opaque/malformed origins, and forged
+      // forwarding headers must not turn an ambient cookie into authority.
+      const rejectedHeaders: ReadonlyArray<Record<string, string>> = [
+        { origin: "http://192.168.1.50:8080", "sec-fetch-site": "same-site" },
+        { origin: "https://sibling.example.test" },
+        { origin: "null" },
+        { origin: "null", "sec-fetch-site": "same-origin" },
+        { origin: "http://192.168.1.50:3773/path" },
+        { origin: "ftp://192.168.1.50:3773" },
+        { origin: "https://attacker.test", "x-forwarded-host": "attacker.test" },
+        { origin: "https://attacker.test", "x-forwarded-host": "attacker.test, proxy.test" },
+        { origin: "t3code://app" },
+      ];
+      for (const headers of rejectedHeaders) {
+        const error = yield* Effect.flip(upgrade(headers));
+        expect(error._tag).toBe("ServerAuthInvalidCredentialError");
+      }
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthLayer({
+          mode: "web",
+          host: "192.168.1.50",
+          devUrl: new URL("http://localhost:5733"),
+          devAllowedOrigins: ["https://configured.example.test"],
+        }),
+      ),
+    ),
+  );
+
+  it.effect("accepts cookie sessions on HTTP requests only from the app's own origins", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairing = yield* serverAuth.issuePairingCredential();
+      const exchanged = yield* serverAuth.createBrowserSession(pairing.credential, requestMetadata);
+      const post = (headers: Record<string, string>) =>
+        serverAuth.authenticateHttpRequest({
+          cookies: { [sessions.cookieName]: exchanged.sessionToken },
+          headers: { host: "localhost:13773", ...headers },
+        } as never);
+
+      // The dev proxy rewrites Host, so a LAN page relies on the browser's own verdict.
+      yield* post({ origin: "http://192.168.1.50:5733", "sec-fetch-site": "same-origin" });
+      yield* post({ origin: "http://localhost:13773" });
+
+      const otherPort = yield* Effect.flip(
+        post({ origin: "http://localhost:3000", "sec-fetch-site": "same-site" }),
+      );
+      expect(otherPort._tag).toBe("ServerAuthInvalidCredentialError");
+      const state = yield* serverAuth.getSessionState({
+        cookies: { [sessions.cookieName]: exchanged.sessionToken },
+        headers: { host: "localhost:13773", origin: "http://localhost:3000" },
+      } as never);
+      expect(state.authenticated).toBe(false);
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web" }))),
+  );
+
+  it.effect("keeps bearer socket upgrades independent of the page origin", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const bearer = yield* serverAuth.issueSession();
+      const verified = yield* serverAuth.authenticateWebSocketUpgrade({
+        url: "/ws",
+        cookies: {},
+        headers: {
+          host: "192.168.1.50:3773",
+          origin: "http://192.168.1.50:8080",
+          authorization: `Bearer ${bearer.token}`,
+        },
+      } as never);
+      expect(verified.sessionId).toBe(bearer.sessionId);
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
+  );
 });
