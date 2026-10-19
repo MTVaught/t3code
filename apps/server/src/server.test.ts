@@ -5992,11 +5992,27 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         },
       });
 
-      const response = yield* HttpClient.post("/api/observability/v1/traces", {
+      const cookie = yield* getAuthenticatedSessionCookieHeader();
+      const rejected = yield* HttpClient.post("/api/observability/v1/traces", {
         headers: {
-          cookie: yield* getAuthenticatedSessionCookieHeader(),
+          cookie,
           "content-type": "application/json",
           origin: "http://localhost:5733",
+        },
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        body: HttpBody.text(JSON.stringify(payload), "application/json"),
+      });
+      assert.equal(rejected.status, 401);
+      assert.deepEqual(localTraceRecords, []);
+      assert.deepEqual(upstreamRequests, []);
+
+      const browserOrigin = new URL(yield* getWsServerUrl("/ws", { authenticated: false }));
+      browserOrigin.protocol = "http:";
+      const response = yield* HttpClient.post("/api/observability/v1/traces", {
+        headers: {
+          cookie,
+          "content-type": "application/json",
+          origin: browserOrigin.origin,
         },
         // @effect-diagnostics-next-line preferSchemaOverJson:off
         body: HttpBody.text(JSON.stringify(payload), "application/json"),
