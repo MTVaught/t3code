@@ -21,12 +21,7 @@ import {
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
-import {
-  CustomModelSetting,
-  DEFAULT_TEXT_GENERATION_MODEL,
-  DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
-  ProviderOptionSelections,
-} from "./model.ts";
+import { CustomModelSetting, DEFAULT_BOB_MODEL, ProviderOptionSelections } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, type ProjectMutation } from "./project.ts";
 import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
@@ -751,6 +746,26 @@ export const AntigravityAuthMethod = Schema.Literals(
 );
 export type AntigravityAuthMethod = typeof AntigravityAuthMethod.Type;
 
+export const BobSettings = makeProviderSettingsSchema(
+  {
+    enabled: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
+    binaryPath: makeBinaryPathSetting("bob").pipe(
+      Schema.annotateKey({
+        title: "Binary path",
+        description: "Path to the bob binary used by this instance.",
+        providerSettingsForm: { placeholder: "bob", clearWhenEmpty: "omit" },
+      }),
+    ),
+  },
+  { order: ["binaryPath"] },
+);
+export type BobSettings = typeof BobSettings.Type;
+
+export const BobSettingsConfig = BobSettings;
+
 export const AntigravitySettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
@@ -1276,17 +1291,12 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   addProjectBaseDirectory: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  defaultTerminalShell: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(
       Effect.succeed({
-        instanceId: ProviderInstanceId.make("codex"),
-        model: DEFAULT_TEXT_GENERATION_MODEL,
-        options: [
-          {
-            id: "reasoningEffort",
-            value: DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
-          },
-        ],
+        instanceId: ProviderInstanceId.make("bob"),
+        model: DEFAULT_BOB_MODEL,
       }),
     ),
   ),
@@ -1393,12 +1403,12 @@ const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new S
 
 /** Built-in drivers whose default instance runs before the user configures it. */
 const DEFAULT_ENABLED_DEFAULT_INSTANCES: ReadonlySet<ProviderInstanceId> = new Set(
-  ["codex", "claudeAgent"].map((instanceId) => ProviderInstanceId.make(instanceId)),
+  ["codex", "claudeAgent", "bob"].map((instanceId) => ProviderInstanceId.make(instanceId)),
 );
 
 /**
  * Whether the built-in default instance at `instanceId` is enabled while
- * settings have no `providerInstances` entry for it. Only Codex and Claude
+ * settings have no `providerInstances` entry for it. Codex, Claude, and Bob
  * start on; any other id without an entry has no running instance.
  */
 export const isUnconfiguredDefaultInstanceEnabled = (instanceId: ProviderInstanceId): boolean =>
@@ -1507,6 +1517,7 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  defaultTerminalShell: Schema.optionalKey(TrimmedString),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

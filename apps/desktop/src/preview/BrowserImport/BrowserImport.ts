@@ -10,7 +10,7 @@ import type {
   BrowserImportSource,
   BrowserImportUnavailableReason,
 } from "@t3tools/contracts";
-import { BrowserImportFailureReason } from "@t3tools/contracts";
+import { BROWSER_COOKIE_IMPORT_ENABLED, BrowserImportFailureReason } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type { Session } from "electron";
 import * as Effect from "effect/Effect";
@@ -334,4 +334,15 @@ export const make = Effect.gen(function* BrowserImportMake() {
   return BrowserImport.of({ listSources, importCookies });
 });
 
-export const layer = Layer.effect(BrowserImport, make);
+export const layer = BROWSER_COOKIE_IMPORT_ENABLED
+  ? Layer.effect(BrowserImport, make)
+  : Layer.succeed(BrowserImport, {
+      listSources: Effect.succeed([]),
+      importCookies: ({ input }) =>
+        Effect.fail(
+          new BrowserImportFailedError({
+            sourceId: input.sourceId,
+            reason: "disabled",
+          }),
+        ),
+    });

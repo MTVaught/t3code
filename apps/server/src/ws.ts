@@ -1,3 +1,4 @@
+import { FEEDBACK_UPLOADS_DISABLED_MESSAGE } from "@t3tools/shared/feedbackPolicy";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -254,7 +255,6 @@ import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
-const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
 const resolveDiscoveryForConfig = <A, E, R>(
   discovery: Effect.Effect<A, E, R>,
@@ -1222,7 +1222,6 @@ const layerWsRpc = (
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
-      const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const mcpAppRequests = yield* McpAppRequests.McpAppRequests;
       const analytics = yield* AnalyticsService.AnalyticsService;
       // Client-origin attribution (#7774): every thread/turn the connecting
@@ -2274,53 +2273,11 @@ const layerWsRpc = (
         [WS_METHODS.mcpAppsUpdateModelContext]: (input) => mcpAppRequests.updateModelContext(input),
         [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
         [WS_METHODS.providerUploadFeedback]: (input) =>
-          Effect.gen(function* () {
-            const projection = yield* threadManagement.getThreadRecords(input.threadId, [
-              "providerThreads",
-            ]);
-            const providerThread =
-              projection.providerThreads.find(
-                (candidate) => candidate.id === projection.thread.activeProviderThreadId,
-              ) ?? projection.providerThreads.at(-1);
-            const providerSessionId = providerThread?.providerSessionId ?? null;
-            if (providerThread === undefined || providerSessionId === null) {
-              return yield* Effect.fail(
-                new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: "No provider session has run in this thread yet.",
-                }),
-              );
-            }
-            const runtime = Option.getOrNull(yield* providerSessionsV2.get(providerSessionId));
-            if (runtime === null) {
-              return yield* Effect.fail(
-                new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: "The provider session is no longer running. Send a message first.",
-                }),
-              );
-            }
-            if (runtime.uploadFeedback === undefined) {
-              return yield* Effect.fail(
-                new ProviderUploadFeedbackError({
-                  threadId: input.threadId,
-                  cause: `Provider '${runtime.driver}' does not support feedback uploads.`,
-                }),
-              );
-            }
-            return yield* runtime.uploadFeedback({
-              providerThread,
-              ...(input.reason === undefined ? {} : { reason: input.reason }),
-            });
-          }).pipe(
-            Effect.mapError((cause) =>
-              isProviderUploadFeedbackError(cause)
-                ? cause
-                : new ProviderUploadFeedbackError({
-                    threadId: input.threadId,
-                    cause,
-                  }),
-            ),
+          Effect.fail(
+            new ProviderUploadFeedbackError({
+              threadId: input.threadId,
+              cause: FEEDBACK_UPLOADS_DISABLED_MESSAGE,
+            }),
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           providerMaintenanceRunner.updateProvider(input),

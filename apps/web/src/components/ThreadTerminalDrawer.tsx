@@ -50,11 +50,6 @@ import { readTextFromClipboard, writeTextToClipboard } from "~/hooks/useCopyToCl
 import { cn } from "~/lib/utils";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
-  observeSelectionActions,
-  resolveSelectionActionPosition,
-  type SelectionActionPoint,
-} from "~/lib/selectionActions";
-import {
   GhosttyTerminalSurface,
   type GhosttyTerminalSurfaceOptions,
 } from "~/terminal/ghostty/surface";
@@ -317,7 +312,7 @@ export type TerminalContextMenuAction =
   | "select-all"
   | "scroll-to-bottom";
 
-/** Post-selection popup: available selection actions, always enabled. */
+/** Selection actions offered by the right-click menu. */
 export function terminalSelectionMenuItems(options?: {
   canAddToChat?: boolean;
 }): ContextMenuItem<"add-to-chat" | "copy">[] {
@@ -350,21 +345,6 @@ export function terminalContextMenuItems(options: {
     { id: "select-all", label: "Select all" },
     { id: "scroll-to-bottom", label: "Jump to latest" },
   ];
-}
-
-/**
- * An empty selection change may only cancel a selection-action flow that is
- * still current: a pending popup timer, or an open popup whose request id has
- * not been superseded. A popup already superseded by a right-click keeps its
- * menu promise unsettled for a moment; treating it as active would cancel the
- * newer context-menu flow instead.
- */
-export function shouldClearTerminalSelectionAction(options: {
-  actionPending: boolean;
-  openMenuRequestId: number | null;
-  currentRequestId: number;
-}): boolean {
-  return options.actionPending || options.openMenuRequestId === options.currentRequestId;
 }
 
 export function shouldHandleTerminalExit(
@@ -456,10 +436,6 @@ export function TerminalViewport({
   });
   const hasHandledExitRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
-  // Holds the request id of the selection popup currently on screen, so a
-  // popup that was superseded (but whose menu promise has not settled yet)
-  // cannot be mistaken for the active flow.
-  const openSelectionMenuRequestIdRef = useRef<number | null>(null);
   const keybindingsRef = useRef(keybindings);
   const runtimeEnvKey = useMemo(() => runtimeEnvSignature(runtimeEnv), [runtimeEnv]);
   const handleSessionExited = useEffectEvent(() => {
@@ -592,7 +568,6 @@ export function TerminalViewport({
     let teardown: (() => void) | null = null;
     let setupTerminal: GhosttyTerminalSurface | null = null;
     let setupCleanups: Array<() => void> = [];
-    let selectionActions: ReturnType<typeof observeSelectionActions> | null = null;
 
     const setup = async (): Promise<(() => void) | null> => {
       const setupFont = terminalFontRef.current;
@@ -604,7 +579,9 @@ export function TerminalViewport({
         },
         onData: (data) => handleData(data),
         onResize: (cols, rows) => void resizeTerminal(cols, rows),
-        onSelectionChange: () => handleSelectionChange(),
+        // Selection actions live in the right-click menu only, so a vanished
+        // selection has no release-triggered popup to cancel.
+        onSelectionChange: () => undefined,
         beforeKey: (event) => handleBeforeKey(event),
         onLinkActivate: (text, event) => handleLinkActivate(text, event),
         canActivateLink: (text) => canActivateTerminalLink(text),
@@ -660,29 +637,17 @@ export function TerminalViewport({
         terminal.focus();
       }
 
-      const dismissSelectionAction = (supersede = false) => {
-        const ownsMenu =
-          openSelectionMenuRequestIdRef.current === selectionActionRequestIdRef.current;
-        // Passive cancellation must not invalidate a newer right-click flow.
-        if (supersede || ownsMenu) selectionActionRequestIdRef.current += 1;
-        if (ownsMenu) void localApi?.contextMenu.close();
-      };
       const clearSelectionAction = () => {
-        selectionActions?.cancel();
-        dismissSelectionAction(true);
+        selectionActionRequestIdRef.current += 1;
       };
       setupCleanups.push(clearSelectionAction);
 
-      const readSelectionAction = (
-        pointer: SelectionActionPoint | null = null,
-      ): {
-        position: { x: number; y: number };
+      const readSelectionAction = (): {
         clipboardText: string;
         selection: TerminalContextSelection;
       } | null => {
         const activeTerminal = terminalRef.current;
-        const mountElement = containerRef.current;
-        if (!activeTerminal || !mountElement || !activeTerminal.hasSelection()) {
+        if (!activeTerminal || !activeTerminal.hasSelection()) {
           return null;
         }
         const selectionText = activeTerminal.getSelection();
@@ -692,15 +657,7 @@ export function TerminalViewport({
           return null;
         }
         const { lineStart, lineEnd } = terminalSelectionLineRange(selectionPosition);
-        const bounds = mountElement.getBoundingClientRect();
-        const position = resolveSelectionActionPosition({
-          bounds,
-          selectionRect: activeTerminal.getSelectionEndClientRect(),
-          pointer,
-          viewport: { width: window.innerWidth, height: window.innerHeight },
-        });
         return {
-          position,
           clipboardText: selectionText,
           selection: {
             terminalId,
@@ -809,44 +766,6 @@ export function TerminalViewport({
           case "scroll-to-bottom":
             terminalRef.current?.scrollToBottom();
             focusIfCurrent(requestId);
-            return;
-        }
-      };
-
-      const showSelectionAction = async (pointer: SelectionActionPoint | null) => {
-        if (!localApi) {
-          clearSelectionAction();
-          return;
-        }
-        if (openSelectionMenuRequestIdRef.current === selectionActionRequestIdRef.current) {
-          return;
-        }
-        const nextAction = readSelectionAction(pointer);
-        if (!nextAction) {
-          clearSelectionAction();
-          return;
-        }
-        const requestId = ++selectionActionRequestIdRef.current;
-        openSelectionMenuRequestIdRef.current = requestId;
-        const clicked = await localApi.contextMenu
-          .show(
-            terminalSelectionMenuItems({ canAddToChat: canAddSelectionToChat() }),
-            nextAction.position,
-          )
-          .finally(() => {
-            if (openSelectionMenuRequestIdRef.current === requestId) {
-              openSelectionMenuRequestIdRef.current = null;
-            }
-          });
-        if (requestId !== selectionActionRequestIdRef.current || clicked === null) {
-          return;
-        }
-        switch (clicked) {
-          case "add-to-chat":
-            if (canAddSelectionToChat()) addSelectionToChat(nextAction.selection);
-            return;
-          case "copy":
-            await copySelection(nextAction.clipboardText, requestId);
             return;
         }
       };
@@ -968,28 +887,6 @@ export function TerminalViewport({
           );
         })();
       }
-
-      function handleSelectionChange(): void {
-        if (terminalRef.current?.hasSelection()) {
-          return;
-        }
-        const shouldClear = shouldClearTerminalSelectionAction({
-          actionPending: selectionActions?.pending ?? false,
-          openMenuRequestId: openSelectionMenuRequestIdRef.current,
-          currentRequestId: selectionActionRequestIdRef.current,
-        });
-        if (!shouldClear) return;
-        clearSelectionAction();
-      }
-
-      selectionActions = observeSelectionActions({
-        element: mount,
-        onSelection: (pointer) => {
-          void showSelectionAction(pointer);
-        },
-        onDismiss: (reason) => dismissSelectionAction(reason === "interaction"),
-      });
-      setupCleanups.push(() => selectionActions?.dispose());
 
       const themeObserver = new MutationObserver(() => {
         const activeTerminal = terminalRef.current;

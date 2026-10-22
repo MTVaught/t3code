@@ -3,12 +3,13 @@ import { it as effectIt } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { CommandAvailability, WindowsShellEnvironment } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
+import * as Path from "effect/Path";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Observe the existing synchronous shell probe without launching the user's login shell.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeOS from "node:os";
 import { assert, it, vi } from "vite-plus/test";
 
-import { fixPath, hydratePosixHome } from "./os-jank.ts";
+import { fixPath, hydratePosixHome, resolveBaseDir } from "./os-jank.ts";
 
 vi.mock("node:child_process", { spy: true });
 
@@ -151,4 +152,18 @@ effectIt.effect("repairs Windows PATH even when the desktop marks it prepared", 
     assert.deepEqual(commands, ["node"]);
     assert.equal(env.PATH, "C:\\Tools;C:\\Windows");
   }),
+);
+
+effectIt.effect("keeps the CLI default home separate from upstream", () =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const home = path.join(NodeOS.tmpdir(), "treher-home");
+    const resolve = (raw: string | undefined) =>
+      resolveBaseDir(raw).pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+    assert.equal(yield* resolve(undefined), path.join(home, ".t3-treher"));
+    assert.equal(yield* resolve(" "), path.join(home, ".t3-treher"));
+    const explicit = path.join(NodeOS.tmpdir(), "explicit-home");
+    assert.equal(yield* resolve(explicit), explicit);
+    assert.equal(yield* resolve("~/custom-home"), path.join(home, "custom-home"));
+  }).pipe(Effect.provide(NodeServices.layer)),
 );

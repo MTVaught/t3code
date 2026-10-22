@@ -17,9 +17,11 @@ import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ProviderLatestVersions from "./ProviderLatestVersions.ts";
 import {
+  canResolveLatestProviderVersion,
   createProviderVersionAdvisory,
   makeTargetedProviderUpdateAction,
   enrichProviderSnapshotWithVersionAdvisory,
+  makeManualOnlyProviderMaintenanceCapabilities,
   homebrewOwnershipFromCommandPath,
   makeCachedProviderMaintenanceResolution,
   makePackageManagedProviderMaintenanceResolver,
@@ -178,6 +180,67 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
       }),
     ),
   );
+
+  it.effect("does not fetch latest versions for manual-only providers", () => {
+    const capabilities = makeManualOnlyProviderMaintenanceCapabilities({
+      provider: driver("manualTool"),
+      packageName: "untrusted-package-name",
+    });
+
+    return enrichProviderSnapshotWithVersionAdvisory(installedPackageToolProvider, capabilities, {
+      enableProviderUpdateChecks: true,
+    }).pipe(
+      Effect.provide(ProviderLatestVersions.layer),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() =>
+          Effect.die("manual-only provider version checks should not make an HTTP request"),
+        ),
+      ),
+      Effect.map((provider) => {
+        expect(provider.versionAdvisory).toMatchObject({
+          status: "unknown",
+          currentVersion: "1.0.0",
+          latestVersion: null,
+          canUpdate: false,
+          updateCommand: null,
+        });
+      }),
+    );
+  });
+
+  it("only resolves latest provider versions for providers with update commands and package names", () => {
+    expect(
+      canResolveLatestProviderVersion(
+        makeProviderMaintenanceCapabilities({
+          provider: driver("packageTool"),
+          packageName: "@example/package-tool",
+          updateExecutable: "npm",
+          updateArgs: ["install", "-g", "@example/package-tool@latest"],
+          updateLockKey: "npm-global",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      canResolveLatestProviderVersion(
+        makeManualOnlyProviderMaintenanceCapabilities({
+          provider: driver("manualTool"),
+          packageName: "untrusted-package-name",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canResolveLatestProviderVersion(
+        makeProviderMaintenanceCapabilities({
+          provider: driver("staticTool"),
+          packageName: null,
+          updateExecutable: "static-tool",
+          updateArgs: ["update"],
+          updateLockKey: "static-tool",
+        }),
+      ),
+    ).toBe(false);
+  });
 
   it("marks providers with unknown current versions as unknown", () => {
     expect(

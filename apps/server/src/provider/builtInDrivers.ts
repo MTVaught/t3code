@@ -20,6 +20,7 @@
  *
  * @module provider/builtInDrivers
  */
+import { BobDriver, type BobDriverEnv } from "./Drivers/BobDriver.ts";
 import {
   AcpRegistryDriver,
   type AcpRegistryDriverEnv,
@@ -43,6 +44,7 @@ import type {
  * layer must provide every service in this union.
  */
 export type BuiltInDriversEnv =
+  | BobDriverEnv
   | AcpRegistryDriverEnv
   | AntigravityDriverEnv
   | ClaudeDriverEnv
@@ -61,6 +63,7 @@ export type BuiltInDriversEnv =
 export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv>> = [
   CodexDriver,
   ClaudeDriver,
+  BobDriver,
   CursorDriver,
   GrokDriver,
   OpenCodeDriver,

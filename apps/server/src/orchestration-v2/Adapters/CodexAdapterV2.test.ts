@@ -2195,6 +2195,41 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
+  it.effect("rejects feedback uploads without sending a provider request", () =>
+    Effect.gen(function* () {
+      const requests: string[] = [];
+      const harness = yield* makeCodexReplayHarness(
+        makeCodexReplayTranscript({
+          scenario: "feedback-disabled",
+          entries: codexReplayPreamble({
+            nativeThreadId: "feedback-disabled",
+            nativeTurnId: "unused",
+            prompt: "unused",
+          }).slice(0, 5),
+        }),
+        () => Effect.void,
+        (method) =>
+          Effect.sync(() => {
+            requests.push(method);
+          }),
+      );
+      const before = [...requests];
+      const error = yield* harness.runtime.uploadFeedback!({
+        providerThread: harness.providerThread,
+        reason: "must stay local",
+      }).pipe(Effect.flip);
+      assert.equal(error._tag, "ProviderAdapterProtocolError");
+      assert.include(error.message, "Feedback uploads are disabled in Treher.");
+      assert.deepEqual(requests, before);
+      assert.notInclude(requests, "feedback/upload");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect("identifies sessions to Codex with the same client info as main", () =>
     Effect.gen(function* () {
       const transcript = makeCodexReplayTranscript({

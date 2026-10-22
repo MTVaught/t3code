@@ -2367,3 +2367,16 @@ code {
     }
   }
 }
+
+/* Treher keeps activity labels static to avoid continuous text repaints. */
+.live-tool-shine {
+  animation: none;
+  color: inherit;
+  background-image: none;
+}
+.live-activity-focus {
+  display: none;
+}
+.live-activity-focus-counter {
+  animation: none;
+}

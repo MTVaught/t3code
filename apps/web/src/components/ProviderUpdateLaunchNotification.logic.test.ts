@@ -23,6 +23,7 @@ import {
   getProviderUpdateRejectedToastView,
   getProviderUpdateRunToastView,
   getProviderUpdateSidebarPillView,
+  hasActionableProviderUpdate,
   hasOneClickUpdateProviderCandidate,
   isProviderUpdateCandidate,
   isProviderSettingsUpdateCandidate,
@@ -104,6 +105,39 @@ describe("provider update launch notification logic", () => {
     ).toBe(false);
     expect(
       isProviderUpdateCandidate(provider({ driver: driver("codex"), latestVersion: null })),
+    ).toBe(false);
+    expect(
+      isProviderUpdateCandidate(
+        provider({
+          driver: driver("bob"),
+          canUpdate: false,
+          updateCommand: null,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("detects actionable provider update advisories", () => {
+    expect(hasActionableProviderUpdate(provider({ driver: driver("codex") }).versionAdvisory)).toBe(
+      true,
+    );
+    expect(
+      hasActionableProviderUpdate(
+        provider({
+          driver: driver("bob"),
+          canUpdate: false,
+          updateCommand: null,
+        }).versionAdvisory,
+      ),
+    ).toBe(false);
+    expect(
+      hasActionableProviderUpdate(
+        provider({
+          driver: driver("codex"),
+          advisoryStatus: "current",
+          latestVersion: null,
+        }).versionAdvisory,
+      ),
     ).toBe(false);
   });
 

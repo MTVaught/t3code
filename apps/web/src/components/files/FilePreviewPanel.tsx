@@ -37,10 +37,10 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
-import { FolderTree, Globe2, WrapTextIcon } from "lucide-react";
+import { FolderTree, Globe2, WrapTextIcon, RefreshCw } from "lucide-react";
 import { Code2, Eye, Table2 } from "lucide";
 import * as Schema from "effect/Schema";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
@@ -101,6 +101,7 @@ import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { DiffCommentAnnotation } from "../diffs/DiffCommentAnnotation";
 import { projectFileCacheKey } from "./fileContentRevision";
 import {
+  isAsciiDocPreviewFile,
   filePreviewReadErrorMessage,
   isMarkdownPreviewFile,
   resolveFilePreviewPath,
@@ -137,6 +138,7 @@ interface FilePreviewPanelProps {
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
 const RENDER_BROWSER_FILE_STORAGE_KEY = "t3code.renderBrowserFile";
+const RenderedAsciiDocSurface = lazy(() => import("./RenderedAsciiDocSurface"));
 const RENDER_TABLE_STORAGE_KEY = "t3code.renderTable";
 // Shared by the read-only and annotated surfaces, so it is generic over annotation metadata.
 type FilePostRender = <LAnnotation>(
@@ -1010,8 +1012,9 @@ function RenderedMarkdownSurface({
   );
 }
 
-function renderedToggleLabel(mode: "markdown" | "html" | "table", rendered: boolean): string {
-  if (mode === "markdown") return rendered ? "Show markdown source" : "Show rendered markdown";
+function renderedToggleLabel(mode: "document" | "html" | "table", rendered: boolean): string {
+  // Markdown and AsciiDoc share one label since they share the rendered preference.
+  if (mode === "document") return rendered ? "Show source" : "Show rendered document";
   if (mode === "table") return rendered ? "Show source" : "Show table";
   return rendered ? "Show HTML source" : "Show rendered page";
 }
@@ -1122,17 +1125,20 @@ export default function FilePreviewPanel({
   );
   const breadcrumbRef = useRef<HTMLDivElement>(null);
   const isMarkdown = previewPath ? isMarkdownPreviewFile(previewPath) : false;
+  const isAsciiDoc = previewPath ? isAsciiDocPreviewFile(previewPath) : false;
+  // Markdown and AsciiDoc share the "rendered document" preference.
+  const isDocument = isMarkdown || isAsciiDoc;
   const tableDelimiter =
     previewPath && attachment === undefined ? filePreviewDelimiter({ name: previewPath }) : null;
   // A reveal still wins over the preference: the line only exists in the source.
   const revealHandled =
     revealLine === null ||
     (handledReveal?.path === relativePath && handledReveal.requestId === revealRequestId);
-  const renderMarkdown = isMarkdown && renderMarkdownPreferred && revealHandled;
+  const renderDocument = isDocument && renderMarkdownPreferred && revealHandled;
   const renderBrowserFile = isPdf || (isHtml && renderBrowserFilePreferred && revealHandled);
   const renderTable = tableDelimiter !== null && renderTablePreferred && revealHandled;
-  const renderedMode = isMarkdown
-    ? ("markdown" as const)
+  const renderedMode = isDocument
+    ? ("document" as const)
     : tableDelimiter
       ? ("table" as const)
       : isHtml
@@ -1141,16 +1147,16 @@ export default function FilePreviewPanel({
   const canToggleRendered =
     previewPath !== null && attachment === undefined && renderedMode !== null;
   const updateClientSettings = useUpdateClientSettings();
-  // Word wrap only reaches the text bodies. A rendered Markdown document, a table and the
+  // Word wrap only reaches the text bodies. A rendered document, a table and the
   // browser frame all lay themselves out, so the toggle stays hidden rather than inert.
   const showsRawText =
     previewPath !== null &&
     file.data !== null &&
-    !(isMarkdown && renderMarkdown) &&
+    !(isDocument && renderDocument) &&
     !(tableDelimiter && renderTable) &&
     !renderBrowserFile;
-  const rendered = isMarkdown ? renderMarkdown : tableDelimiter ? renderTable : renderBrowserFile;
-  const setRenderedPreferred = isMarkdown
+  const rendered = isDocument ? renderDocument : tableDelimiter ? renderTable : renderBrowserFile;
+  const setRenderedPreferred = isDocument
     ? setRenderMarkdownPreferred
     : tableDelimiter
       ? setRenderTablePreferred
@@ -1315,6 +1321,11 @@ export default function FilePreviewPanel({
               <Globe2 className="size-3.5" />
             </FileSurfaceAction>
           ) : null}
+          {attachment === undefined ? (
+            <FileSurfaceAction label="Reload file" disabled={file.isPending} onPress={file.refresh}>
+              <RefreshCw className="size-3.5" />
+            </FileSurfaceAction>
+          ) : null}
           {!isHostFile && previewPath !== null ? (
             <FileSurfaceAction
               label={explorerOpen ? "Hide file explorer" : "Show file explorer"}
@@ -1431,7 +1442,7 @@ export default function FilePreviewPanel({
               <Spinner size="lg" />
             </div>
           ) : relativePath && file.data ? (
-            isMarkdown && renderMarkdown ? (
+            isMarkdown && renderDocument ? (
               // Markdown reconciles in place across text updates, so a file
               // switch needs a new key or the previous file's disclosure and
               // wrap state carries into the next document.
@@ -1445,6 +1456,22 @@ export default function FilePreviewPanel({
                 readOnly={isHostFile || !canWriteFiles}
                 onPendingChange={onPendingChange}
               />
+            ) : isAsciiDoc && renderDocument ? (
+              <Suspense
+                fallback={
+                  <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
+                    <Spinner className="size-5" />
+                  </div>
+                }
+              >
+                <RenderedAsciiDocSurface
+                  key={relativePath}
+                  contents={file.data.contents}
+                  cwd={cwd}
+                  relativePath={relativePath}
+                  threadRef={threadRef}
+                />
+              </Suspense>
             ) : tableDelimiter && renderTable ? (
               <DelimitedTablePreview
                 key={relativePath}

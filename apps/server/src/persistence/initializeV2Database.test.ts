@@ -6,7 +6,7 @@ import * as NodeSqlite from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, ProviderInstanceId } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -33,8 +33,8 @@ it.effect(
       yield* runMigrations({ toMigrationInclusive: 52 });
       yield* sql`INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
       VALUES ('project', 'Project', '/tmp/project', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
-      yield* sql`INSERT INTO projection_threads (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, created_at, updated_at)
-      VALUES (${threadId}, 'project', 'V1 thread', '{"instanceId":"codex","model":"gpt-5.4"}', 'full-access', 'default', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
+      yield* sql`INSERT INTO projection_threads (thread_id, project_id, title, model_selection_json, runtime_mode, interaction_mode, provider_mode, created_at, updated_at)
+      VALUES (${threadId}, 'project', 'V1 thread', '{"instanceId":"bob","model":"bob-managed"}', 'full-access', 'default', 'reviewer', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
       for (let index = 0; index < 6; index++) {
         yield* sql`INSERT INTO projection_thread_messages (message_id, thread_id, role, text, is_streaming, created_at, updated_at)
         VALUES (${`message-${index}`}, ${threadId}, ${index % 2 ? "assistant" : "user"}, ${`Text ${index}`}, 0, ${`2026-01-0${index + 1}T00:00:00.000Z`}, ${`2026-01-0${index + 1}T00:00:00.000Z`})`;
@@ -62,6 +62,10 @@ it.effect(
         const projections = yield* ProjectionStore.ProjectionStoreV2;
         const shell = yield* projections.getThreadProjection(threadId);
         assert.equal(shell.thread.id, threadId);
+        assert.deepEqual(shell.thread.modelSelection, {
+          instanceId: ProviderInstanceId.make("bob"),
+          model: "default",
+        });
         assert.deepEqual(
           shell.messages.map((message) => message.text),
           ["Text 4", "Text 5"],

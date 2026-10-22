@@ -49,6 +49,13 @@ client connections and provider-instance rebuilds. Releases are immutable, with 
 selecting the version for new processes. Running processes hold leases on their version. Updates
 and removal must respect those leases instead of replacing executables under a running agent.
 
+IBM Bob is a long-lived ACP provider. Each active thread owns a `bob acp` child and ACP session; the
+[driver](../../apps/server/src/provider/Drivers/BobDriver.ts) persists the session ID and reconnects
+with `session/resume`. Bob reports modes, commands, permissions, reasoning, plans, tools, and
+assistant output through ACP. T3 injects its workspace MCP endpoint, while Bob continues to own its
+native rules, hooks, trust, and provider configuration. See
+[Bob ACP integration](./bob-acp-integration.md) for the complete mapping and migration decisions.
+
 ## Setup must not happen as a health-check side effect
 
 Opening a provider session can start MCP servers, run hooks, or launch a login browser.

@@ -1,10 +1,12 @@
 import { MessageId, type ProviderUploadFeedbackResult } from "@t3tools/contracts";
 
 import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-  type AtomCommandResult,
-} from "./runtime.ts";
+  FEEDBACK_UPLOADS_DISABLED_MESSAGE,
+  FeedbackUploadsDisabledError,
+} from "@t3tools/shared/feedbackPolicy";
+import * as Cause from "effect/Cause";
+import { AsyncResult } from "effect/reactivity";
+import type { AtomCommandResult } from "./runtime.ts";
 
 type CodexFeedbackSubmissionDetails = {
   readonly id: MessageId;
@@ -88,32 +90,17 @@ export function codexFeedbackMessage(
   };
 }
 
-export async function submitCodexFeedback<E>(input: {
+/** Keep legacy callers local: reject the upload and preserve the unsent draft. */
+export function submitCodexFeedback<E>(input: {
   readonly submission: CodexFeedbackSubmissionDetails;
   readonly clearDraft: () => void;
   readonly onUpdate: (submission: CodexFeedbackSubmission) => void;
   readonly upload: () => Promise<AtomCommandResult<ProviderUploadFeedbackResult, E>>;
-}): Promise<AtomCommandResult<ProviderUploadFeedbackResult, E>> {
-  input.onUpdate({ ...input.submission, status: "uploading" });
-  input.clearDraft();
-
-  const result = await input.upload();
-  if (result._tag === "Success") {
-    input.onUpdate({
-      ...input.submission,
-      status: "sent",
-      feedbackId: result.value.feedbackId,
-    });
-  } else if (isAtomCommandInterrupted(result)) {
-    input.onUpdate({ ...input.submission, status: "interrupted" });
-  } else {
-    const error = squashAtomCommandFailure(result);
-    input.onUpdate({
-      ...input.submission,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "An error occurred.",
-    });
-  }
-
-  return result;
+}): Promise<AtomCommandResult<ProviderUploadFeedbackResult, E | FeedbackUploadsDisabledError>> {
+  input.onUpdate({
+    ...input.submission,
+    status: "failed",
+    errorMessage: FEEDBACK_UPLOADS_DISABLED_MESSAGE,
+  });
+  return Promise.resolve(AsyncResult.failure(Cause.fail(new FeedbackUploadsDisabledError({}))));
 }

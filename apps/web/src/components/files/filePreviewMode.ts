@@ -9,6 +9,8 @@ export function resolveFilePreviewPath(path: string | null, cwd: string): string
 
 export const isMarkdownPreviewFile = (path: string): boolean => /\.(?:md|mdx)$/i.test(path);
 
+export const isAsciiDocPreviewFile = (path: string): boolean =>
+  /\.(?:adoc|asciidoc|asc)$/i.test(path);
 /** Describe existing failure codes without exposing the underlying platform cause. */
 export function filePreviewReadErrorMessage(error: ProjectReadFileError): string {
   switch (error.failure) {

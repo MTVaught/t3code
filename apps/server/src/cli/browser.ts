@@ -10,6 +10,7 @@
  * Both need root. Without it, the command prints what it would change and the
  * `sudo` line to run. It is safe to run again; it skips what is already done.
  */
+import { DEFAULT_TREHER_HOME_DIRECTORY_NAME } from "@t3tools/shared/statePaths";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
@@ -54,7 +55,7 @@ const runStep = Effect.fn("browserSetup.runStep")(function* (
 
 /**
  * The T3 home to check. Under `sudo` the process home is root's, so an
- * unspecified home falls back to the invoking user's `~/.t3`.
+ * unspecified home falls back to the invoking user's `~/.t3-treher`.
  */
 const setupBaseDir = Effect.fn("browserSetup.baseDir")(function* (explicit: Option.Option<string>) {
   const env = yield* HostProcess.Environment;
@@ -68,7 +69,9 @@ const setupBaseDir = Effect.fn("browserSetup.baseDir")(function* (explicit: Opti
     .pipe(Effect.orElseSucceed(() => ""));
   const home = entry.trim().split(":")[5];
   const path = yield* Path.Path;
-  return home ? path.join(home, ".t3") : yield* resolveBaseDir(undefined);
+  return home
+    ? path.join(home, DEFAULT_TREHER_HOME_DIRECTORY_NAME)
+    : yield* resolveBaseDir(undefined);
 });
 
 /** Whether apt has an installable candidate for `name`. */

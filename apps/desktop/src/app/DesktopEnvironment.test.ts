@@ -76,9 +76,16 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.serverRoot, "/repo");
       assert.equal(environment.backendEntryPath, "/repo/apps/server/dist/bin.mjs");
       assert.equal(environment.backendCwd, "/repo");
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev");
-      assert.equal(environment.linuxWmClass, "t3code-dev");
-      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.Development.desktop");
+      assert.equal(environment.appUserModelId, "dev.treher.t3code.dev");
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Dev",
+        displayName: "T3 Code (Treher Dev)",
+      });
+      assert.equal(environment.displayName, "T3 Code (Treher Dev)");
+      assert.equal(environment.userDataDirName, "t3code-treher-dev");
+      assert.equal(environment.linuxWmClass, "t3code-treher-dev");
+      assert.equal(environment.linuxDesktopEntryName, "dev.treher.t3code.dev.desktop");
       assert.deepEqual(
         Option.map(environment.devServerUrl, (url) => url.href),
         Option.some("http://localhost:5173/"),
@@ -116,6 +123,26 @@ describe("DesktopEnvironment", () => {
       assert.equal(environment.browserArtifactsDir, "/tmp/t3/userdata/browser-artifacts");
       assert.equal(environment.serverSettingsPath, "/tmp/t3/userdata/settings.json");
       assert.equal(environment.otlpProtocol, "http/json");
+      assert.equal(environment.userDataDirName, "t3code-treher");
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Alpha",
+        displayName: "T3 Code (Treher)",
+      });
+    }),
+  );
+
+  it.effect("adds the nightly channel to the fork display name", () =>
+    Effect.gen(function* () {
+      const environment = yield* makeEnvironment({
+        appVersion: "0.0.23-nightly.20260825.1",
+      });
+
+      assert.deepEqual(environment.branding, {
+        baseName: "T3 Code (Treher)",
+        stageLabel: "Nightly",
+        displayName: "T3 Code (Treher Nightly)",
+      });
     }),
   );
 
@@ -150,7 +177,7 @@ describe("DesktopEnvironment", () => {
         resourcesPath: "/tmp/.mount_t3code/resources",
       });
 
-      assert.equal(environment.linuxDesktopEntryName, "com.t3tools.T3Code.desktop");
+      assert.equal(environment.linuxDesktopEntryName, "dev.treher.t3code.desktop");
     }),
   );
 
@@ -162,8 +189,8 @@ describe("DesktopEnvironment", () => {
       );
       const production = yield* makeEnvironment();
 
-      assert.equal(development.stateDir, "/Users/alice/.t3/dev");
-      assert.equal(production.stateDir, "/Users/alice/.t3/userdata");
+      assert.equal(development.stateDir, "/Users/alice/.t3-treher/dev");
+      assert.equal(production.stateDir, "/Users/alice/.t3-treher/userdata");
     }),
   );
 
@@ -172,12 +199,12 @@ describe("DesktopEnvironment", () => {
       const environment = yield* makeEnvironment(
         {},
         {
-          T3CODE_DESKTOP_APP_USER_MODEL_ID: " com.t3tools.t3code.dev.local ",
+          T3CODE_DESKTOP_APP_USER_MODEL_ID: " dev.treher.t3code.dev.local ",
           VITE_DEV_SERVER_URL: "http://localhost:5173",
         },
       );
 
-      assert.equal(environment.appUserModelId, "com.t3tools.t3code.dev.local");
+      assert.equal(environment.appUserModelId, "dev.treher.t3code.dev.local");
     }),
   );
 

@@ -54,6 +54,25 @@ it.effect("selects the latest earlier stable tag and ignores nightlies", () =>
   }),
 );
 
+it.effect("compares final fork releases against earlier finals, excluding candidates", () =>
+  Effect.gen(function* () {
+    const tags = [
+      "v0.0.45-treher.2.0.rc.1",
+      "v0.0.45-treher.1.1",
+      "v0.0.45-treher.1.0.rc.1",
+      "v0.0.44",
+    ];
+    assert.equal(
+      yield* resolvePreviousReleaseTag("stable", "v0.0.45-treher.2.1", tags),
+      "v0.0.45-treher.1.1",
+    );
+    assert.equal(
+      yield* resolvePreviousReleaseTag("stable", "v0.0.45-treher.2.0.rc.2", tags),
+      "v0.0.45-treher.1.1",
+    );
+  }),
+);
+
 it.effect("accepts legacy nightly tags when selecting the previous nightly", () =>
   Effect.gen(function* () {
     const previous = yield* resolvePreviousReleaseTag("nightly", "v1.2.0-nightly.20260620.2", [

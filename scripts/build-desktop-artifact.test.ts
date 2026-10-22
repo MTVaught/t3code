@@ -28,35 +28,27 @@ import {
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
   LINUX_CAPTURE_EXTRA_RESOURCES,
-  LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
   MAC_FILE_EXCLUSIONS,
-  InvalidMacPasskeyRpDomainError,
-  InvalidMacPasskeyPublishableKeyError,
   InvalidMockUpdateServerPortError,
   UnsupportedDesktopBuildArchitectureError,
-  isMacPasskeySigningConfigurationError,
   LinuxIconResizeError,
   LinuxDesktopBuildPrerequisitesMissingError,
   MacDesktopBuildPrerequisitesMissingError,
-  MacPasskeySigningConfigurationResolutionError,
-  MissingMacPasskeyProvisioningProfileError,
   packWindowsServerAsar,
   preflightLinuxDesktopBuild,
   preflightMacDesktopBuild,
   preflightWindowsDesktopBuild,
-  renderMacPasskeyEntitlements,
-  resolveMacWebAuthnEntitlements,
-  resolveClerkPasskeyNativeArtifacts,
-  resolveMacPasskeySigningConfiguration,
   resolveDesktopRuntimeDependencies,
   resolveMergedStageDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
   resolveDesktopBuildIconAssets,
   resolveDesktopProductName,
+  resolveDesktopPackageIdentity,
   resolveDesktopUpdateChannel,
   resolveDesktopWebAssetBrand,
+  resolveLinuxNativePrebuildPaths,
   resolveResourceMonitorRustTargets,
   resolveWindowsServerAsarIgnoreGlobs,
   resourceMonitorExecutableName,
@@ -65,6 +57,7 @@ import {
   resolveMockUpdateServerUrl,
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
+  stageLinuxNativePrebuilds,
   stageDesktopDmgBackground,
   stageResourceMonitor,
   stageLinuxCaptureHelper,
@@ -73,8 +66,6 @@ import {
   STAGE_INSTALL_ARGS,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
-  LinuxBrowserSecretHostError,
-  stageBrowserSecret,
   validateWindowsPackagedPayload,
   WindowsPrimaryNativeProbeError,
   WindowsDesktopBuildPrerequisitesMissingError,
@@ -273,8 +264,22 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
-    assert.equal(resolveDesktopProductName("0.1.0"), "T3 Code (Beta)");
-    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Treher)");
+    assert.equal(
+      resolveDesktopProductName("0.0.17-nightly.20260413.42"),
+      "T3 Code (Treher Nightly)",
+    );
+  });
+
+  it("embeds the Treher product name in the staged Electron manifest", () => {
+    assert.deepStrictEqual(resolveDesktopPackageIdentity("0.0.17"), {
+      name: "t3code",
+      productName: "T3 Code (Treher)",
+    });
+    assert.deepStrictEqual(resolveDesktopPackageIdentity("0.0.17-nightly.20260413.42"), {
+      name: "t3code",
+      productName: "T3 Code (Treher Nightly)",
+    });
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -320,12 +325,25 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ),
         ),
       );
+      const forkConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_DESKTOP_UPDATE_REPOSITORY: "MTVaught/t3code",
+                GITHUB_REPOSITORY: "pingdotgg/t3code",
+              },
+            }),
+          ),
+        ),
+      );
 
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
         owner: "pingdotgg",
         repo: "t3code",
         releaseType: "release",
+        channel: "latest",
       });
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
@@ -333,6 +351,13 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         repo: "t3code",
         releaseType: "prerelease",
         channel: "nightly",
+      });
+      assert.deepStrictEqual(forkConfig, {
+        provider: "github",
+        owner: "MTVaught",
+        repo: "t3code",
+        releaseType: "release",
+        channel: "latest",
       });
     }),
   );
@@ -370,12 +395,33 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.notProperty(preview, "publish");
       assert.notProperty(previewChannel, "publish");
+      const candidate = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.0.rc.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const final = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-treher.1.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.notProperty(candidate, "publish");
+      assert.deepStrictEqual(final.publish, release.publish);
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
           owner: "pingdotgg",
           repo: "t3code",
           releaseType: "release",
+          channel: "latest",
         },
       ]);
     }).pipe(
@@ -583,10 +629,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     // snapshot below cannot catch that on its own: adding a resource and
     // forgetting the exclusion leaves the exclusion list untouched, so it still
     // matches. Assert the invariant first, where the failure names the culprit.
-    for (const resource of [
-      ...WSL_RUNTIME_EXTRA_RESOURCES,
-      ...LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
-    ]) {
+    for (const resource of WSL_RUNTIME_EXTRA_RESOURCES) {
       assert.include(
         DESKTOP_FILE_EXCLUSIONS,
         `!${resource.from}`,
@@ -624,15 +667,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("applies platform-specific packaging to the build config", () =>
     Effect.gen(function* () {
-      const mac = yield* createBuildConfig(
-        "mac",
-        "dmg",
-        "1.2.3",
-        false,
-        false,
-        undefined,
-        undefined,
-      );
+      const mac = yield* createBuildConfig("mac", "dmg", "1.2.3", false, false, undefined);
       const linux = yield* createBuildConfig(
         "linux",
         "AppImage",
@@ -640,25 +675,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         false,
         false,
         undefined,
-        undefined,
-      );
-      const win = yield* createBuildConfig(
-        "win",
-        "nsis",
-        "1.2.3",
         false,
-        false,
-        undefined,
-        undefined,
         true,
       );
+      const win = yield* createBuildConfig("win", "nsis", "1.2.3", false, false, undefined, true);
       const winWithoutWslRuntime = yield* createBuildConfig(
         "win",
         "nsis",
         "1.2.3",
         false,
         false,
-        undefined,
         undefined,
         false,
       );
@@ -669,6 +695,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.notProperty(linux, "asar");
       assert.notProperty(mac, "asarUnpack");
       assert.notProperty(linux, "asarUnpack");
+      assert.equal(mac.artifactName, "T3-Code-Treher-${version}-${arch}.${ext}");
+      assert.equal(linux.npmRebuild, false);
       assert.deepStrictEqual(win.asar, { smartUnpack: false });
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
       assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
@@ -677,7 +705,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         ...LINUX_CAPTURE_EXTRA_RESOURCES,
-        { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
       ]);
       assert.deepStrictEqual(win.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
@@ -702,7 +729,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "**/*.map",
       ]);
       assert.deepStrictEqual(mac.dmg, {
-        title: "T3 Code (Beta) 1.2.3 Installer",
+        title: "T3 Code (Treher) 1.2.3 Installer",
         background: "dmg/dmg-background-latest.png",
         window: { width: 640, height: 432 },
         contents: [
@@ -714,14 +741,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       });
       // A Linux AppImage build also emits the .deb from the same run.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).target, ["AppImage", "deb"]);
+      assert.deepStrictEqual((linux.linux as Record<string, unknown>).desktop, {
+        entry: { StartupWMClass: "t3code-treher" },
+      });
+      assert.equal((linux.linux as Record<string, unknown>).executableName, "t3code-treher");
       // Linux must register the renderer schemes so the generated .desktop
-      // entry advertises MimeType=x-scheme-handler/t3code; for OAuth deep links.
+      // entry advertises MimeType=x-scheme-handler/treher-t3code; for OAuth deep links.
       assert.deepStrictEqual((linux.linux as Record<string, unknown>).protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        {
+          name: "T3 Code (Treher)",
+          schemes: ["treher-t3code", "treher-t3code-dev"],
+        },
       ]);
       // macOS also offers itself as a web browser, so it can be chosen as the default.
       assert.deepStrictEqual((mac.mac as Record<string, unknown>).protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        { name: "T3 Code (Treher)", schemes: ["treher-t3code", "treher-t3code-dev"] },
         { name: "Web site URL", schemes: ["http", "https"], role: "Viewer" },
       ]);
       // macOS lists a default browser only when it also opens web pages as documents.
@@ -995,6 +1029,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           stageResourcesDir,
           platform: "linux",
           arch: "x64",
+          prebuildPath: undefined,
           verbose: false,
         }).pipe(
           Effect.provide(
@@ -1029,10 +1064,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
               readonly args: ReadonlyArray<string>;
             };
             commands.push(childProcess);
-            const fails =
-              childProcess.command === "cargo" ||
-              childProcess.command === "rustc" ||
-              childProcess.command === "pkg-config";
+            const fails = childProcess.command === "cargo" || childProcess.command === "rustc";
             return Effect.succeed(mockProcess(fails ? 1 : 0));
           }),
         );
@@ -1043,13 +1075,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         );
 
         assert.instanceOf(error, LinuxDesktopBuildPrerequisitesMissingError);
-        assert.deepStrictEqual(error.missing, ["cargo", "rust-target", "libsecret"]);
+        assert.deepStrictEqual(error.missing, ["cargo", "rust-target"]);
         assert.include(error.message, "Rust compiler and Cargo (cargo, rustc)");
         assert.include(error.message, "Requested Rust standard library");
-        assert.include(
-          error.message,
-          "sudo apt-get install cargo rustc libsecret-1-dev pkg-config",
-        );
+        assert.include(error.message, "sudo apt-get install cargo rustc");
         assert.include(error.message, "rustup target add aarch64-unknown-linux-gnu");
         assert.isTrue(
           commands.some(
@@ -1565,85 +1594,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     );
   });
 
-  it.effect("builds the Linux browser secret helper for a concrete architecture", () => {
-    const commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }> = [];
-    const spawnerLayer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make((command) => {
-        commands.push(command as unknown as (typeof commands)[number]);
-        return Effect.succeed(mockProcess(0));
-      }),
-    );
-
-    return Effect.gen(function* () {
-      // `universal` is a mac-only arch the option type still admits. The helper
-      // script only knows x64 and arm64, so the request maps to x64, the same
-      // concrete target the Linux resource monitor resolves it to.
-      yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir: "/stage/resources",
-        platform: "linux",
-        arch: "universal",
-        verbose: false,
-      });
-      const helper = commands.find((command) =>
-        command.args.some((arg) => arg.endsWith("build-browser-secret.mjs")),
-      );
-      assert.isDefined(helper);
-      const path = yield* Path.Path;
-      assert.deepStrictEqual(helper.args.slice(-4), [
-        "--arch",
-        "x64",
-        "--output",
-        path.join("/stage/resources", "browser-secret", "t3-browser-secret"),
-      ]);
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          spawnerLayer,
-          Layer.succeed(HostProcess.Platform, "linux"),
-          Layer.succeed(HostProcess.Architecture, "x64"),
-        ),
-      ),
-    );
-  });
-
-  it.effect("refuses a Linux build on a host that cannot build the browser secret helper", () => {
-    const commands: Array<{ readonly command: string }> = [];
-    const spawnerLayer = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make((command) => {
-        commands.push(command as unknown as (typeof commands)[number]);
-        return Effect.succeed(mockProcess(0));
-      }),
-    );
-
-    return Effect.gen(function* () {
-      // The helper links against the host's libsecret and its build script is
-      // a no-op elsewhere, so a Linux artifact built on macOS would ship
-      // without it and report the keyring as unavailable on every import.
-      const error = yield* stageBrowserSecret({
-        repoRoot: "/repo",
-        stageResourcesDir: "/stage/resources",
-        platform: "linux",
-        arch: "x64",
-        verbose: false,
-      }).pipe(Effect.flip);
-      assert.instanceOf(error, LinuxBrowserSecretHostError);
-      assert.equal(error.hostPlatform, "darwin");
-      assert.include(error.message, "Linux host");
-      assert.lengthOf(commands, 0);
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          spawnerLayer,
-          Layer.succeed(HostProcess.Platform, "darwin"),
-          Layer.succeed(HostProcess.Architecture, "arm64"),
-        ),
-      ),
-    );
-  });
-
   it.effect("skips the primary native probe for cross-architecture Windows payloads", () => {
     const commands: Array<{
       readonly command: string;
@@ -1938,210 +1888,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
-  it("derives macOS passkey signing configuration from the Clerk publishable key", () => {
-    const configuration = resolveMacPasskeySigningConfiguration({
-      T3CODE_APPLE_TEAM_ID: "abc1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PUBLISHABLE_KEY: `pk_test_${btoa("example.clerk.accounts.dev$")}`,
-    });
-
-    assert.deepStrictEqual(configuration, {
-      appId: "com.t3tools.t3code",
-      teamId: "ABC1234567",
-      rpDomains: ["example.clerk.accounts.dev"],
-      provisioningProfilePath: "/tmp/t3code.provisionprofile",
-    });
-  });
-
-  it("normalizes explicit macOS passkey RP domains and renders required entitlements", () => {
-    const configuration = resolveMacPasskeySigningConfiguration({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS:
-        " Clerk.Example.com,example.clerk.accounts.dev,clerk.example.com ",
-    });
-    const entitlements = renderMacPasskeyEntitlements(configuration, {
-      touchIdKeychainAccessGroup: undefined,
-      browserPasskeys: false,
-    });
-
-    assert.deepStrictEqual(configuration.rpDomains, [
-      "clerk.example.com",
-      "example.clerk.accounts.dev",
-    ]);
-    assert.include(entitlements, "<string>ABC1234567.com.t3tools.t3code</string>");
-    assert.include(entitlements, "<string>webcredentials:clerk.example.com</string>");
-    assert.include(entitlements, "<string>webcredentials:example.clerk.accounts.dev</string>");
-    assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
-    assert.notInclude(entitlements, "keychain-access-groups");
-    assert.notInclude(entitlements, "com.apple.developer.web-browser.public-key-credential");
-  });
-
-  it("grants in-app browser passkey entitlements only when the provisioning profile does", () => {
-    const configuration = { appId: "com.t3tools.t3code", teamId: "ABC1234567" };
-    // Profiles are CMS envelopes around a plain XML plist.
-    const profile = (entitlements: string, outside = "") =>
-      `0\x82\x1f\x9a\x06\t*\x86H<?xml version="1.0"?><plist version="1.0"><dict>${outside}<key>Entitlements</key><dict>${entitlements}</dict></dict></plist>\x00\x01`;
-    const teamWildcardGroups = `<key>keychain-access-groups</key>
-      <array>
-        <string>ABC1234567.*</string>
-        <string>com.apple.token</string>
-      </array>`;
-
-    assert.deepStrictEqual(resolveMacWebAuthnEntitlements(profile(""), configuration), {
-      touchIdKeychainAccessGroup: undefined,
-      browserPasskeys: false,
-    });
-    assert.deepStrictEqual(
-      resolveMacWebAuthnEntitlements(
-        profile("<key>keychain-access-groups</key><array><string>OTHERTEAM1.*</string></array>"),
-        configuration,
-      ),
-      { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
-    );
-    // Only real values inside the Entitlements dict count: not comments, not
-    // explicit false, not keys elsewhere in the profile.
-    assert.deepStrictEqual(
-      resolveMacWebAuthnEntitlements(
-        profile(
-          `<!-- ${teamWildcardGroups}
-          <key>com.apple.developer.web-browser.public-key-credential</key><true/> -->
-          <key>com.apple.developer.web-browser.public-key-credential</key><false/>`,
-          teamWildcardGroups,
-        ),
-        configuration,
-      ),
-      { touchIdKeychainAccessGroup: undefined, browserPasskeys: false },
-    );
-    assert.deepStrictEqual(
-      resolveMacWebAuthnEntitlements(
-        profile(
-          `${teamWildcardGroups}
-          <key>com.apple.developer.web-browser.public-key-credential</key>
-          <true/>`,
-        ),
-        configuration,
-      ),
-      {
-        touchIdKeychainAccessGroup: "ABC1234567.com.t3tools.t3code.webauthn",
-        browserPasskeys: true,
-      },
-    );
-
-    const entitlements = renderMacPasskeyEntitlements(
-      { ...configuration, rpDomains: ["clerk.example.com"], provisioningProfilePath: "" },
-      resolveMacWebAuthnEntitlements(
-        profile(
-          `${teamWildcardGroups}<key>com.apple.developer.web-browser.public-key-credential</key><true/>`,
-        ),
-        configuration,
-      ),
-    );
-    assert.match(
-      entitlements,
-      /<key>keychain-access-groups<\/key>\s*<array>\s*<string>ABC1234567\.com\.t3tools\.t3code\.webauthn<\/string>\s*<\/array>/u,
-    );
-    assert.match(
-      entitlements,
-      /<key>com\.apple\.developer\.web-browser\.public-key-credential<\/key>\s*<true\/>/u,
-    );
-  });
-
-  it("rejects incomplete macOS passkey signing configuration", () => {
-    const captureError = (env: Readonly<Record<string, string | undefined>>) => {
-      try {
-        resolveMacPasskeySigningConfiguration(env);
-      } catch (error) {
-        return error;
-      }
-      return assert.fail("Expected passkey signing configuration to fail.");
-    };
-
-    const missingProfileError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
-    });
-    assert.instanceOf(missingProfileError, MissingMacPasskeyProvisioningProfileError);
-    assert.equal(
-      missingProfileError.message,
-      "T3CODE_MACOS_PROVISIONING_PROFILE must point to an Associated Domains provisioning profile.",
-    );
-
-    const unsafeDomain =
-      "https://domain-user:domain-secret@example.clerk.accounts.dev/path?token=query-secret";
-    const invalidDomainError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PASSKEY_RP_DOMAINS: unsafeDomain,
-    });
-    assert.instanceOf(invalidDomainError, InvalidMacPasskeyRpDomainError);
-    assert.equal(invalidDomainError.reason, "scheme-not-allowed");
-    assert.equal(invalidDomainError.inputLength, unsafeDomain.length);
-    assert.equal(invalidDomainError.message, "Invalid passkey RP domain (scheme-not-allowed).");
-    assert.notProperty(invalidDomainError, "domain");
-    assert.notProperty(invalidDomainError, "cause");
-    const serializedInvalidDomainError = JSON.stringify(invalidDomainError);
-    assert.notInclude(serializedInvalidDomainError, unsafeDomain);
-    assert.notInclude(serializedInvalidDomainError, "domain-user");
-    assert.notInclude(serializedInvalidDomainError, "domain-secret");
-    assert.notInclude(serializedInvalidDomainError, "query-secret");
-    assert.throws(
-      () =>
-        resolveMacPasskeySigningConfiguration({
-          T3CODE_APPLE_TEAM_ID: "ABC1234567",
-          T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-          T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev:8443",
-        }),
-      /Invalid passkey RP domain/u,
-    );
-    const invalidPublishableKeyError = captureError({
-      T3CODE_APPLE_TEAM_ID: "ABC1234567",
-      T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
-      T3CODE_CLERK_PUBLISHABLE_KEY: "pk_test_%",
-    });
-    assert.instanceOf(invalidPublishableKeyError, InvalidMacPasskeyPublishableKeyError);
-    assert.ok(invalidPublishableKeyError.cause);
-    assert.equal(invalidPublishableKeyError.message, "T3CODE_CLERK_PUBLISHABLE_KEY is invalid.");
-    assert.notProperty(invalidPublishableKeyError, "publishableKey");
-    assert.notInclude(invalidPublishableKeyError.message, "pk_test_%");
-  });
-
-  it("preserves known passkey signing configuration errors at the build boundary", () => {
-    const decodingCause = new Error("publishable-key-decode-failed");
-    const knownError = new InvalidMacPasskeyPublishableKeyError({ cause: decodingCause });
-    const error = MacPasskeySigningConfigurationResolutionError.fromCause(knownError);
-
-    assert.strictEqual(error, knownError);
-    assert.instanceOf(error, InvalidMacPasskeyPublishableKeyError);
-    assert.strictEqual(error.cause, decodingCause);
-    assert.isTrue(isMacPasskeySigningConfigurationError(error));
-  });
-
-  it("wraps unknown passkey signing configuration defects without copying cause text", () => {
-    const secret = "pk_test_do-not-retain";
-    const cause = new Error(secret);
-    const error = MacPasskeySigningConfigurationResolutionError.fromCause(cause);
-
-    assert.instanceOf(error, MacPasskeySigningConfigurationResolutionError);
-    assert.strictEqual(error.cause, cause);
-    assert.equal(error.message, "Failed to resolve macOS passkey signing configuration.");
-    assert.notInclude(error.message, secret);
-  });
-
-  it.effect("adds passkey entitlements and both renderer protocols to signed macOS builds", () =>
+  it.effect("keeps macOS signing independent from provisioning profiles and passkeys", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {
-        entitlementsPath: "/tmp/entitlements.mac.plist",
-        provisioningProfilePath: "/tmp/t3code.provisionprofile",
-      });
+      const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined);
 
       const mac = config.mac as Record<string, unknown>;
-      assert.equal(config.appId, "com.t3tools.t3code");
-      assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
-      assert.equal(mac.provisioningProfile, "/tmp/t3code.provisionprofile");
+      assert.equal(config.appId, "dev.treher.t3code");
+      assert.notProperty(config, "asarUnpack");
+      assert.notProperty(mac, "entitlements");
+      assert.notProperty(mac, "provisioningProfile");
       assert.match(String(mac.sign), /[\\/]scripts[\\/]sign-macos\.ts$/);
       assert.deepStrictEqual(mac.protocols, [
-        { name: "T3 Code", schemes: ["t3code", "t3code-dev"] },
+        {
+          name: "T3 Code (Treher)",
+          schemes: ["treher-t3code", "treher-t3code-dev"],
+        },
         { name: "Web site URL", schemes: ["http", "https"], role: "Viewer" },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
@@ -2168,15 +1929,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("configures Windows executable metadata and native signing extensions", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig(
-        "win",
-        "nsis",
-        "1.2.3",
-        false,
-        false,
-        undefined,
-        undefined,
-      );
+      const config = yield* createBuildConfig("win", "nsis", "1.2.3", false, false, undefined);
 
       const win = config.win as Record<string, unknown>;
       assert.equal(win.icon, "icon.ico");
@@ -2209,6 +1962,40 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ]);
     assert.equal(resourceMonitorExecutableName("mac"), "t3-resource-monitor");
     assert.equal(resourceMonitorExecutableName("win"), "t3-resource-monitor.exe");
+  });
+
+  it.effect("replaces both node-pty load paths and fff with RHEL 8 prebuilds", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const stageAppDir = path.join(root, "app");
+      const prebuildDirectory = path.join(root, "native");
+      const pty = path.join(stageAppDir, "node_modules/node-pty");
+      const fff = path.join(stageAppDir, "node_modules/@ff-labs/fff-bin-linux-x64-gnu");
+      yield* fs.makeDirectory(prebuildDirectory, { recursive: true });
+      yield* fs.makeDirectory(path.join(pty, "prebuilds/linux-x64"), { recursive: true });
+      yield* fs.makeDirectory(fff, { recursive: true });
+      yield* fs.writeFileString(path.join(prebuildDirectory, "pty.node"), "rhel8-pty");
+      yield* fs.writeFileString(path.join(prebuildDirectory, "libfff_c.so"), "rhel8-fff");
+      yield* fs.writeFileString(path.join(pty, "prebuilds/linux-x64/pty.node"), "unsupported-pty");
+      yield* fs.writeFileString(path.join(fff, "libfff_c.so"), "unsupported-fff");
+      yield* stageLinuxNativePrebuilds({ stageAppDir, prebuildDirectory, arch: "x64" });
+      assert.equal(yield* fs.readFileString(path.join(pty, "build/Release/pty.node")), "rhel8-pty");
+      assert.equal(
+        yield* fs.readFileString(path.join(pty, "prebuilds/linux-x64/pty.node")),
+        "rhel8-pty",
+      );
+      assert.equal(yield* fs.readFileString(path.join(fff, "libfff_c.so")), "rhel8-fff");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it("resolves the RHEL-compatible Linux native prebuild contract", () => {
+    assert.deepStrictEqual(resolveLinuxNativePrebuildPaths("/tmp/linux-native"), {
+      nodePty: "/tmp/linux-native/pty.node",
+      resourceMonitor: "/tmp/linux-native/t3-resource-monitor",
+      fff: "/tmp/linux-native/libfff_c.so",
+    });
   });
 
   it("ships the Linux CLI release archive as the WSL runtime", () => {
@@ -2306,26 +2093,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     });
   });
 
-  it("resolves target Clerk passkey native artifacts", () => {
-    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("mac", "universal"), [
-      {
-        packageName: "@clerk/electron-passkeys-darwin-arm64",
-        binaryFileName: "electron-passkeys.darwin-arm64.node",
-      },
-      {
-        packageName: "@clerk/electron-passkeys-darwin-x64",
-        binaryFileName: "electron-passkeys.darwin-x64.node",
-      },
-    ]);
-    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("win", "x64"), [
-      {
-        packageName: "@clerk/electron-passkeys-win32-x64-msvc",
-        binaryFileName: "electron-passkeys.win32-x64-msvc.node",
-      },
-    ]);
-    assert.deepStrictEqual(resolveClerkPasskeyNativeArtifacts("linux", "x64"), []);
-  });
-
   it("falls back to the default mock update port when the configured port is blank", () => {
     assert.equal(resolveMockUpdateServerUrl(undefined), "http://localhost:3000");
     assert.equal(resolveMockUpdateServerUrl(4123), "http://localhost:4123");
@@ -2391,6 +2158,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         verbose: Option.none(),
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
+        linuxNativePrebuilds: Option.none(),
         wslRuntime: Option.none(),
       }).pipe(
         Effect.provide(
@@ -2431,6 +2199,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
             verbose: Option.none(),
             mockUpdates: Option.none(),
             mockUpdateServerPort: Option.none(),
+            linuxNativePrebuilds: Option.none(),
             wslRuntime: Option.none(),
           }),
         );
@@ -2455,6 +2224,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         verbose: Option.some(false),
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
+        linuxNativePrebuilds: Option.none(),
         wslRuntime: Option.none(),
       }).pipe(
         Effect.provide(

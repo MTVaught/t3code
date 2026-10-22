@@ -4,9 +4,72 @@ T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provid
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
+## Fork differences and upstream merges
+
+This is the Treher desktop fork, `MTVaught/t3code`. The rules in this section take precedence
+over the upstream product and multi-surface guidance below. Keep these decisions when merging
+upstream. Change this section when the maintainer changes the fork's scope.
+
+- Keep the standalone CLI and installers available. CLI, desktop, SSH, WSL, and background
+  services must default to the fork's `.t3-treher` home and fork releases. Explicit home
+  overrides remain supported. Use separate Treher systemd and launchd service names so
+  CLI service commands do not change upstream services. Do not publish packages to
+  upstream's npm namespace.
+- Distribute the desktop app. Its bundled web client, server, shared packages, and runtime
+  archives remain required, including support for SSH environments and Windows WSL. Do not
+  remove them because this fork does not distribute a separate web or mobile app.
+- Do not enable mobile builds, hosted web or marketing deployments, T3 Connect relay
+  deployments, or external service webhooks. Keep those workflows under
+  `.github/disabled-workflows`. Do not add their jobs or required checks to CI or branch
+  protection. Remote connections use servers controlled by the user. Do not inject upstream
+  Clerk credentials or hosted relay configuration into builds or development templates.
+- Use standard GitHub-hosted runners for all active workflows. Do not restore Blacksmith,
+  paid runner labels, or self-hosted runner requirements during upstream merges. Typecheck
+  and test the desktop dependency graph and contributor tooling. General repository lint
+  and unused-code checks may still cover retained upstream source.
+- Release only macOS ARM64, Linux x64, and Windows x64 artifacts. Installers, download links,
+  and managed runtime selection must report unsupported targets before a download. Do not
+  advertise Linux ARM64, Windows ARM64, or macOS x64 artifacts that the workflow does not build.
+- RHEL 8 x64 is a required fork platform, even though upstream does not support it. The Linux
+  AppImage, Linux runtime archive, bundled server, and required native components must work
+  with glibc 2.28. Preserve the Rocky Linux 8 native builds and packaged AppImage verification
+  in release and Linux preview workflows, plus the runtime archive checks before upload.
+  Publishing must depend on successful RHEL 8 verification. Check
+  dependency, Electron, and build-image updates for compatibility; do not raise the required
+  glibc version or remove these checks to match upstream. Verify the packaged app in a RHEL 8
+  environment or its compatible Rocky Linux 8 environment. A build or typecheck on a newer
+  Linux distribution does not prove RHEL 8 support.
+- Installers and updaters must use this fork's releases. Stable accepts plain upstream version
+  tags and final Treher tags such as `v0.0.45-treher.1.1`. It excludes candidates such as
+  `v0.0.45-treher.1.0.rc.1` and nightlies. See the [release guide](docs/operations/release.md)
+  for tag numbering and publishing procedures.
+- Preserve Treher app identity, URL schemes, and the separate `.t3-treher` state directory.
+  Fork builds must not share upstream's live state. Do not restore upstream usage analytics;
+  local resource monitoring is separate from usage analytics. Disable feedback uploads in
+  clients, server RPCs, and provider adapters. Keep diagnostic logs local.
+- Preserve IBM Bob provider support alongside the upstream providers. Include Bob when
+  changing provider contracts, settings, authentication, or runtime behavior.
+  Use the upstream ACP local-command driver for Bob chat, discovery, authentication,
+  modes, skills, commands, and session lifecycle. Do not scan Bob mode or skill files,
+  rewrite skill prompts, or migrate saved fork modes into ACP selections. Keep Bob as the
+  default provider for app-owned text generation. Add fork interfaces only for features
+  with callers.
+- Disable browser cookie import on all platforms. Keep built-in browser profiles and direct
+  sign-in. Do not build or package `t3-browser-secret`, scan other browsers for cookies, or
+  request keyring or Full Disk Access permissions for cookie import.
+- Keep terminal selection actions on right-click by default. Use upstream clipboard shortcuts.
+- Use the full upstream review experience, including loading large diffs one file at a time.
+  Do not restore the retired fork staging filters, follow-up flags, file search, or J/K
+  navigation. Preserve compatibility with stored fork events and database state when removing
+  their UI or handlers.
+
+Resolve routine merge conflicts within these decisions. If redundant or broken fork code needs
+a new product decision, identify the affected behavior and ask the maintainer before choosing
+its replacement. Do not preserve old fork code only because it differs from upstream.
+
 ## What makes T3 Code special?
 
-We have over 500,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
+We have over 400,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
 
 ### 1. Open at the core
 
@@ -88,8 +151,17 @@ The most common defect in this repo is a change that works on the path you teste
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 
-- Run `vp run migrate-dev-db` with your dev server stopped. It rebuilds `<worktree>/.t3/userdata/statev2.sqlite` from a read-only snapshot of `~/.t3/userdata/statev2.sqlite`, the developer's real data. It keeps recent projects and their stopped threads, and drops scheduled tasks, pending work, and auth sessions, so your dev server never runs the developer's agents. Raise `--projects` and `--threads-per-project` for more data.
-- Refresh `statev2.sqlite`, not `state.sqlite`. The server copies the V1 `state.sqlite` only when `statev2.sqlite` is missing.
+- Copy from `~/.t3/userdata` (the developer's upstream T3 Code data) or `~/.t3/dev`. Worktree state lives at `<worktree>/.t3-treher/userdata`.
+- Snapshot the database with `VACUUM INTO`, which is safe even while a server has the source open and yields one consistent file:
+
+  ```bash
+  mkdir -p .t3-treher/userdata
+  rm -f .t3-treher/userdata/state.sqlite*  # VACUUM INTO refuses to overwrite
+  bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '.t3-treher/userdata/state.sqlite'\")"
+  ```
+
+  A plain `cp` is only safe when no server has the source open, and must bring the `-wal` and `-shm` siblings along. A live file copy is a corrupt copy.
+
 - Bring `secrets` and `settings.json` only if the flow under test needs them.
 - Copy in, never symlink. Data flows one way: into your sandbox, never back out.
 
@@ -99,7 +171,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Test meaningful logic or observable behavior. Do not render components to static markup to assert props or attributes, or add tests that merely assert callback wiring or mirror the implementation.
 - **Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.
 - Backend behavior changes ship with focused tests for that behavior.
-- The server is event-sourced, and side effects run after the command commits. In tests, drain the effect worker (`OrchestrationEffectWorkerV2.drain`) or await the specific persisted event or `Deferred` that marks the milestone. Never wait on sleeps or polling. A test that needs a timeout to pass is wrong.
+- The server is event-sourced and its async flows emit typed receipts. Wait on receipts and worker drains, never on sleeps or polling. A test that needs a timeout to pass is wrong.
 - Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
 
 For authorized mobile verification, a missing or outdated native client is a build step, not a blocker. Run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before starting Metro. It checks the local Expo fingerprint and builds/installs when needed. See `test-t3-mobile` for the full workflow.
@@ -107,11 +179,13 @@ For authorized mobile verification, a missing or outdated native client is a bui
 ## Pull requests
 
 - Never make a PR unless the developer explicitly asks you to do so.
+- The upstream T3 Code repository is read-only. Never push branches, open or update pull requests, post comments, edit issues, or perform any other write against upstream.
+- All GitHub writes, including branch pushes and pull requests, must target the developer's fork (`MTVaught/t3code`). Before pushing or creating a PR, verify the target repository owner explicitly; do not rely on CLI defaults or an `upstream` remote.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
 - Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
-- One request is one PR. Split it only when the maintainer asks. Outside contributions follow the stricter [one problem per PR](CONTRIBUTING.md#one-problem) rule.
+- One concern per PR. If the description says "also", split it.
 - When babysitting: poll checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
 
 ## Documentation
@@ -134,9 +208,9 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 ## How it works
 
-Clients send typed WebSocket requests. The server turns them into _commands_. The _orchestrator_ (`apps/server/src/orchestration-v2/Orchestrator.ts`) serializes commands and decides _events_ without doing any I/O. The _event sink_ commits those events, the _projections_ the UI reads, the _command receipt_, and _outbox_ effects in one transaction. The _effect worker_ then runs the effects, such as starting a provider turn or capturing a checkpoint, and feeds results back as commands. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
+Clients send typed WebSocket requests. The server turns them into _commands_, a pure _decider_ turns commands into persisted _events_, and a _projector_ derives the read model the UI renders. Provider CLIs run as subprocesses; per-provider _adapters_ translate their native protocols into orchestration events. Side effects run in queue-backed _reactors_ that emit _receipts_ when milestones land. Each turn ends with a _checkpoint_, a hidden git ref, so the app can diff and restore.
 
-Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/internals/glossary.md`
+Full glossary with file links: `docs/internals/glossary.md`
 
 ## Where code lives
 
@@ -150,9 +224,8 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 ## Taste
 
 - Complexity belongs at the adapter boundary. Orchestration stays pure, UI stays dumb.
-- Client mutations use `createEnvironmentRpcCommand`. Add protected methods to `CLIENT_GUARDED_RPC_SCOPES` in contracts and use the command's `permissionAtom` for UI availability. Grants are checked at execution against the destination environment; the server remains authoritative. Keep raw RPC clients inside `rpc/`, and extend the permission behavior tests when adding a protected method.
 - Server features are services; transports stay thin. A `ws.ts` RPC handler, HTTP route, or MCP tool decodes input, calls one service method, and maps errors. See [Effect services](docs/internals/effect-services.md).
-- `apps/web/src/components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations. See [Web UI](docs/internals/web-ui.md).
+- `apps/web/src/components/ui` exports own their look. Pick a `variant` or `size`; do not restyle one with `className`. If none fits and the look is a generic concept, add a variant to the component; a look that belongs to one feature stays in that feature's own component, not in `components/ui`. Layout classes (width, flex, margin, position) belong on the parent. `shadcn/no-restyle` fails lint on violations.
 - Inferred types over annotations. `any` is the enemy.
 - Comments describe how a thing is used, and move when the code moves. To be used mostly to describe functions, not to annotate every line of behavior.
 - Our users drive agents all day and notice a dropped frame, a lying spinner, and a stale label. No continuously repainting animations; they peg the GPU on high-refresh displays.

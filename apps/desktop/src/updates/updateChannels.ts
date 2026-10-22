@@ -1,4 +1,5 @@
 import type { DesktopUpdateChannel } from "@t3tools/contracts";
+import { isStableReleaseVersion } from "@t3tools/shared/cliRelease";
 
 const NIGHTLY_VERSION_PATTERN = /^[^-+]+-nightly\.\d{8}\.\d+$/;
 // Preview builds are the maintainers' test train, cut by hand from unreleased
@@ -15,4 +16,13 @@ export function isNightlyDesktopVersion(version: string): boolean {
 
 export function resolveDefaultDesktopUpdateChannel(appVersion: string): DesktopUpdateChannel {
   return NIGHTLY_VERSION_PATTERN.test(appVersion) ? "nightly" : "latest";
+}
+
+export function isDesktopUpdateVersionOnChannel(
+  version: string,
+  channel: DesktopUpdateChannel,
+): boolean {
+  return channel === "nightly"
+    ? NIGHTLY_VERSION_PATTERN.test(version)
+    : isStableReleaseVersion(version);
 }

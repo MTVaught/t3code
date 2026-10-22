@@ -22,6 +22,8 @@
       "entry": ["knip-schemas.ts", "mobile-native-client.ts", "setup-worktree.ts"],
     },
     "apps/server": {
+      // Keep inactive upstream telemetry source available without wiring it into startup.
+      "ignoreIssues": { "src/telemetry/Identify.ts": ["exports"] },
       // Vite+ pack entries and the launcher used by installed background services.
       "entry": [
         "src/bin.ts!",

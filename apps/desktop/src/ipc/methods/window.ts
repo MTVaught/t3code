@@ -1,4 +1,5 @@
 import {
+  BROWSER_COOKIE_IMPORT_ENABLED,
   ContextMenuItemSchema,
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
@@ -324,6 +325,7 @@ export const openSystemSettings = DesktopIpc.makeIpcMethod({
   payload: SystemSettingsPaneSchema,
   result: Schema.Boolean,
   handler: Effect.fn("desktop.ipc.window.openSystemSettings")(function* (pane) {
+    if (!BROWSER_COOKIE_IMPORT_ENABLED) return false;
     const shell = yield* ElectronShell.ElectronShell;
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return false;
@@ -433,6 +435,7 @@ export const checkSystemPermission = DesktopIpc.makeIpcMethod({
   payload: SystemSettingsPaneSchema,
   result: Schema.Boolean,
   handler: Effect.fn("desktop.ipc.window.checkSystemPermission")(function* () {
+    if (!BROWSER_COOKIE_IMPORT_ENABLED) return false;
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return false;
     const check = yield* safariPermissionCheck;

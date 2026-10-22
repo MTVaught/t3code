@@ -189,7 +189,7 @@ const installFromArchive = Effect.fn("cloud.pinned_runtime.install_archive")(fun
   const platformKey = cliArchivePlatformKey(input.platform, input.arch);
   if (platformKey === undefined) {
     return yield* new PinnedRuntimeInstallError({
-      step: `selecting a t3 release archive for ${input.platform}-${input.arch}`,
+      step: `selecting a release archive: this fork does not support ${input.platform}-${input.arch}; supported targets are darwin-arm64, linux-x64, and win32-x64`,
     });
   }
   const httpClient = input.httpClient;

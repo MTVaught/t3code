@@ -26,9 +26,9 @@ Add `--browser` to open a browser automatically.
 
 ### State and ports
 
-Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
-The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
-Never run a development server against the live `~/.t3/userdata`.
+Linked worktrees default to their own `.t3-treher/userdata`, even when `T3CODE_HOME` is set.
+The main checkout defaults to `~/.t3-treher/dev/userdata`. An explicit `--home-dir` wins in both
+cases. Never run a development server against the live `~/.t3-treher/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
@@ -150,31 +150,34 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
+The [release workflow](./release.md) builds macOS `arm64`, Linux `x64`, and Windows `x64` artifacts.
+Packaged desktop windows load the bundled UI from the `treher-t3code://app/` root URL.
+
 ### Linux AppImage prerequisites
 
-Build on Linux because the browser-secret helper links against the host's libsecret. Install
-Rust, C/C++ build tools, libsecret development headers, pkg-config, and ImageMagick.
+Install Rust, C/C++ build tools, and ImageMagick for Linux AppImage builds.
+Treher disables browser cookie import and does not build its keyring helper.
 
 Ubuntu and Debian:
 
 ```sh
 sudo apt-get update
-sudo apt-get install cargo rustc build-essential libsecret-1-dev pkg-config imagemagick
+sudo apt-get install cargo rustc build-essential imagemagick
 ```
 
 Fedora:
 
 ```sh
-sudo dnf install rust cargo gcc gcc-c++ make libsecret-devel pkgconf-pkg-config ImageMagick
+sudo dnf install rust cargo gcc gcc-c++ make ImageMagick
 ```
 
 Arch Linux:
 
 ```sh
-sudo pacman -S rust base-devel libsecret pkgconf imagemagick
+sudo pacman -S rust base-devel imagemagick
 ```
 
-The C toolchain, pkg-config, and libsecret headers are also needed for Linux desktop development.
+The C toolchain is also needed for Linux desktop development.
 
 ### macOS DMG prerequisites
 
@@ -201,8 +204,8 @@ NSIS is downloaded by electron-builder. WSL support additionally needs the Linux
 passed as `--wsl-runtime`; see the
 [release runbook](./release.md#windows-payload-topology-and-update-validation).
 
-### Signing and passkeys
+### Signing
 
 Add `--signed` after configuring the platform credentials in the
-[release runbook](./release.md). macOS passkeys need a signed, provisioned app; follow the
-[Connect setup](./connect-setup.md#desktop-passkeys) for local signing and renderer HMR.
+[release runbook](./release.md). macOS uses Developer ID signing and Apple notarization; no
+provisioning profile or Team ID is required.

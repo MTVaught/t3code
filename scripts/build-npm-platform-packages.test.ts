@@ -96,11 +96,7 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
         allowMissing: false,
       }).pipe(Effect.flip);
       assert.instanceOf(error, NpmPackagesArchivesMissingError);
-      assert.deepStrictEqual((error as NpmPackagesArchivesMissingError).missing, [
-        "linux-arm64",
-        "win32-arm64",
-        "win32-x64",
-      ]);
+      assert.deepStrictEqual((error as NpmPackagesArchivesMissingError).missing, ["win32-x64"]);
     }),
   );
 
@@ -254,8 +250,8 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       });
       assert.equal(unsupported.exitCode, 1);
       assert.include(unsupported.stderr, "linux-x64");
-      assert.include(unsupported.stderr, "win32-arm64");
-      assert.include(unsupported.stderr, "https://github.com/pingdotgg/t3code/releases");
+      assert.include(unsupported.stderr, "win32-x64");
+      assert.include(unsupported.stderr, "https://github.com/MTVaught/t3code/releases");
     }),
   );
 });

@@ -11,4 +11,4 @@ export const browserApiCorsAllowedHeaders = [
 ] as const;
 
 /** Origins of the Electron renderer, packaged and dev. */
-export const DESKTOP_RENDERER_ORIGINS = ["t3code://app", "t3code-dev://app"] as const;
+export const DESKTOP_RENDERER_ORIGINS = ["treher-t3code://app", "treher-t3code-dev://app"] as const;

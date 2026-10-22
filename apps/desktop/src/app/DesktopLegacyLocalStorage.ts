@@ -13,7 +13,7 @@ import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 /**
  * Carries the renderer's localStorage (prompt stash, unsent drafts, layout,
  * theme) over from the V1 desktop profile, which V2 replaced with its own
- * `t3code-v2` profile. The V1 profile is only read, never opened by Chromium,
+ * `t3code-treher-v2` profile. The V1 profile is only read, never opened by Chromium,
  * so this works while V1 is still running.
  *
  * `load` runs before the window opens; the preload takes the items once,
@@ -30,9 +30,9 @@ export class DesktopLegacyLocalStorage extends Context.Service<
   }
 >()("@t3tools/desktop/app/DesktopLegacyLocalStorage") {}
 
-const MARKER_FILE_NAME = "v1-local-storage-imported";
-// V1 used "T3 Code (Alpha)" when that folder existed and "t3code" otherwise.
-const V1_PROFILE_NAMES = ["T3 Code (Alpha)", "t3code"];
+// A separate marker retries imports skipped by the earlier upstream-profile lookup.
+const MARKER_FILE_NAME = "treher-v1-local-storage-imported";
+const V1_PROFILE_NAMES = ["t3code-treher"];
 
 const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -86,9 +86,8 @@ const make = Effect.gen(function* () {
     if (environment.isDevelopment) return;
     const marker = path.join(userDataPath, MARKER_FILE_NAME);
     if (yield* fs.exists(marker).pipe(Effect.orElseSucceed(() => true))) return;
-    yield* Ref.set(markerPath, Option.some(marker));
     const directory = yield* findV1LocalStorage;
-    if (directory === null) return yield* writeMarker;
+    if (directory === null) return;
     const origin = ElectronProtocol.getDesktopUrl(false).replace(/\/$/, "");
     const read = yield* readChromiumLocalStorage(directory, origin).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
@@ -103,6 +102,7 @@ const make = Effect.gen(function* () {
       directory,
       keys: read.value.size,
     });
+    yield* Ref.set(markerPath, Option.some(marker));
     yield* Ref.set(items, Option.some(Object.fromEntries(read.value)));
   });
 

@@ -99,9 +99,7 @@ when it resets, when Codex reports them. Send the message again after the reset.
 message also says whether your workspace owner needs to add credits or raise the
 spend limit to continue sooner.
 
-## Send feedback to OpenAI
+## Feedback uploads
 
-In an existing Codex thread, send `/feedback` with an optional description, for
-example `/feedback The agent stopped before finishing the tests`. This uploads
-the conversation and Codex logs to OpenAI. The returned thread ID can be shared
-with OpenAI support.
+Feedback uploads are disabled in Treher. `/feedback` keeps your draft and shows a local
+notice. It does not send the conversation or Codex logs to OpenAI.

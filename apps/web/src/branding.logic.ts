@@ -4,8 +4,14 @@ export function formatAppDisplayName(input: {
   readonly baseName: string;
   readonly stageLabel: string;
 }): string {
-  if (input.stageLabel.trim().toLowerCase() === "latest") {
+  const normalizedStageLabel = input.stageLabel.trim().toLowerCase();
+  if (normalizedStageLabel === "latest" || normalizedStageLabel === "alpha") {
     return input.baseName;
+  }
+
+  const qualifiedBaseName = /^(.*) \(([^()]*)\)$/u.exec(input.baseName);
+  if (qualifiedBaseName) {
+    return `${qualifiedBaseName[1]} (${qualifiedBaseName[2]} ${input.stageLabel})`;
   }
 
   return `${input.baseName} (${input.stageLabel})`;

@@ -760,3 +760,15 @@ export const MacAccessibilityIcon: Icon = (props) => {
     </svg>
   );
 };
+
+export const BobIcon: Icon = ({ className, ...props }) => (
+  <svg
+    {...props}
+    viewBox="0 0 24 24"
+    className={cn("fill-[#0F0F0F] dark:fill-[#F5F5F5]", className)}
+  >
+    <text x="12" y="18" textAnchor="middle" fontSize="18" fontWeight="700">
+      B
+    </text>
+  </svg>
+);

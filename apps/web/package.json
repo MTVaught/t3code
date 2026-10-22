@@ -1,6 +1,6 @@
 {
   "name": "@t3tools/web",
-  "version": "0.0.45",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "test": "vp test run --passWithNoTests --project unit"
   },
   "dependencies": {
+    "@asciidoctor/core": "^4.0.8",
     "@base-ui/react": "^1.4.1",
     "@clerk/electron": "catalog:",
     "@clerk/react": "catalog:",

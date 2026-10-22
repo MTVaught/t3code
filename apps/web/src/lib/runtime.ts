@@ -10,7 +10,7 @@ import * as PrimaryEnvironmentHttpLayer from "../environments/primary/httpLayer"
 
 import * as Dpop from "../cloud/dpop";
 import * as ManagedRelayLayer from "../cloud/managedRelayLayer";
-import { resolveCloudPublicConfig, resolveRelayTracingConfig } from "../cloud/publicConfig";
+import { resolveCloudPublicConfig } from "../cloud/publicConfig";
 import * as ClientTracer from "../observability/clientTracer";
 
 function configuredRelayUrl(): string {
@@ -18,7 +18,7 @@ function configuredRelayUrl(): string {
 }
 
 const layerHttpClient = layerRemoteHttpClient((input, init) => globalThis.fetch(input, init));
-const layerRelayTracing = RelayTracing.layer(resolveRelayTracingConfig(), {
+const layerRelayTracing = RelayTracing.layer(null, {
   serviceName: "t3code-web",
   serviceVersion: import.meta.env.APP_VERSION,
   runtime: "browser",

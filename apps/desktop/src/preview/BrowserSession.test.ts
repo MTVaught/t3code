@@ -56,6 +56,8 @@ describe("BrowserSession", () => {
     sessions.clear();
     fromPartition.mockReset();
     fromPartition.mockImplementation((partition: string) => {
+      const existing = sessions.get(partition);
+      if (existing) return existing;
       const browserSession = {
         clearCache: vi.fn(() => Promise.resolve()),
         clearStorageData: vi.fn(() => Promise.resolve()),
@@ -160,54 +162,79 @@ describe("BrowserSession", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("grants clipboard-sanitized-write through both the request and check handlers", () =>
-    Effect.gen(function* () {
-      const browserSessions = yield* BrowserSession.BrowserSession;
-      const partition = yield* browserSessions.getPartition("scope-a");
-      yield* browserSessions.getSession("scope-a");
+  it.effect.each(
+    ["shared", "environment-a", "environment-b"].flatMap((scope) =>
+      [true, false].flatMap((persistent) =>
+        [undefined, "profile" as const].map((namespace) => ({ scope, persistent, namespace })),
+      ),
+    ),
+  )(
+    "allows only sanitized clipboard writes in $scope, persistent=$persistent, namespace=$namespace",
+    ({ scope, persistent, namespace }) =>
+      Effect.gen(function* () {
+        const browserSessions = yield* BrowserSession.BrowserSession;
+        const partition = yield* browserSessions.getPartition(scope, persistent, namespace);
 
-      const browserSession = sessions.get(partition);
-      assert.isDefined(browserSession);
-
-      const requestHandler = browserSession.setPermissionRequestHandler.mock.calls[0]?.[0];
-      const checkHandler = browserSession.setPermissionCheckHandler.mock.calls[0]?.[0];
-      assert.isFunction(requestHandler);
-      assert.isFunction(checkHandler);
-
-      const requestAllows = (permission: string): boolean => {
-        let granted: boolean | undefined;
-        requestHandler(null, permission, (value: boolean) => {
-          granted = value;
-        });
-        assert.isDefined(granted);
-        return granted;
-      };
-
-      for (const permission of [
-        "clipboard-read",
-        "clipboard-sanitized-write",
-        "notifications",
-        "geolocation",
-        "fullscreen",
-      ]) {
-        assert.isTrue(requestAllows(permission), `request handler should allow ${permission}`);
-        assert.isTrue(
-          checkHandler(null, permission) as boolean,
-          `check handler should allow ${permission}`,
+        // Electron may already hold this partition, including after a service
+        // restart. Replace any old permission policy on that session too.
+        const preexisting = fromPartition(partition);
+        preexisting.setPermissionRequestHandler(
+          (_contents: unknown, _permission: string, callback: (granted: boolean) => void) =>
+            callback(true),
         );
-      }
+        preexisting.setPermissionCheckHandler(() => true);
+        const first = yield* browserSessions.getSession(scope, persistent, namespace);
+        const cached = yield* browserSessions.getSession(scope, persistent, namespace);
+        assert.strictEqual(first, preexisting);
+        assert.strictEqual(cached, first);
 
-      // `clipboard-write` is not a real Electron permission — the async write API
-      // uses `clipboard-sanitized-write` — so the stale name must not be granted,
-      // and unrelated permissions stay denied.
-      for (const permission of ["clipboard-write", "midi"]) {
-        assert.isFalse(requestAllows(permission), `request handler should deny ${permission}`);
-        assert.isFalse(
-          checkHandler(null, permission) as boolean,
-          `check handler should deny ${permission}`,
-        );
-      }
-    }).pipe(Effect.provide(layer)),
+        const browserSession = sessions.get(partition);
+        assert.isDefined(browserSession);
+        const requestHandler = browserSession.setPermissionRequestHandler.mock.lastCall?.[0];
+        const checkHandler = browserSession.setPermissionCheckHandler.mock.lastCall?.[0];
+        assert.isFunction(requestHandler);
+        assert.isFunction(checkHandler);
+
+        for (const requestingOrigin of [
+          "https://untrusted.example",
+          "http://localhost:3000",
+          "http://remote-server.example:3000",
+          "null",
+        ]) {
+          for (const isMainFrame of [true, false]) {
+            const details = { requestingUrl: requestingOrigin, isMainFrame };
+            for (const permission of [
+              "clipboard-sanitized-write",
+              "clipboard-read",
+              "geolocation",
+              "geolocation-approximate",
+              "deprecated-sync-clipboard-read",
+              "notifications",
+              "local-fonts",
+              "media",
+              "clipboard-write",
+              "midi",
+              "unknown-future-permission",
+            ]) {
+              const allowed = permission === "clipboard-sanitized-write";
+              const callback = vi.fn();
+              // Null also covers checks without a document, such as
+              // service workers and notification permission checks.
+              const webContents = { getURL: () => "https://opener.example" };
+              requestHandler(webContents, permission, callback, details);
+              assert.strictEqual(callback.mock.calls.length, 1);
+              assert.deepEqual(callback.mock.calls[0], [allowed], permission);
+              for (const contents of [webContents, null]) {
+                assert.strictEqual(
+                  checkHandler(contents, permission, requestingOrigin, details),
+                  allowed,
+                  permission,
+                );
+              }
+            }
+          }
+        }
+      }).pipe(Effect.provide(layer)),
   );
 
   it.effect("opens custom-scheme links externally only after the user confirms", () =>

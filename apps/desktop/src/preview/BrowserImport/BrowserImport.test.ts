@@ -75,7 +75,7 @@ const withImporter = Effect.fnUntraced(function* () {
 });
 
 describe("BrowserImport.importCookies", () => {
-  it.effect("rejects a source profile the browser never reported", () =>
+  it.effect("keeps imports disabled for an unknown source profile", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const { importer, home } = yield* withImporter();
@@ -98,12 +98,12 @@ describe("BrowserImport.importCookies", () => {
         .pipe(Effect.flip);
 
       assert.instanceOf(error, BrowserImport.BrowserImportFailedError);
-      assert.equal(error.reason, "unknownSourceProfile");
+      assert.equal(error.reason, "disabled");
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
   it.effect.skipIf(!symlinksSupported)(
-    "refuses to import while the source browser holds its profile",
+    "keeps imports disabled while the source browser is running",
     () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -124,7 +124,7 @@ describe("BrowserImport.importCookies", () => {
           })
           .pipe(Effect.flip);
 
-        assert.equal(error.reason, "browserRunning");
+        assert.equal(error.reason, "disabled");
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 });

@@ -11,22 +11,11 @@ describe("resolveClerkSignInProps", () => {
     });
   });
 
-  it("removes a Clerk virtual pathname and callback params while preserving the desktop route", () => {
-    expect(
-      resolveClerkSignInProps(
-        "t3code://app/CLERK-ROUTER/VIRTUAL/sign-up?__clerk_status=complete#/settings/connections",
-        true,
-      ),
-    ).toEqual({
-      forceRedirectUrl: "t3code://app/#/settings/connections",
-      signUpForceRedirectUrl: "t3code://app/#/settings/connections",
-    });
+  it("omits the redirect override on packaged desktop", () => {
+    expect(resolveClerkSignInProps("treher-t3code://app/#/settings/general", true)).toEqual({});
   });
 
-  it("preserves a clean development desktop route", () => {
-    expect(resolveClerkSignInProps("t3code-dev://app/#/settings/general", true)).toEqual({
-      forceRedirectUrl: "t3code-dev://app/#/settings/general",
-      signUpForceRedirectUrl: "t3code-dev://app/#/settings/general",
-    });
+  it("omits the redirect override on development desktop", () => {
+    expect(resolveClerkSignInProps("treher-t3code-dev://app/#/settings/general", true)).toEqual({});
   });
 });

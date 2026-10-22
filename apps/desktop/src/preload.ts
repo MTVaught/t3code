@@ -30,7 +30,7 @@ function isSnapShotEvent(value: unknown): value is DesktopSnapShotEvent {
   );
 }
 
-exposeClerkBridge({ passkeys: true });
+exposeClerkBridge();
 
 // Runs before any app script reads localStorage. See DesktopLegacyLocalStorage.
 try {

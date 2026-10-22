@@ -6,12 +6,12 @@ import { DEFAULT_HOSTED_APP_URL } from "./connectAuth.ts";
  * cannot pick a runtime mode, branch, or worktree. Those stay the user's own defaults.
  *
  * Shared links are https on the hosted app, because that is what Twitter and GitHub make
- * clickable. The `t3code://` scheme carries the same paths into desktop and mobile:
+ * clickable. The `treher-t3code://` scheme carries the same paths into desktop and mobile:
  *
  *   https://app.t3.codes/new?prompt=…&repo=owner/name&provider=codex&model=gpt-5
  *   https://app.t3.codes/new?pr=owner/name/123&prompt=…
  *   https://app.t3.codes/<environmentId>/<threadId>?prompt=…
- *   t3code://new?…   t3code://threads/<environmentId>/<threadId>?…
+ *   treher-t3code://new?…   treher-t3code://threads/<environmentId>/<threadId>?…
  */
 
 /** URLs stay well under the limits browsers and link shorteners apply. */
@@ -212,12 +212,12 @@ export function buildNewThreadLink(input: {
   return url.toString();
 }
 
-const APP_SCHEME = /^t3code(?:-[a-z]+)?:$/;
+const APP_SCHEME = /^(?:treher-)?t3code(?:-[a-z]+)?:$/;
 const THREAD_PATH = /^\/([^/]+)\/([^/]+)\/?$/;
 
 /**
  * The in-app path a prompt link or thread deep link opens, or null for any other URL.
- * Desktop uses it for links the OS hands over, both `t3code://` ones and, as the default
+ * Desktop uses it for links the OS hands over, both `treher-t3code://` ones and, as the default
  * browser on macOS, hosted-app ones.
  */
 export function promptLinkAppPath(
@@ -241,8 +241,8 @@ export function promptLinkAppPath(
   return thread ? `/${thread[1]}/${thread[2]}${url.search}` : null;
 }
 
-/** The `t3code://` link that hands an in-app path to an installed desktop or mobile app. */
-export function promptLinkDeepLink(appPath: string, scheme = "t3code"): string {
+/** The `treher-t3code://` link that hands an in-app path to an installed desktop or mobile app. */
+export function promptLinkDeepLink(appPath: string, scheme = "treher-t3code"): string {
   const url = new URL(appPath, "https://app.invalid");
   const host = url.pathname === "/new" ? "new" : `threads${url.pathname}`;
   return `${scheme}://${host}${url.search}`;

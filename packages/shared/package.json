@@ -287,10 +287,6 @@
       "types": "./src/relayClient.ts",
       "import": "./src/relayClient.ts"
     },
-    "./relayTracing": {
-      "types": "./src/relayTracing.ts",
-      "import": "./src/relayTracing.ts"
-    },
     "./preview": {
       "types": "./src/preview.ts",
       "import": "./src/preview.ts"
@@ -346,6 +342,10 @@
     "./devHome": {
       "types": "./src/devHome.ts",
       "import": "./src/devHome.ts"
+    },
+    "./statePaths": {
+      "types": "./src/statePaths.ts",
+      "import": "./src/statePaths.ts"
     },
     "./devProxy": {
       "types": "./src/devProxy.ts",
@@ -490,6 +490,14 @@
     "./PtyAdapter": {
       "types": "./src/PtyAdapter.ts",
       "import": "./src/PtyAdapter.ts"
+    },
+    "./relayTracing": {
+      "types": "./src/relayTracing.ts",
+      "import": "./src/relayTracing.ts"
+    },
+    "./feedbackPolicy": {
+      "types": "./src/feedbackPolicy.ts",
+      "import": "./src/feedbackPolicy.ts"
     }
   },
   "scripts": {

@@ -209,6 +209,17 @@ export function makeManualOnlyProviderMaintenanceCapabilities(input: {
   });
 }
 
+export function canResolveLatestProviderVersion(
+  capabilities: ProviderMaintenanceCapabilities,
+): capabilities is ProviderMaintenanceCapabilities & {
+  readonly packageName: string;
+  readonly update: ProviderMaintenanceCommandAction;
+} {
+  // Manual-only providers can report an installed version, but without an
+  // update command there is no actionable latest-version prompt to show.
+  return capabilities.update !== null && capabilities.packageName !== null;
+}
+
 export function normalizeCommandPath(commandPath: string): string {
   return commandPath.replaceAll("\\", "/").toLowerCase();
 }
@@ -789,7 +800,8 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
     options?.enableProviderUpdateChecks !== false &&
     snapshot.enabled &&
     snapshot.installed &&
-    Boolean(snapshot.version);
+    Boolean(snapshot.version) &&
+    canResolveLatestProviderVersion(capabilities);
   if (!shouldResolveLatestVersion) {
     return {
       ...snapshot,

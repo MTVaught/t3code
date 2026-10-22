@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { type CommandId, ProjectId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
+  BobSettingsConfig,
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
@@ -21,6 +22,32 @@ const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+const decodeBobSettings = Schema.decodeUnknownSync(BobSettingsConfig);
+
+describe("Bob 2 settings", () => {
+  it("constructs the ACP-native default", () => {
+    expect(decodeBobSettings({})).toEqual({
+      enabled: true,
+      binaryPath: "bob",
+    });
+  });
+
+  it("drops obsolete one-shot fields while preserving launch configuration", () => {
+    expect(
+      decodeBobSettings({
+        schemaVersion: 2,
+        enabled: true,
+        binaryPath: "bob2",
+        apiKey: "key",
+        teamId: "team",
+        taskCostThresholdBobcoins: 0.5,
+        maxTurns: 4,
+        toolAccessCeiling: "full",
+      }),
+    ).toEqual({ enabled: true, binaryPath: "bob2" });
+  });
+});
+
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
 describe("ServerSettings response streaming", () => {
@@ -781,6 +808,13 @@ describe("ClientSettings pull request merge methods", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
+  it("defaults text generation to Bob", () => {
+    expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("bob"),
+      model: "default",
+    });
+  });
+
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });

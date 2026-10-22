@@ -63,6 +63,31 @@ const extractingRunner = (fs: FileSystem.FileSystem, path: Path.Path, commands: 
   });
 
 it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
+  it.effect("reports unsupported fork targets without requesting release assets", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "treher-unsupported-runtime-" });
+      const requests: string[] = [];
+      const commands: string[] = [];
+      const error = yield* ensurePinnedRuntimeInstalled({
+        baseDir,
+        version,
+        fs,
+        path,
+        platform: "linux",
+        arch: "arm64",
+        httpClient: releaseHttpClient("", requests),
+        runner: extractingRunner(fs, path, commands),
+        validate: () => Effect.die("Unsupported targets must fail before validation."),
+      }).pipe(Effect.flip);
+      assert.instanceOf(error, PinnedRuntimeInstallError);
+      assert.include(error.message, "this fork does not support linux-arm64");
+      assert.deepEqual(requests, []);
+      assert.deepEqual(commands, []);
+    }),
+  );
+
   it.effect("installs the verified release archive as the runtime executable", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

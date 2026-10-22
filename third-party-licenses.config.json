@@ -637,6 +637,15 @@
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2019-present Fabio Spampinato, Andrew Maney"]
       }
+    },
+    {
+      "name": "@asciidoctor/core",
+      "generatedNotice": {
+        "licenseId": "MIT",
+        "copyrights": [
+          "Copyright (C) 2013-present Guillaume Grossetie, Anthonny Qu\u00e9rouil and the Asciidoctor Project"
+        ]
+      }
     }
   ]
 }

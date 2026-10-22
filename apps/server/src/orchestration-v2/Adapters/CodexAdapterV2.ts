@@ -1,3 +1,4 @@
+import { FEEDBACK_UPLOADS_DISABLED_MESSAGE } from "@t3tools/shared/feedbackPolicy";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -7237,29 +7238,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
               ),
             ),
-          uploadFeedback: (feedbackInput) =>
-            Effect.gen(function* () {
-              const threadId = yield* getNativeThreadId(feedbackInput.providerThread);
-              const response = yield* ensureInitialized.pipe(
-                Effect.andThen(
-                  client.request("feedback/upload", {
-                    classification: "bug",
-                    includeLogs: true,
-                    ...(feedbackInput.reason ? { reason: feedbackInput.reason } : {}),
-                    threadId,
-                  }),
-                ),
-              );
-              return { feedbackId: response.threadId };
-            }).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapter.ProviderAdapterProtocolError({
-                    driver: CODEX_PROVIDER,
-                    detail: "Failed to upload Codex thread feedback.",
-                    payload: cause,
-                  }),
-              ),
+          uploadFeedback: () =>
+            Effect.fail(
+              new ProviderAdapter.ProviderAdapterProtocolError({
+                driver: CODEX_PROVIDER,
+                detail: FEEDBACK_UPLOADS_DISABLED_MESSAGE,
+              }),
             ),
           mcpApps,
           readThreadSnapshot: (threadInput) =>

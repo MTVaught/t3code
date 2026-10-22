@@ -525,6 +525,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["ask before thread pinned section"],
   },
   {
+    id: "terminal-shell",
+    title: "Terminal shell",
+    to: "/settings/general",
+  },
+  {
     id: "archive-confirmation",
     title: "Archive confirmation",
     to: "/settings/general",

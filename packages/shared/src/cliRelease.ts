@@ -5,7 +5,7 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+const CLI_RELEASE_REPOSITORY = "MTVaught/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -19,13 +19,8 @@ export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
  */
 // No darwin-x64: Node single-executables are unsupported on x64 macOS (the
 // SEA docs list macOS as arm64 only) and the binary segfaults on start.
-export const CLI_ARCHIVE_PLATFORM_KEYS = [
-  "darwin-arm64",
-  "linux-arm64",
-  "linux-x64",
-  "win32-arm64",
-  "win32-x64",
-] as const;
+// The fork builds three targets; see .github/workflows/release.yml.
+export const CLI_ARCHIVE_PLATFORM_KEYS = ["darwin-arm64", "linux-x64", "win32-x64"] as const;
 export type CliArchivePlatformKey = (typeof CLI_ARCHIVE_PLATFORM_KEYS)[number];
 
 export function cliArchivePlatformKey(
@@ -86,10 +81,15 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
   "preview",
 ];
 
-/** The release train a version was published on, derived from its prerelease tag. */
+/** Default update train for an installed version. Candidates follow stable to reach a final. */
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
   const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
   return channel === "nightly" || channel === "preview" ? channel : "stable";
+}
+
+/** Stable accepts plain versions and final fork tags, never release candidates. */
+export function isStableReleaseVersion(version: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-treher\.[1-9]\d*\.1)?$/.test(version);
 }
 
 /**
@@ -118,6 +118,7 @@ export function newestCliReleaseVersion(
     if (release.draft) continue;
     const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
     if (version === undefined) continue;
+    if (channel === "stable" && !isStableReleaseVersion(version)) continue;
     if (cliReleaseChannelOf(version) === channel) return version;
   }
   return undefined;

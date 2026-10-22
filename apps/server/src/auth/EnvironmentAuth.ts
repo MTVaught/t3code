@@ -694,19 +694,11 @@ type RequestCredentialSource = NonNullable<ReturnType<typeof selectRequestCreden
 export const isBrowserCookieCredential = (source: RequestCredentialSource | "dev-cookie") =>
   source === "cookie" || source === "legacy-cookie" || source === "dev-cookie";
 
-function firstHeaderValue(value: string | undefined): string | undefined {
-  const first = value?.split(",")[0]?.trim().toLowerCase();
-  return first && first.length > 0 ? first : undefined;
-}
-
 /**
- * Whether a cookie-carrying request comes from a page allowed to use it.
- * Browsers send `Origin` on WebSocket upgrades, cross-origin requests, and
- * non-GET requests, so an absent header means a same-origin read or a
- * non-browser client. Otherwise the request must be same-origin by the
- * browser's own `Sec-Fetch-Site` (which survives the dev proxy rewriting
- * `Host`), come from this server's own host (directly or behind a proxy that
- * reports `X-Forwarded-Host`), or come from one of the trusted app origins.
+ * Cookie auth needs the app origin, including its port. Sec-Fetch-Site is set
+ * by browsers and preserves same-origin access behind a Host-rewriting proxy.
+ * Forwarded headers are not authority here: this server has no trusted-proxy
+ * configuration. A proxy must preserve Host or the browser's fetch metadata.
  */
 function isBrowserOriginAllowed(
   request: HttpServerRequest.HttpServerRequest,
@@ -714,19 +706,17 @@ function isBrowserOriginAllowed(
 ): boolean {
   const origin = request.headers.origin;
   if (origin === undefined) return true;
-  if (request.headers["sec-fetch-site"] === "same-origin") return true;
   if (trustedOrigins.has(origin)) return true;
-  let originHost: string;
+  let parsed: URL;
   try {
-    originHost = new URL(origin).host.toLowerCase();
+    parsed = new URL(origin);
   } catch {
     return false;
   }
-  if (originHost === "") return false;
-  return (
-    originHost === firstHeaderValue(request.headers.host) ||
-    originHost === firstHeaderValue(request.headers["x-forwarded-host"])
-  );
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.origin !== origin)
+    return false;
+  if (request.headers["sec-fetch-site"] === "same-origin") return true;
+  return parsed.host.toLowerCase() === request.headers.host?.trim().toLowerCase();
 }
 
 /** @public Service construction is part of the canonical Effect module API. */

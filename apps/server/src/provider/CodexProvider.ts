@@ -768,11 +768,6 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         description: "Set a goal Codex keeps working toward until it is done",
         input: { hint: "Objective, or pause, resume, clear" },
       },
-      {
-        name: "feedback",
-        description: "Send this thread and Codex logs to OpenAI",
-        input: { hint: "Describe the issue (optional)" },
-      },
     ],
     probe: {
       installed: true,

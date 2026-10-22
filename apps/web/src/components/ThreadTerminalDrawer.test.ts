@@ -8,7 +8,6 @@ import {
 } from "@t3tools/client-runtime/state/terminal";
 
 import {
-  shouldClearTerminalSelectionAction,
   shouldHandleTerminalExit,
   terminalContextMenuItems,
   synchronizeTerminalOutput,
@@ -116,41 +115,7 @@ describe("terminalThemeFromApp", () => {
   });
 });
 
-describe("terminal selection actions", () => {
-  it("clears a pending or currently owned menu when the selection disappears", () => {
-    expect(
-      shouldClearTerminalSelectionAction({
-        actionPending: true,
-        openMenuRequestId: null,
-        currentRequestId: 4,
-      }),
-    ).toBe(true);
-    expect(
-      shouldClearTerminalSelectionAction({
-        actionPending: false,
-        openMenuRequestId: 4,
-        currentRequestId: 4,
-      }),
-    ).toBe(true);
-  });
-
-  it("does not let an old selection popup cancel its replacement right-click menu", () => {
-    expect(
-      shouldClearTerminalSelectionAction({
-        actionPending: false,
-        openMenuRequestId: 3,
-        currentRequestId: 4,
-      }),
-    ).toBe(false);
-    expect(
-      shouldClearTerminalSelectionAction({
-        actionPending: false,
-        openMenuRequestId: null,
-        currentRequestId: 4,
-      }),
-    ).toBe(false);
-  });
-
+describe("terminalSelectionLineRange", () => {
   it("uses Ghostty's physical screen range for visually wrapped selections", () => {
     expect(
       terminalSelectionLineRange({

@@ -163,7 +163,7 @@ export function npmPlatformPackageReadme(platformKey: CliArchivePlatformKey): st
     `npx ${NPM_LAUNCHER_PACKAGE_NAME}@latest`,
     "```",
     "",
-    "Source and documentation: https://github.com/pingdotgg/t3code",
+    "Source and documentation: https://github.com/MTVaught/t3code",
     "",
   ].join("\n");
 }
@@ -210,7 +210,7 @@ try {
       "t3: no T3 Code CLI build is available for this platform (" + key + ").",
       "Supported platforms: " + SUPPORTED.join(", ") + ".",
       "If yours is listed, reinstall t3 so npm fetches its optional dependency.",
-      "The desktop app and release archives are at https://github.com/pingdotgg/t3code/releases",
+      "The desktop app and release archives are at https://github.com/MTVaught/t3code/releases",
       "",
     ].join("\\n"),
   );

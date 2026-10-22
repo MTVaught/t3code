@@ -8934,8 +8934,8 @@ export default function ChatView(props: ChatViewProps) {
         toastManager.add(
           stackedThreadToast({
             type: "warning",
-            title: "Start a Codex thread first",
-            description: "Send a message before you submit feedback.",
+            title: "Feedback uploads are disabled",
+            description: "Your draft has been kept.",
           }),
         );
         return;

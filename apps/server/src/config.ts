@@ -6,6 +6,7 @@
  *
  * @module ServerConfig
  */
+import { PRODUCTION_STATE_DIRECTORY_NAME } from "@t3tools/shared/statePaths";
 import * as Context from "effect/Context";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -147,7 +148,7 @@ export const deriveServerPaths = Effect.fn(function* (
   const { join } = yield* Path.Path;
   const stateDir = join(
     baseDir,
-    devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
+    devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : PRODUCTION_STATE_DIRECTORY_NAME,
   );
   const dbPath = join(stateDir, "statev2.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
@@ -191,7 +192,6 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),
       fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),
-      fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.serverRuntimeStatePath), { recursive: true }),
     ],
     { concurrency: "unbounded" },

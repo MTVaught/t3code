@@ -17,11 +17,12 @@ import {
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
-import { resolveServerConfig } from "./config.ts";
+import { resolveCliAuthConfig, resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
   deriveServerPaths(baseDir, devUrl, { baseDirIsExplicit: true });
@@ -59,6 +60,50 @@ const makeDesktopBootstrap = (
 });
 
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
+  it.effect("shares the fork home across server and management commands and keeps overrides", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "treher-cli-home-" });
+      const forkHome = path.join(home, ".t3-treher");
+      const flags = {
+        ...minimalDesktopFlags(forkHome),
+        mode: Option.some("web" as const),
+        baseDir: Option.none<string>(),
+        cwd: Option.some(home),
+      };
+      const resolve = (baseDir: Option.Option<string>, env: Record<string, string>) =>
+        resolveServerConfig({ ...flags, baseDir }, Option.none()).pipe(
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env }))),
+          Effect.provideService(HostProcess.HomeDirectory, home),
+          Effect.provide(NetService.layer),
+        );
+      const server = yield* resolve(Option.none(), {});
+      const management = yield* resolveCliAuthConfig(
+        { baseDir: Option.none() },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(ConfigProvider.fromEnv({ env: { T3CODE_PORT: "4888" } })),
+        ),
+        Effect.provideService(HostProcess.HomeDirectory, home),
+        Effect.provide(NetService.layer),
+      );
+      for (const resolved of [server, management]) {
+        expect(resolved.baseDir).toBe(forkHome);
+        expect(resolved.dbPath).toBe(path.join(forkHome, "userdata", "statev2.sqlite"));
+        expect(resolved.settingsPath).toBe(path.join(forkHome, "userdata", "settings.json"));
+      }
+      expect(yield* fs.exists(path.join(home, ".t3"))).toBe(false);
+      const envHome = path.join(home, "env-home");
+      const flagHome = path.join(home, "flag-home");
+      expect((yield* resolve(Option.none(), { T3CODE_HOME: envHome })).baseDir).toBe(envHome);
+      expect((yield* resolve(Option.some(flagHome), { T3CODE_HOME: envHome })).baseDir).toBe(
+        flagHome,
+      );
+    }).pipe(Effect.scoped),
+  );
+
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
     traceTimingEnabled: true,
