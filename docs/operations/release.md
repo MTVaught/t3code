@@ -52,6 +52,10 @@ version string for a fork binary; the runtime cache is keyed by version.
 
 ## macOS signing
 
+Use **Actions → macOS build → Run workflow** with a preview version to check
+signing and notarization. This workflow uploads build artifacts without publishing
+a GitHub release or changing the desktop update feed.
+
 Configure these repository Actions secrets through GitHub's secret controls:
 
 - `CSC_LINK`: base64-encoded Developer ID Application certificate and private key

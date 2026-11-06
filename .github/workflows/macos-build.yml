@@ -1,5 +1,11 @@
 name: macOS build
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Preview build version, for example 0.1.7-preview.20261106.1
+        required: true
+        type: string
   workflow_call:
     inputs:
       version:
@@ -82,6 +88,13 @@ jobs:
           else
             echo 'The macOS build is unsigned and is not notarized.' > release/macos/macos-signing.txt
           fi
+      - name: Verify desktop signature and notarization
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          app=$(find release/macos -maxdepth 3 -name '*.app' -type d -print -quit)
+          test -n "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=4 "$app"
       - name: Verify extracted CLI
         run: |
           archive=$(find release/macos -name 't3-*.tar.gz' -print -quit)
