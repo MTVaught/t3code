@@ -64,6 +64,7 @@ jobs:
             !/.repos/
           sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
       - run: vp run --filter @t3tools/desktop ensure:electron
       - run: vp run --parallel --filter '@t3tools/desktop...' --filter 't3...' --filter '@t3tools/scripts' --filter '@t3tools/oxlint-plugin-t3code' --filter '!@t3tools/web' --filter '!t3' test
   web:
