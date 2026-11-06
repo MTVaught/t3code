@@ -20,6 +20,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
+import { stageLinuxNativePrebuilds } from "./lib/linux-native-prebuilds.ts";
 import {
   createStagePatchedDependencies,
   createStageWorkspaceConfig,
@@ -44,6 +45,9 @@ const WorkspaceConfig = Schema.Struct({
   allowBuilds: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
 });
 const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
+const decodeRuntimePackageVersion = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
+);
 const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const StageWorkspaceConfig = Schema.Struct({
   supportedArchitectures: Schema.Struct({
@@ -151,6 +155,14 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     ...selectCliRuntimeExternalDependencies(serverDependencies),
     ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
   };
+  if (input.platform === "linux" && process.env.T3CODE_LINUX_NATIVE_PREBUILDS) {
+    const terminal = yield* decodeRuntimePackageVersion(
+      yield* fs.readFileString(
+        path.join(input.repoRoot, "apps/server/node_modules/node-pty/package.json"),
+      ),
+    );
+    dependencies["node-pty"] = terminal.version;
+  }
   const patchedDependencies = createStagePatchedDependencies(
     workspace.patchedDependencies ?? {},
     dependencies,
@@ -193,6 +205,15 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     }),
     "vp install --prod (cli archive runtime externals)",
   );
+
+  const linuxNativePrebuilds = process.env.T3CODE_LINUX_NATIVE_PREBUILDS;
+  if (input.platform === "linux" && linuxNativePrebuilds) {
+    yield* stageLinuxNativePrebuilds({
+      stageAppDir: input.stageDir,
+      arch: input.arch,
+      prebuildDirectory: linuxNativePrebuilds,
+    });
+  }
 
   const platformKey = cliArchivePlatformKey(input.platform, input.arch);
   const prebuildsDir = path.join(input.stageDir, "node_modules/node-pty/prebuilds");
@@ -259,6 +280,20 @@ const bundleLinuxLibatomic = Effect.fn("bundleLinuxLibatomic")(function* (input:
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const prebuildDirectory = process.env.T3CODE_LINUX_NATIVE_PREBUILDS;
+  if (prebuildDirectory) {
+    yield* fs.makeDirectory(path.join(input.contentDir, "lib"));
+    for (const name of ["libatomic.so.1", "libatomic.so.1.LICENSE"]) {
+      const source = path.join(prebuildDirectory, name);
+      yield* requireInput(source, "Run scripts/fork/build-linux-native.sh first.");
+      yield* fs.copyFile(source, path.join(input.contentDir, "lib", name));
+    }
+    yield* runCommand(
+      ChildProcess.make("patchelf", ["--set-rpath", "$ORIGIN/lib", input.executablePath]),
+      "patchelf --set-rpath",
+    );
+    return;
+  }
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const ldd = yield* spawner.string(ChildProcess.make("ldd", [input.executablePath]));
   const source = /libatomic\.so\.1 => (\/\S+)/.exec(ldd)?.[1];

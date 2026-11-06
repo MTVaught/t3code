@@ -13,6 +13,13 @@
         ".coderabbit.config.ts",
         ".github/scripts/thread-transfer-report.cjs",
       ],
+      // Retained workflows still own source tools even though this fork does not run them.
+      "github-actions": {
+        "config": [
+          ".github/{workflows,disabled-workflows}/*.{yml,yaml}",
+          ".github/**/action.{yml,yaml}",
+        ],
+      },
       "vite": { "entry": [".github/**/*.test.cjs"] },
       "vitest": { "entry": [".github/**/*.test.cjs"] },
     },
@@ -28,6 +35,7 @@
         // These fixture scripts are injected into a browser page by path.
         "fixtures/*/*.js",
         "knip-schemas.ts",
+        "fork/verify-native.cjs",
         "linux-after-pack.ts",
         "mobile-behavior/run.ts",
         "mobile-native-client.ts",

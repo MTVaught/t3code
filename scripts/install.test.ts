@@ -60,10 +60,46 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer home
   });
 });
 
+describe("installer platform limits", () => {
+  it.each([
+    ["Linux", "aarch64"],
+    ["Darwin", "x86_64"],
+  ])("rejects %s %s before downloading an archive", async (platform, arch) => {
+    const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-unsupported-install-"));
+    try {
+      const uname = NodePath.join(root, "uname");
+      await NodeFSP.writeFile(
+        uname,
+        `#!/bin/sh\ncase "$1" in -s) echo ${platform} ;; -m) echo ${arch} ;; esac\n`,
+        { mode: 0o755 },
+      );
+      const result = NodeChildProcess.spawnSync(
+        "sh",
+        [NodePath.resolve(import.meta.dirname, "install.sh")],
+        {
+          env: {
+            ...process.env,
+            PATH: `${root}:${process.env.PATH}`,
+            T3CODE_HOME: NodePath.join(root, "home"),
+            T3CODE_RELEASE_BASE_URL: "http://127.0.0.1:1",
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("this fork publishes only macOS ARM64 and Linux x64");
+      expect(result.stderr).not.toContain("GET ");
+    } finally {
+      await NodeFSP.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 // regression: #22490
 describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer channel lookup", () => {
   it.each([
     ["stable", "1.2.3"],
+    ["stable", "1.2.3-treher.1"],
     ["preview", "1.2.4-preview.20261019.50"],
   ])("finds the newest %s release behind a full page of nightlies", async (channel, version) => {
     const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-install-index-"));
@@ -71,10 +107,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() !== "linux")("installer chan
     const server = NodeHttp.createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://fixture");
       const body =
-        url.pathname === "/pingdotgg/t3code/releases/latest" &&
+        url.pathname === "/MTVaught/t3code/releases/latest" &&
         request.headers.accept === "application/json"
-          ? { tag_name: "v1.2.3" }
-          : url.pathname === "/repos/pingdotgg/t3code/releases"
+          ? { tag_name: `v${version}` }
+          : url.pathname === "/repos/MTVaught/t3code/releases"
             ? { "1": nightlies, "2": [{ tag_name: `v${version}` }, { tag_name: "v1.2.3" }] }[
                 url.searchParams.get("page") ?? ""
               ]

@@ -309,12 +309,15 @@ function launcherFixture() {
     write(file, NodeFS.readFileSync(NodePath.join(import.meta.dirname, "..", file), "utf8"));
   }
   write(".gitignore", "node_modules/\nrecords/\n");
-  write("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+  write("pnpm-workspace.yaml", "packages:\n  - packages/*\n  - apps/*\n  - infra/*\n  - evals\n");
   write(
     "package.json",
     JSON.stringify({ type: "module", scripts: { "knip:check": "knip --include files" } }),
   );
   write("packages/example/package.json", JSON.stringify({ name: "example" }));
+  for (const dir of ["apps/mobile", "apps/marketing", "infra/relay", "evals"]) {
+    write(`${dir}/package.json`, JSON.stringify({ name: dir }));
+  }
   const source = "packages/example/space & (draft) %PATH% ! 研究.ts";
   write(source, "export const value = 1;\n");
   write(
@@ -405,6 +408,18 @@ it("checks changed source paths through the Windows launcher", () => {
   expect(calls.some(({ args }) => args[0] === "install")).toBe(false);
   expect(result.stdout).toContain("fixture stdout: lint");
   expect(result.stdout).toContain("fixture stderr: lint");
+});
+
+it("limits global-change typechecks to the fork's maintained packages", () => {
+  using project = launcherFixture();
+  project.write(".github/workflows/ci.yml", "name: CI\n");
+  const result = project.run();
+  expect(result.status, result.stdout + result.stderr).toBe(0);
+  const typecheck = project.calls().find(({ args }) => args.includes("typecheck"));
+  expect(typecheck?.args).toContain("example");
+  for (const name of ["apps/mobile", "apps/marketing", "infra/relay", "evals"]) {
+    expect(typecheck?.args).not.toContain(name);
+  }
 });
 
 it("lints an Astro component and runs knip when only it changed", () => {

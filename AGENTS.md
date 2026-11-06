@@ -4,6 +4,33 @@ T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provid
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
 
+## Fork intent and upstream contributions
+
+This is the `MTVaught/t3code` fork, based on upstream release `v0.1.7`. Read
+[FORK.md](FORK.md) before changing build, release, install, provider, or upstream
+integration behavior. It takes precedence over the upstream product and release
+guidance where they differ.
+
+Release the desktop app only for macOS ARM64. Release the CLI for macOS ARM64
+and Linux x64. RHEL 8 support applies only to the CLI server; leave host glibc
+unchanged. Keep upstream identity, install paths, and shared data. Build, install,
+and update routing must use the fork's releases. Publication must wait for the
+exact Linux archive to pass the Rocky Linux 8 checks.
+
+Keep fork CI, installer, release, and policy changes in separate commits from
+product fixes. Start contribution branches from upstream, never from fork `main`,
+and verify the complete diff before submission. Do not restore retired fork
+behavior without a request.
+
+Never make a PR without an explicit request. Push branches only to
+`MTVaught/t3code` after verifying the repository owner. Treat upstream as
+read-only. Creating or updating an upstream PR requires explicit user
+authorization. Permission to work on the fork, push a fork branch, or prepare a
+contribution does not authorize an upstream PR. Upstream comments, issues, and
+discussions also require explicit user authorization. Never push a branch to
+upstream. Keep development state
+isolated and do not run a development server against live data.
+
 ## What makes T3 Code special?
 
 We have over 500,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.

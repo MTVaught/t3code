@@ -1,0 +1,76 @@
+name: Linux build
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  T3CODE_TELEMETRY_ENABLED: "false"
+  DO_NOT_TRACK: "1"
+  VP_REMOTE_CACHE: "off"
+  T3CODE_LINUX_NATIVE_PREBUILDS: ${{ github.workspace }}/release/fork-native
+jobs:
+  linux:
+    name: Build and verify Linux x64 CLI on RHEL 8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Install packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y patchelf
+      - run: mkdir -p release/fork-native release/verification
+      - name: Cache RHEL 8 native binaries
+        id: native
+        uses: actions/cache@v6
+        with:
+          path: release/fork-native
+          key: rhel8-native-v1-${{ hashFiles('scripts/fork/**', 'scripts/lib/linux-native-prebuilds.ts', 'native/resource-monitor/**', 'pnpm-lock.yaml', 'package.json', 'apps/server/package.json') }}
+      - name: Build clean RHEL 8 runtime environment
+        run: |
+          node_version=$(node -p 'require("./package.json").engines.node')
+          docker build --target runtime --build-arg NODE_VERSION="$node_version" -t t3-fork-rhel8-runtime -f scripts/fork/Dockerfile scripts/fork
+      - name: Build RHEL 8 native binaries
+        if: steps.native.outputs.cache-hit != 'true'
+        run: |
+          node_version=$(node -p 'require("./package.json").engines.node')
+          docker build --target builder --build-arg NODE_VERSION="$node_version" -t t3-fork-rhel8-builder -f scripts/fork/Dockerfile scripts/fork
+          docker run --rm -v "$PWD:/workspace" -w /workspace t3-fork-rhel8-builder bash scripts/fork/build-linux-native.sh
+      - name: Set release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+      - run: vp run --filter t3 build
+      - name: Package CLI
+        env:
+          T3CODE_LINUX_NATIVE_PREBUILDS: ${{ github.workspace }}/release/fork-native
+        run: |
+          node apps/server/scripts/cli.ts build-exe --target linux-x64
+          mkdir -p release/cli-monitor
+          cp release/fork-native/t3-resource-monitor release/cli-monitor/
+          node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$(node -p 'require("./apps/server/package.json").version')" --output-dir release/linux --resource-monitor-dir release/cli-monitor
+      - name: Verify exact packaged artifacts in clean RHEL 8 userspace
+        run: docker run --rm -v "$PWD:/workspace:ro" -v "$PWD/release/linux:/artifacts:ro" -v "$PWD/release/verification:/logs" t3-fork-rhel8-runtime python3.11 /workspace/scripts/fork/verify-linux.py /artifacts /logs
+      - name: Upload verified Linux artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ inputs.version }}
+          path: |
+            release/linux/t3-*.tar.gz
+          if-no-files-found: error
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rhel8-logs-${{ inputs.version }}
+          path: release/verification
+          if-no-files-found: ignore

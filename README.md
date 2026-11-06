@@ -1,3 +1,9 @@
+> [!NOTE]
+> This is the `MTVaught/t3code` fork, based on upstream release `v0.1.7`.
+> It ships the macOS ARM64 desktop app and macOS ARM64 / Linux x64 CLI archives.
+> The Linux CLI supports RHEL 8 without replacing system glibc. See
+> [FORK.md](FORK.md) for scope and contribution rules.
+
 # T3 Code
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
@@ -12,88 +18,24 @@ We wanted something performant, remote-ready, and truly open. If we ever go the 
 
 ## Installation
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, Antigravity, and fx. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
-> - fx: install [fx](https://fx.sh) and run `fx login` on the machine running the T3 Code server ([setup guide](./docs/user/providers-fx.md))
+After a fork release is published, install the CLI on macOS ARM64 or Linux x64:
 
-### Command line
-
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
+```sh
+curl -fsSL https://raw.githubusercontent.com/MTVaught/t3code/main/scripts/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+Run `t3` to start the server, or `t3 service install` to keep it running in the
+background. Run `t3 update` to install a newer fork release. Existing upstream
+state in `~/.t3` is reused.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+Download the macOS ARM64 desktop app from
+[the fork's GitHub Releases](https://github.com/MTVaught/t3code/releases).
+Linux desktop apps, Intel Macs, Windows, and Linux ARM64 releases are not provided.
+The fork is not published to npm, Homebrew, or other package managers.
 
-Then run `t3` to start the server and open the local web app. `t3 service install` keeps it running in the background, `t3 update` moves to a newer release, and `t3 --help` has the full reference.
-
-To try it once without installing, run `npx t3@latest` instead.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### Windows (`scoop`)
-
-```bash
-scoop install extras/t3code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Debian, Ubuntu (`.deb`)
-
-Download the `.deb` from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), then:
-
-```bash
-sudo apt install ./T3-Code-*.deb
-```
-
-#### Arch Linux (AUR)
-
-Stable:
-
-```bash
-yay -S t3code-bin
-```
-
-Nightly:
-
-```bash
-yay -S t3code-nightly-bin
-```
-
-The AUR packaging is maintained in this repository under [`packaging/aur`](./packaging/aur).
-
-#### Nix (nixpkgs)
-
-```bash
-nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code
-```
-
-The package is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code)
-and includes the desktop app (`t3code-desktop`) and the `t3` command.
-See [Nix installation](./docs/user/install.md#nix-nixpkgs) for NixOS configuration and updates.
+Install and authenticate provider CLIs on the machine running the server.
+Provider CLIs need their own RHEL 8 support; T3's compatible runtime does not
+change their requirements. See [install and first run](docs/user/install.md).
 
 ## Some notes
 

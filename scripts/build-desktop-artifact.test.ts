@@ -510,7 +510,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const release = yield* createBuildConfig(
         "mac",
         "dmg",
-        "0.0.33",
+        "0.1.7-treher.1",
         false,
         false,
         undefined,
@@ -532,15 +532,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
-          owner: "pingdotgg",
+          owner: "MTVaught",
           repo: "t3code",
           releaseType: "release",
+          channel: "latest",
         },
       ]);
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "pingdotgg/t3code" } }),
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "MTVaught/t3code" } }),
         ),
       ),
     ),

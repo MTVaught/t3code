@@ -485,6 +485,10 @@ if ! t3_runtime_ready; then
     x86_64 | amd64) T3_ARCH="x64" ;;
     *) printf 'Remote host %s has no t3 release archive.\\n' "$(uname -m)" >&2; exit 1 ;;
   esac
+  case "$T3_PLATFORM-$T3_ARCH" in
+    darwin-arm64 | linux-x64) ;;
+    *) echo 'This fork publishes only macOS ARM64 and Linux x64 server archives.' >&2; exit 1 ;;
+  esac
   T3_ARCHIVE="t3-$T3_ARCHIVE_VERSION-$T3_PLATFORM-$T3_ARCH.tar.gz"
   T3_STAGING="$(mktemp -d "$HOME/.t3/runtime/versions/.staging-XXXXXX")"
   trap 'rm -rf "$T3_STAGING" "$T3_LOCK"' EXIT

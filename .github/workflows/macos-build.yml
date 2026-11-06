@@ -1,0 +1,105 @@
+name: macOS build
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+    secrets:
+      CSC_LINK:
+        required: false
+      CSC_KEY_PASSWORD:
+        required: false
+      APPLE_API_KEY:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      MACOS_PROVISIONING_PROFILE:
+        required: false
+permissions:
+  contents: read
+env:
+  T3CODE_TELEMETRY_ENABLED: "false"
+  DO_NOT_TRACK: "1"
+  VP_REMOTE_CACHE: "off"
+  T3CODE_DESKTOP_UPDATE_REPOSITORY: MTVaught/t3code
+jobs:
+  macos:
+    name: Build macOS ARM64
+    if: github.repository == 'MTVaught/t3code' && github.event_name != 'pull_request'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          targets: aarch64-apple-darwin
+      - run: vp run --filter @t3tools/desktop ensure:electron
+      - name: Set release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+      - run: vp run build:desktop
+      - name: Configure signing
+        id: signing
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          CLERK_PASSKEY_RP_DOMAINS: ${{ vars.CLERK_PASSKEY_RP_DOMAINS }}
+        run: bash scripts/fork/macos-signing.sh
+      - name: Package desktop and CLI
+        env:
+          SIGNED: ${{ steps.signing.outputs.signed }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          args=()
+          if [[ "$SIGNED" == true ]]; then args+=(--signed); fi
+          node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 --skip-build --output-dir release/macos "${args[@]}"
+          node apps/server/scripts/cli.ts build-exe --target darwin-arm64
+          mkdir -p release/cli-monitor
+          cp native/resource-monitor/target/aarch64-apple-darwin/release/t3-resource-monitor release/cli-monitor/
+          node scripts/build-cli-archive.ts --platform mac --arch arm64 --version "$(node -p 'require("./apps/server/package.json").version')" --output-dir release/macos --resource-monitor-dir release/cli-monitor
+          if [[ "$SIGNED" == true ]]; then
+            echo 'The macOS build is Developer ID signed and notarized.' > release/macos/macos-signing.txt
+          else
+            echo 'The macOS build is unsigned and is not notarized.' > release/macos/macos-signing.txt
+          fi
+      - name: Verify extracted CLI
+        run: |
+          archive=$(find release/macos -name 't3-*.tar.gz' -print -quit)
+          node scripts/smoke-cli-archive.ts --archive "$archive" --expect-version "$(node -p 'require("./apps/server/package.json").version')"
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ inputs.version }}
+          path: |
+            release/macos/*.dmg
+            release/macos/*.zip
+            release/macos/*.blockmap
+            release/macos/latest-mac.yml
+            release/macos/t3-*.tar.gz
+            release/macos/macos-signing.txt
+          if-no-files-found: error
+      - name: Remove signing files
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/t3-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/t3-signing.p12" "$RUNNER_TEMP/t3-notarization.p8" "$RUNNER_TEMP/t3.provisionprofile"

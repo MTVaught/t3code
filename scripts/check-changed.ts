@@ -312,7 +312,13 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
   const present = yield* Effect.filter(files, (file) => fs.exists(inRoot(file)));
   const code = present.filter((file) => CODE.test(file));
   const packages = readWorkspace();
-  const { affected, outputs } = decide(files, packages, false);
+  const { affected: candidates } = decide(files, packages, false);
+  const checkedPackages = new Set(
+    packages
+      .filter((pkg) => !/^(apps\/(mobile|marketing)(?:\/|$)|infra\/|evals$)/.test(pkg.dir))
+      .map((pkg) => pkg.name),
+  );
+  const affected = candidates.filter((name) => checkedPackages.has(name));
 
   // Changed test files, and the test files beside a changed source file
   // (foo.ts -> foo.test.ts, foo.browser.test.tsx). Vitest's import-graph
@@ -549,14 +555,7 @@ const checkChanged = Effect.fn("checkChanged")(function* (input: {
         "Raise --timeout or lower --concurrency.",
     );
   }
-  const ciOnly = Object.entries({
-    "full test suites": outputs.test || outputs.test_web || outputs.test_server,
-    build: outputs.build,
-    rust: outputs.rust,
-    "mobile native lint": outputs.mobile_native,
-    "release smoke": outputs.release_smoke,
-  }).flatMap(([job, runs]) => (runs ? [job] : []));
-  if (ciOnly.length > 0) summary.push(`  CI also runs: ${ciOnly.join(", ")}`);
+  summary.push("  CI also runs: full test suites, build, RHEL 8 artifact verification");
   if (!runPatchCheck) summary.push("  unused patch check skipped: no dependency files changed");
   if (!runKnip) summary.push("  knip skipped: no code or manifest changed");
   yield* Console.log(`\n${summary.join("\n")}`);
