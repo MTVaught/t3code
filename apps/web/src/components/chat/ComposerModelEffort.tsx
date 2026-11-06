@@ -127,7 +127,20 @@ export function describeComposerEffort(
           ? "Ultrathink"
           : getProviderOptionCurrentLabel(reasoning, modelSelection, traits.reportedModelSelection);
   const fast = display.speedLabel === "Fast" || display.speedLabel === "Ultrafast";
-  // Agent options such as modes live in the picker; the trigger adds only the context window.
+  // ACP agents own their option IDs, so include other select values to keep modes visible.
+  const optionLabels = splitSpeed(
+    traits.provider,
+    visibility.selectDescriptors,
+    visibility.booleanDescriptors,
+  )
+    .columnSelects.filter(
+      (descriptor) =>
+        !isReasoningControl(descriptor) && descriptor !== visibility.contextWindowDescriptor,
+    )
+    .map((descriptor) =>
+      getProviderOptionCurrentLabel(descriptor, modelSelection, traits.reportedModelSelection),
+    )
+    .filter(Boolean);
   const contextWindow =
     visibility.contextWindowDescriptor &&
     getProviderOptionCurrentLabel(
@@ -135,7 +148,8 @@ export function describeComposerEffort(
       modelSelection,
       traits.reportedModelSelection,
     );
-  if (!word && !glyph && !fast && !contextWindow) return { suffix: null, detail: display.label };
+  if (!word && !glyph && !fast && !contextWindow && optionLabels.length === 0)
+    return { suffix: null, detail: display.label };
   return {
     detail: display.label,
     suffix: (
@@ -154,6 +168,9 @@ export function describeComposerEffort(
           <EffortGlyph count={glyph.count} filled={glyph.filled} size={size} />
         ) : null}
         {fast ? <FastBolt ultra={display.speedLabel === "Ultrafast"} /> : null}
+        {optionLabels.length > 0 ? (
+          <span data-composer-control-label>{optionLabels.join(" · ")}</span>
+        ) : null}
         {contextWindow ? (
           <span
             // A label, so icon-only footers drop it; compacted rows drop it before the model.
