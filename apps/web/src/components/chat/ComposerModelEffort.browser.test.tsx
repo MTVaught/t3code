@@ -92,7 +92,7 @@ it("draws an agent's reasoning as bars and keeps its mode out of the levels", as
   await using screen = await render(<Column />, { router: false }); // no routes involved
   const status = screen.getByRole("status");
   expect(status.element().querySelector("[data-composer-effort-glyph]")).not.toBeNull();
-  await expect.element(status).toHaveTextContent("");
+  await expect.element(status).toHaveTextContent("Bypass Permissions · Standard");
 
   const levels = screen.getByRole("radiogroup", { name: "Thinking" });
   await expect.element(levels.getByRole("radio")).toHaveLength(3);
@@ -121,5 +121,63 @@ it("draws an agent's reasoning as bars and keeps its mode out of the levels", as
   await expect
     .element(screen.getByRole("button", { name: "Session Mode: Plan" }))
     .toBeInTheDocument();
+  await expect.element(status).toHaveTextContent("Plan · Standard");
   await expect.element(page.getByRole("menuitemradio")).not.toBeInTheDocument();
 });
+
+it.each(["mode", "_t3/session-mode", "custom/session-kind"])(
+  "shows a mode-only agent's %s value, including reported and draft selections",
+  async (id) => {
+    const traits = {
+      ...traitsInput([], () => {}),
+      models: [
+        {
+          ...models[0]!,
+          capabilities: createModelCapabilities({
+            optionDescriptors: [
+              {
+                id,
+                label: "Session Mode",
+                type: "select" as const,
+                currentValue: "code",
+                options: [
+                  { id: "code", label: "Code" },
+                  { id: "plan", label: "Plan" },
+                ],
+              },
+            ],
+          }),
+        },
+      ],
+    };
+    await using screen = await render(
+      <p role="status">{describeComposerEffort(traits, "bars", "sm").suffix}</p>,
+      { router: false }, // no routes involved
+    );
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Code");
+    const reported = {
+      ...traits,
+      reportedModelSelection: {
+        instanceId: traits.instanceId!,
+        model: traits.model!,
+        options: [{ id, value: "plan" }],
+      },
+    };
+    await screen.rerender(
+      <p role="status">{describeComposerEffort(reported, "bars", "xs").suffix}</p>,
+    );
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Plan");
+    await screen.rerender(
+      <p role="status">
+        {
+          describeComposerEffort(
+            { ...reported, modelOptions: [{ id, value: "code" }] },
+            "label",
+            "xs",
+          ).suffix
+        }
+      </p>,
+    );
+    await expect.element(screen.getByRole("status")).toHaveTextContent("Code");
+  },
+);
