@@ -39,7 +39,7 @@ telemetry to off. Do not copy provider credentials into builds.
 ## CI and releases
 
 Use standard GitHub-hosted runners: `ubuntu-24.04` for general checks and Linux CLI
-builds, and `macos-15` for macOS ARM64 packaging. Do not require Blacksmith, larger
+builds, and `macos-26` for macOS ARM64 packaging. Do not require Blacksmith, larger
 paid runners, self-hosted runners, upstream task-cache services, or upstream secrets.
 
 CI checks formatting, lint, unused code, and the desktop/server dependency graph's
